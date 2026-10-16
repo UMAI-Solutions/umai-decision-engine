@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Secrets and local settings
+.env
+.env.*
+!.env.example
+.claude/settings.local.json
+CLAUDE.local.md
+
+# IDE
+.idea/
+.vscode/
+
+# Eval outputs: only summaries are committed
+evals/reports/**
+!evals/reports/**/
+!evals/reports/**/summary.md
+
+# Local event/history stores
+.data/
+
+# Model caches
+.cache/
+*.onnx
+*.safetensors

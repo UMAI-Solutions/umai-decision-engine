@@ -1,0 +1,5 @@
+# Bundle hashes and signatures are over exact bytes: never convert line endings there.
+policies/** -text
+# Everything else: normalize to LF in the repository.
+* text=auto eol=lf
+*.ps1 text eol=crlf

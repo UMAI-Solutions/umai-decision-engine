@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "engine-api",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": ["-m", "uvicorn", "umai_decision_engine.api.app:app", "--port", "9100"],
+      "port": 9100
+    }
+  ]
+}

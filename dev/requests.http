@@ -1,0 +1,106 @@
+### Sample requests for a local engine (uvicorn on port 9100, UMAI_DE_ENV=development).
+### Works with the PyCharm / IntelliJ HTTP Client and the VS Code REST Client extension.
+### All data is synthetic.
+
+### Health and readiness
+GET http://127.0.0.1:9100/readyz
+
+### Loaded bundles, active versions, load errors
+GET http://127.0.0.1:9100/v1/bundles
+
+### Evaluate: TCKN, IBAN, phone and card → BLOCK by the L0 gate (L1 not called; ADR-0014)
+POST http://127.0.0.1:9100/v1/evaluate
+Content-Type: application/json
+
+{
+  "contract_version": "0.4",
+  "request_id": "req-local-1",
+  "timestamp": "2026-10-16T09:00:00Z",
+  "tenant_id": "tenant-demo",
+  "bundle": { "id": "gr-demo-data-protection" },
+  "phase": "PRE_LLM",
+  "content": {
+    "messages": [
+      { "role": "user", "content": "Müşterinin TC kimlik numarası 10000000146, IBAN TR33 0006 1005 1978 6457 8413 26, cep 0532 123 45 67, kart 9792 0000 0000 0003." }
+    ],
+    "focus": "LAST_USER_MESSAGE"
+  },
+  "destination": { "app": "chatgpt.com", "class": "external_llm" },
+  "flags": { "trace": true }
+}
+
+### Evaluate: only a phone number → ALLOW_WITH_MODIFICATIONS (masked text in output_modifications)
+POST http://127.0.0.1:9100/v1/evaluate
+Content-Type: application/json
+
+{
+  "contract_version": "0.4",
+  "request_id": "req-local-3",
+  "timestamp": "2026-10-16T09:00:00Z",
+  "tenant_id": "tenant-demo",
+  "bundle": { "id": "gr-demo-data-protection" },
+  "phase": "PRE_LLM",
+  "content": {
+    "messages": [ { "role": "user", "content": "Müşteriyi 0532 123 45 67 numarasından aramamı hatırlat" } ],
+    "focus": "LAST_USER_MESSAGE"
+  },
+  "destination": { "app": "chatgpt.com", "class": "external_llm" }
+}
+
+### Evaluate: KYC → internal app with a TCKN → ALLOW by exception ex-kyc-internal
+POST http://127.0.0.1:9100/v1/evaluate
+Content-Type: application/json
+
+{
+  "contract_version": "0.4",
+  "request_id": "req-local-4",
+  "timestamp": "2026-10-16T09:00:00Z",
+  "tenant_id": "tenant-demo",
+  "bundle": { "id": "gr-demo-data-protection" },
+  "phase": "PRE_LLM",
+  "content": {
+    "messages": [ { "role": "user", "content": "TC kimlik 10000000146 için müşteri kaydını doğrula" } ],
+    "focus": "LAST_USER_MESSAGE"
+  },
+  "subject": { "department": "KYC" },
+  "destination": { "app": "kyc-portal", "class": "internal_app" }
+}
+
+### Evaluate: no PII → goes to L1 (no rules yet) → ALLOW
+POST http://127.0.0.1:9100/v1/evaluate
+Content-Type: application/json
+
+{
+  "contract_version": "0.4",
+  "request_id": "req-local-5",
+  "timestamp": "2026-10-16T09:00:00Z",
+  "tenant_id": "tenant-demo",
+  "bundle": { "id": "gr-demo-data-protection" },
+  "phase": "PRE_LLM",
+  "content": {
+    "messages": [ { "role": "user", "content": "Toplantı notlarını üç maddede özetler misin?" } ],
+    "focus": "LAST_USER_MESSAGE"
+  }
+}
+
+### Detect (development only): entities, offsets and the redacted text
+POST http://127.0.0.1:9100/v1/detect
+Content-Type: application/json
+
+{
+  "contract_version": "0.4",
+  "request_id": "req-local-2",
+  "timestamp": "2026-10-16T09:00:00Z",
+  "tenant_id": "tenant-demo",
+  "bundle": { "id": "gr-demo-data-protection" },
+  "phase": "PRE_LLM",
+  "content": {
+    "messages": [
+      { "role": "user", "content": "KİMLİK NO: 100 000 001 46, mail ali.veli@example.com.tr, geçersiz 12345678901" }
+    ],
+    "focus": "LAST_USER_MESSAGE"
+  }
+}
+
+### Rescan policies/ now (after editing an active pointer or adding a version)
+POST http://127.0.0.1:9100/v1/bundles/reload

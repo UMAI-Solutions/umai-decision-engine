@@ -1,0 +1,81 @@
+"""Doc examples are tests: the payloads in docs/contracts and docs/architecture must parse."""
+
+from __future__ import annotations
+
+import json
+import re
+from pathlib import Path
+
+import pytest
+import yaml
+
+from umai_decision_engine.contracts.bundle import (
+    ConditionGroup,
+    DecideRule,
+    L1aConfig,
+    L1bConfig,
+    PolicyBundle,
+)
+from umai_decision_engine.contracts.entities import EntityDetectionResult
+from umai_decision_engine.contracts.evaluation import EvaluationRequest, EvaluationResponse
+from umai_decision_engine.policy.manifest import BundleManifest
+from umai_decision_engine.policy.validate import validate_bundle
+
+DOCS = Path(__file__).resolve().parents[2] / "docs"
+_FENCE = re.compile(r"```(json|yaml)\n(.*?)```", re.S)
+
+
+def _blocks(relative: str, kind: str) -> list[str]:
+    text = (DOCS / relative).read_text(encoding="utf-8")
+    return [body for lang, body in _FENCE.findall(text) if lang == kind]
+
+
+def test_evaluation_api_examples() -> None:
+    request, response, *_ = _blocks("contracts/evaluation-api.md", "json")
+    EvaluationRequest.model_validate_json(request)
+    EvaluationResponse.model_validate_json(response)
+
+
+def test_entity_detection_example() -> None:
+    (example,) = _blocks("contracts/entity-detection.md", "json")
+    EntityDetectionResult.model_validate_json(example)
+
+
+def test_policy_bundle_examples() -> None:
+    (manifest,) = _blocks("contracts/policy-bundle.md", "json")
+    BundleManifest.model_validate_json(manifest)
+    (shape,) = _blocks("contracts/policy-bundle.md", "yaml")
+    bundle = PolicyBundle.model_validate(yaml.safe_load(shape))
+    assert validate_bundle(bundle) == []
+
+
+def test_l1_doc_examples() -> None:
+    l1a_block, l1b_block = _blocks("architecture/l1-policy-decision.md", "yaml")
+    L1aConfig.model_validate(yaml.safe_load(l1a_block)["l1a"])
+    L1bConfig.model_validate(yaml.safe_load(l1b_block)["l1b"])
+
+
+def test_decision_question_rules_example() -> None:
+    (decide_block,) = _blocks("contracts/decision-questions.md", "yaml")
+    for rule in yaml.safe_load(decide_block)["decide"]:
+        DecideRule.model_validate(rule)
+
+
+def test_l2_review_when_example() -> None:
+    (block, *_) = _blocks("architecture/l2-llm-analyst.md", "yaml")
+    ConditionGroup.model_validate(yaml.safe_load(block)["l2"]["review_when"])
+
+
+@pytest.mark.parametrize("path", sorted((DOCS.parent / "policies").glob("*/*/bundle.yaml")))
+def test_repository_bundles_are_valid(path: Path) -> None:
+    bundle = PolicyBundle.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
+    assert validate_bundle(bundle) == []
+    assert (bundle.id, str(bundle.version)) == (path.parent.parent.name, path.parent.name)
+
+
+def test_json_examples_are_json() -> None:
+    for doc in (DOCS / "contracts").glob("*.md"):
+        for body in _blocks(f"contracts/{doc.name}", "json"):
+            if "/*" in body or "…" in body.split('"')[0]:
+                continue
+            json.loads(body)

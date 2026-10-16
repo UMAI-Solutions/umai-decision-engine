@@ -1,0 +1,41 @@
+# Example bundle (synthetic). An L0 detection is terminal (ADR-0014): the L0 gate decides
+# per entity type and L1 does not run. Inputs without detected entities go to L1, which has
+# no rules yet, so they are allowed.
+contract_version: "0.4"
+id: gr-demo-data-protection
+version: 2
+mode: ENFORCE
+phases: [PRE_LLM, POST_LLM, TOOL_INPUT, TOOL_OUTPUT]
+on_evaluation_failure: fail_closed
+
+l0:
+  target: LAST_MESSAGE
+  entities: [TR_TCKN, TR_IBAN, IBAN_CODE, TR_PHONE, CREDIT_CARD, EMAIL_ADDRESS]
+  min_score: 0.5
+  min_score_overrides: {}
+  max_chars: 32000
+  on_detect:
+    default: BLOCK                       # TCKN, IBANs, cards
+    severity: HIGH
+    actions:
+      EMAIL_ADDRESS: ALLOW_WITH_MODIFICATIONS
+      TR_PHONE: ALLOW_WITH_MODIFICATIONS
+  exceptions:
+    - id: ex-kyc-internal
+      description: KYC may send national IDs to internal applications
+      when:
+        all:
+          - { field: subject.department, operator: EQUALS, value: KYC }
+          - { field: destination.class, operator: EQUALS, value: internal_app }
+      entities: [TR_TCKN]
+      action: ALLOW
+
+l1a:
+  rules: []
+
+l1b:
+  enabled: false
+  policies: []
+
+l2:
+  enabled: false

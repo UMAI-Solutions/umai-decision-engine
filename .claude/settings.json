@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest:*)",
+      "Bash(python -m evals.run:*)",
+      "Bash(ruff check:*)",
+      "Bash(ruff format:*)",
+      "Bash(git status)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "WebFetch(domain:typesafe.ai)",
+      "WebFetch(domain:openrouter.ai)",
+      "WebFetch(domain:microsoft.github.io)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:pypi.org)",
+      "WebFetch(domain:huggingface.co)",
+      "WebFetch(domain:cookbook.openai.com)"
+    ],
+    "deny": [
+      "Read(./.env)"
+    ]
+  }
+}

@@ -1,0 +1,25 @@
+# Example bundle (synthetic). L1 rules and policies are added once L1 is implemented;
+# until then this bundle has nothing for L1 to evaluate, so decisions are ALLOW + L0 tags.
+contract_version: "0.3"
+id: gr-demo-data-protection
+version: 1
+mode: ENFORCE
+phases: [PRE_LLM, POST_LLM, TOOL_INPUT, TOOL_OUTPUT]
+on_evaluation_failure: fail_closed
+
+l0:
+  target: LAST_MESSAGE
+  entities: [TR_TCKN, TR_IBAN, IBAN_CODE, TR_PHONE, CREDIT_CARD, EMAIL_ADDRESS]
+  min_score: 0.5
+  min_score_overrides: {}
+  max_chars: 32000
+
+l1a:
+  rules: []
+
+l1b:
+  enabled: false
+  policies: []
+
+l2:
+  enabled: false
