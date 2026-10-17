@@ -3,6 +3,8 @@
 **Status:** product target accepted ([ADR-0018](../adr/0018-saas-and-self-hosted-editions.md));
 enforcement design proposed ([ADR-0019](../adr/0019-editions-as-runtime-entitlements.md)).
 Nothing below is built yet unless the status column says so. Roadmap phase: F6.
+Security and tenancy design for the SaaS rows: [`../security/`](../security/) (threat model, gap
+analysis, launch plan) and ADR-0023 to ADR-0030.
 
 UMAI is one product with two **deployment modes** (UMAI Cloud SaaS, self-hosted) and two
 **editions** (Community, Enterprise). The same release runs everywhere; an edition is a set of
@@ -93,7 +95,7 @@ flowchart LR
 | L1b / L2 models | UMAI-hosted in the region; hosted vendors only where they process in the region | Customer hardware; hosted vendors only if the customer allows |
 | Upgrades | UMAI continuous delivery | Customer-controlled, pinned |
 | Observability | UMAI's monitoring (no content, tenant ids on counters only) | Customer's Prometheus / log stack |
-| Encryption at rest | UMAI-managed KMS and encrypted volumes | Customer's responsibility, with a hardening guide |
+| Encryption at rest | Key Vault-managed keys (customer-managed key on Postgres, envelope-wrapped tenant keys) and encrypted volumes (ADR-0031) | Customer's responsibility, with a hardening guide |
 
 ## Admission: what happens before the pipeline
 
@@ -157,7 +159,8 @@ part of the edition table (Q27).
 - Bundles: the signed manifest names the owning tenant; the store never resolves another
   tenant's bundle.
 - Stores: every write takes the tenant from the credential; every read filters by it.
-- HMAC keys for entity hashes are per tenant (already the case); in SaaS they come from KMS.
+- HMAC keys for entity hashes are per tenant (already the case); in SaaS they are generated per
+  tenant and wrapped by Key Vault Premium (ADR-0027 §5, ADR-0031 §3).
 - Isolation is tested, not assumed: every tenant-scoped endpoint has a cross-tenant test.
 
 ## Data residency and providers
@@ -179,7 +182,9 @@ the legal basis for even redacted text is Q4. Which providers Community may use 
   failure.
 - Targets and wire format (e.g. Splunk HEC, Microsoft Sentinel, IBM QRadar, syslog CEF,
   signed webhooks, OCSF): Q22. Lakera's only mechanism is JSON-lines files in an
-  S3-compatible bucket ([reference](../reference/lakera-guard.md)), which is a cheap first target.
+  S3-compatible bucket ([reference](../reference/lakera-guard.md)), which is a cheap first target on other clouds; on
+  Azure the first targets are immutable Blob Storage (JSON lines) and Event Hubs → Sentinel
+  (ADR-0030 §5, ADR-0031 §8).
 - The leak suite runs over export payloads.
 
 ## Version pinning and releases
@@ -198,7 +203,8 @@ the legal basis for even redacted text is Q4. Which providers Community may use 
   uses TLS internally; self-hosted engines can serve TLS themselves or sit behind the
   customer's proxy. Provider calls are HTTPS only, with certificate verification.
 - **At rest:** event, history, analysis, usage and bundle-cache stores on encrypted volumes;
-  in SaaS with KMS-managed keys. Tenant HMAC keys and signing keys never sit in plain files.
+  in SaaS with Key Vault-managed keys (ADR-0031). Tenant HMAC keys and signing keys never sit
+  in plain files.
 
 ## Compliance: what the code provides
 

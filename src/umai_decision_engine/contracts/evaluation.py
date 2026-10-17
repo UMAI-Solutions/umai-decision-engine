@@ -1,4 +1,4 @@
-"""Evaluation API (docs/contracts/evaluation-api.md v0.3)."""
+"""Evaluation API (docs/contracts/evaluation-api.md; version in ``CONTRACT_VERSION``)."""
 
 from __future__ import annotations
 

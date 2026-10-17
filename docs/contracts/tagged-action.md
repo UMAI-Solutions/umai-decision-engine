@@ -2,6 +2,9 @@
 
 **Version:** 0.2
 
+**Implementation status (2026-10-17):** defined, not yet emitted — the engine has no event sink
+(`review_queued` is always `false`). Storage, outbox and export: ADR-0030.
+
 One record per evaluation, built by L1 after the final decision is known and emitted after
 the response is computed. It is:
 

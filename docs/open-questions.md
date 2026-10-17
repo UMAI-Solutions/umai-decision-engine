@@ -18,19 +18,25 @@ to the ADR or report. Mark questions that block a phase.
 | Q11 | Redaction UX: may the browser extension replace text for the user (`ALLOW_WITH_MODIFICATIONS`), or only warn? | L1a redaction rules defaults | product | |
 | Q12 | Image input (screenshots) in scope? OpenAI Decisions supports images; Jev only experimentally; on-prem candidates unknown | provider choice | product | |
 | Q17 | **Answered 2026-10-17 (ADR-0022): in this repository, as a separate service.** Where does the policy control plane (dashboard, drafts, signing) live: a separate service in this repository or its own repository? | F5, self-hosted Enterprise | product | ADR-0013. Self-hosted Enterprise needs it installable at the customer (ADR-0018) |
-| Q18 | Who signs bundles on-prem: the customer's control plane with its own key, or UMAI-signed bundles imported as files? | F5, self-hosted Enterprise | product | ADR-0012/0013/0018 |
+| Q18 | Who signs bundles on-prem: the customer's control plane with its own key, or UMAI-signed bundles imported as files? | F5, self-hosted Enterprise | product | ADR-0012/0013/0018. Proposed answer in ADR-0027 §3: the customer's control plane signs with its own root key; UMAI templates are imported and re-signed |
 | Q19 | How is "maximum prompt size" counted: a fixed tokenizer shipped with the engine (offline, e.g. `o200k_base`) or a character proxy? Over all request content (proposal) or only what `l0.target` scans? | F6 limits | eng + product | ADR-0019. Turkish text has more tokens per character than English; measure counting cost at 8 000 tokens |
 | Q20 | Confirm over-quota behaviour: HTTP 429 and the caller's failure policy applies (proposal), and is there a grace margin for Community? | F6 limits | product | ADR-0019 rejects `BLOCK` (outage) and `ALLOW` (fail-open) |
 | Q21 | Is Türkiye a SaaS region (KVKK in-country processing), or do such customers go self-hosted? | SaaS regions | product / legal | ADR-0018 table says EU, EU / US |
 | Q22 | Which SIEM targets and format first: Splunk HEC, Microsoft Sentinel, IBM QRadar, syslog (CEF / LEEF), signed webhook; OCSF as the schema? | F6 SIEM | product | Choose by customer demand. Lakera exports only JSON lines to an S3-compatible bucket |
-| Q23 | Usage counter store for SaaS quotas: Redis or Postgres (atomic increments across replicas)? | F6 limits | eng | Decide by admission-latency benchmark (AGENTS rule 6) |
+| Q23 | Usage counter store for SaaS quotas: Redis or Postgres (atomic increments across replicas)? | F6 limits | eng | Proposed answer in ADR-0028 §3: Redis hot counters, Postgres ledger, hourly reconciliation; confirmed by the admission-latency benchmark (AGENTS rule 6) |
 | Q24 | What happens when a self-hosted licence expires: warnings only, a grace period, then what? Recommendation: never stop evaluating (a lapsed licence must not become a security outage or a silent allow) | F6 licence | product | ADR-0019. Lakera's container reportedly refuses to start with an expired key (secondary source) |
-| Q25 | SOC 2 (Type I → II) scope and timeline; GDPR DPA and sub-processor list; KVKK obligations for the SaaS | before claiming the table's compliance row | company / legal | ADR-0018: not a customer claim until audited |
+| Q25 | SOC 2 (Type I → II) scope and timeline; GDPR DPA and sub-processor list; KVKK obligations for the SaaS | before claiming the table's compliance row | company / legal | ADR-0018: not a customer claim until audited. Proposal: Security + Availability + Confidentiality, Type I before Enterprise GA (`security/launch-plan.md` P7); legal anchors in `reference/compliance-and-assurance.md` |
 | Q26 | Which L1b / L2 providers may Community tenants use: UMAI-hosted open-weight only, or hosted vendors processing in the EU? | SaaS cost, F6 | product + eng | Q1, Q4, Q7 |
-| Q27 | Per-second rate limits per edition (abuse protection at the SaaS ingress); not part of the edition table | SaaS launch | product + eng | |
+| Q27 | Per-second rate limits per edition (abuse protection at the SaaS ingress); not part of the edition table | SaaS launch | product + eng | Proposed defaults in ADR-0023 §7 (Community 20 req/s per key; 429 `rate_limited`, never a decision) |
 | Q13 | Event delivery beyond R&D: what durable mechanism (outbox table, queue), retention, and who owns finding creation? | F4 | eng | |
 | Q14 | Default `review_when` selection and `finding_threshold` | F3 | product + eng | |
 | Q15 | Should L2 results feed a session-risk fact into *later* L1 decisions? | after F3 | product | Not part of ADR-0010 |
+| Q29 | SaaS identity service: UMAI-operated Keycloak on AKS per region, Auth0 (EU public cloud or Private Cloud on Azure), or Zitadel Cloud? Self-hosted stays Keycloak either way | S0 login (launch plan P3) | product | ADR-0024 §4; `reference/identity-providers.md`; Entra External ID evaluated and rejected (ADR-0031 §10); trigger: Keycloak SCIM conformance by S2 |
+| Q30 | Billing provider for UMAI Cloud: Stripe (default), Lago, Metronome at contract time? | S1 (launch plan P4) | product | ADR-0028 §5; `reference/usage-billing-providers.md` |
+| Q31 | Retention defaults: audit events 400 days; decision events 30 days Community, 30–400 Enterprise? | S1 (launch plan P6) | product | ADR-0030 §4 |
+| Q32 | EU region pair: West Europe primary + North Europe DR, or Sweden Central + a read replica in North Europe if zone-redundant HA for new Postgres servers is still blocked at provisioning? | S0 IaC (launch plan P2) | product + ops | ADR-0031 §1; `reference/azure-platform.md` §2–§3 |
+| Q33 | Container image signing on Azure: Notation only, or Notation + cosign for self-hosted customers? Defender for Containers despite its EU Data Boundary exclusion? | S0 (launch plan P11) | eng + product | ADR-0031 §6 |
+| Q34 | Pin a new Entra tenant to the EU Data Boundary (irreversible; the US stack would then need its own tenant)? | S0/S1 (launch plan P12) | product + ops | ADR-0031 §11 |
 
 ## Answered
 
@@ -44,3 +50,4 @@ to the ADR or report. Mark questions that block a phase.
 | A6 | Must the L1b decision model be on-prem deployable? | Yes — a Jev-like model that can run on-prem | 2026-10-15 | ADR-0004 (amended) |
 | A8 | Relationship to `umai-platform` | None for now: completely separate project, nothing read from, written to or linked into it | 2026-10-15 | ADR-0008 |
 | A7 | Does the OpenAI Decisions API return probabilities? | Yes for choice/score/predicate; any question may return `refusal` (→ review) | 2026-10-15 | `reference/openai-decisions-api.md` |
+| A9 | Cloud provider for UMAI Cloud (was Q28) | Azure, by product-owner constraint; EU first (West Europe / North Europe), US later; SaaS signing moves to ECDSA P-256 | 2026-10-17 | ADR-0031 (Proposed), `reference/azure-platform.md`, `security/azure-brief.md` |

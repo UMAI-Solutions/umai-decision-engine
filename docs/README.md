@@ -9,7 +9,7 @@ is self-contained; it has no connection to `umai-platform`.
 docs/
 ├── README.md                     you are here
 ├── glossary.md                   terms, Turkish ↔ English
-├── roadmap.md                    R&D phases F0–F5 and exit criteria
+├── roadmap.md                    R&D phases F0–F6 and exit criteria
 ├── open-questions.md             what is not decided yet
 ├── architecture/
 │   ├── overview.md               the L0 → L1 → L2 pipeline, diagrams, principles
@@ -33,6 +33,7 @@ docs/
 │   └── policy-tests.md           golden cases for a bundle version
 ├── adr/                          architecture decision records
 ├── reference/                    external facts: vendors, libraries, algorithms (dated)
+├── security/                     threat model, gap analysis, launch plan, verification plan (SaaS readiness)
 ├── platform-context/             background: what umai-engine (the engine this may replace) does
 ├── evals/                        eval strategy, datasets, metrics
 └── workflow/                     how to develop, test and ship changes here

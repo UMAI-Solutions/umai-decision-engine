@@ -21,3 +21,10 @@ Measurements we make ourselves go to `evals/reports/`, not here.
 | [typesafe-jev.md](typesafe-jev.md) | TypeSafe Jev decision model (hosted) | L1b cloud option |
 | [openai-decisions-api.md](openai-decisions-api.md) | OpenAI Decisions API (GPT-6 Luna) | L1b |
 | [gpt-oss-safeguard.md](gpt-oss-safeguard.md) | gpt-oss-safeguard model, prompting, hosting, latency; alternative safety classifiers | L1b fallback, L2 |
+| [identity-providers.md](identity-providers.md) | WorkOS, Auth0, Stytch, Keycloak, Zitadel: SSO, SCIM, audit logs, self-hosting, regions, prices | ADR-0024 (console identity) |
+| [key-management-services.md](key-management-services.md) | AWS KMS, GCP KMS, Azure Key Vault, Vault Transit, CloudHSM: Ed25519 support, FIPS, prices, rotation | ADR-0027 (key custody) |
+| [azure-platform.md](azure-platform.md) | Azure for UMAI Cloud: Key Vault / Managed HSM (no Ed25519, P-256, envelope, rotation, prices), PostgreSQL Flexible Server (RLS, PITR, geo-backup pairs, CMK), EU/US regions and EU Data Boundary, Managed Redis, AKS/Container Apps, ACR signing, Log Analytics/Sentinel, Blob WORM, Front Door vs Application Gateway, SOC 2 | launch plan P1/P2, ADR-0025–0028, ADR-0030 |
+| [usage-billing-providers.md](usage-billing-providers.md) | Stripe Billing Meters, Orb, Metronome, Lago: ingestion, aggregations, entitlements, residency, prices | ADR-0028 (metering, billing) |
+| [saas-tenant-isolation.md](saas-tenant-isolation.md) | AWS SaaS Lens isolation models; PostgreSQL row-level security semantics and pitfalls | ADR-0025 (tenant isolation) |
+| [compliance-and-assurance.md](compliance-and-assurance.md) | SIG and CAIQ questionnaires, SOC 2 evidence tooling, pentest providers, GDPR / SCC / KVKK anchors | launch plan, Q25 |
+| [security-standards.md](security-standards.md) | OWASP ASVS 5.0 structure and IDs, SOC 2 TSC CC1–CC9, OWASP API Top 10 (2023), LLM Top 10 (2026) | gap analysis |
