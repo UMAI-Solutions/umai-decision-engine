@@ -15,7 +15,7 @@ from umai_decision_engine.contracts.evaluation import (
     Subject,
 )
 
-POLICY_TESTS_VERSION = "0.1"
+POLICY_TESTS_VERSION = "0.2"
 
 
 class CaseInput(ContractModel):
@@ -54,6 +54,8 @@ class Expectation(ContractModel):
     would_have: Action | None = None
     errors: list[str] | None = None
     degraded: bool | None = None
+    # ids of the policies / exceptions / rules in decision.matched (0.2, ADR-0021)
+    matched: list[str] | None = None
 
     @model_validator(mode="after")
     def _one_decision(self) -> Expectation:
@@ -73,7 +75,7 @@ class GoldenCase(ContractModel):
 
 
 class PolicyTestFile(ContractModel):
-    contract_version: Literal["0.1"]
+    contract_version: Literal["0.1", "0.2"]
     defaults: CaseInput = Field(default_factory=CaseInput)
     cases: list[GoldenCase] = Field(min_length=1)
 

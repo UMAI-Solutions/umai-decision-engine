@@ -103,6 +103,7 @@ def _args(**overrides) -> argparse.Namespace:
         "bundle": None,
         "bundle_id": None,
         "bundle_version": None,
+        "sensitivity": None,
     }
     values.update(overrides)
     return argparse.Namespace(**values)

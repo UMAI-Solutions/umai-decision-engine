@@ -1,0 +1,77 @@
+# Example guardrail (synthetic) in the policy form of policy-bundle 0.6 (ADR-0021): named,
+# versioned policies pinned into this guardrail version, each with an action, the message roles
+# it screens and a sensitivity level (Lakera-style). An L0 detection is terminal (ADR-0014).
+contract_version: "0.6"
+id: gr-demo-data-protection
+version: 4
+name: Demo veri koruma
+description: Kimlik, finansal veri ve anahtarları engeller; iletişim bilgilerini maskeler.
+mode: ENFORCE
+phases: [PRE_LLM, POST_LLM, TOOL_INPUT, TOOL_OUTPUT]
+on_evaluation_failure: fail_closed
+
+l0:
+  target: LAST_MESSAGE
+  max_chars: 32000
+  allowed_domains: [example-partner.com]
+  policies:
+    - id: identity-data
+      version: 2
+      name: Kimlik verileri
+      description: Türkiye, ABD ve Avrupa kimlik ve vergi numaraları
+      entities: [TR_TCKN, TR_VKN, US_SSN, UK_NINO, DE_TAX_ID, FR_NIR, ES_NIF, ES_NIE,
+                 IT_FISCAL_CODE, NL_BSN, PL_PESEL]
+      action: BLOCK
+      severity: HIGH
+      roles: [user, assistant, tool, tool_call, memory]
+      sensitivity: L3
+    - id: payment-data
+      version: 1
+      name: Finansal veriler
+      entities: [CREDIT_CARD, TR_IBAN, IBAN_CODE]
+      action: BLOCK
+      severity: HIGH
+      sensitivity: L3
+    - id: contact-data
+      version: 1
+      name: İletişim bilgileri
+      description: Kişi adları, adresler, telefonlar, e-postalar, IP ve plakalar maskelenir
+      entities: [PERSON, ADDRESS, TR_PHONE, PHONE_NUMBER, EMAIL_ADDRESS, IP_ADDRESS, TR_PLATE]
+      action: ALLOW_WITH_MODIFICATIONS
+      severity: MEDIUM
+      roles: [user, assistant]          # agents may pass contact data to their own tools
+      sensitivity: L3
+    - id: secrets
+      version: 1
+      name: Gizli anahtarlar
+      entities: [API_KEY, PRIVATE_KEY, JWT, CONNECTION_STRING, PASSWORD]
+      action: BLOCK
+      severity: CRITICAL
+      sensitivity: L4
+    - id: unknown-links
+      version: 1
+      name: Bilinmeyen bağlantılar
+      entities: [UNKNOWN_LINK]
+      action: BLOCK
+      severity: MEDIUM
+      roles: [assistant, tool]          # links in model and tool outputs (phishing)
+      sensitivity: L3
+  exceptions:
+    - id: ex-kyc-internal
+      description: KYC may send national IDs to internal applications
+      when:
+        all:
+          - { field: subject.department, operator: EQUALS, value: KYC }
+          - { field: destination.class, operator: EQUALS, value: internal_app }
+      entities: [TR_TCKN]
+      action: ALLOW
+
+l1a:
+  rules: []
+
+l1b:
+  enabled: false
+  policies: []
+
+l2:
+  enabled: false

@@ -52,9 +52,11 @@ def test_policy_tests_example() -> None:
 def test_policy_bundle_examples() -> None:
     (manifest,) = _blocks("contracts/policy-bundle.md", "json")
     BundleManifest.model_validate_json(manifest)
-    (shape,) = _blocks("contracts/policy-bundle.md", "yaml")
-    bundle = PolicyBundle.model_validate(yaml.safe_load(shape))
-    assert validate_bundle(bundle) == []
+    shapes = _blocks("contracts/policy-bundle.md", "yaml")
+    assert len(shapes) == 2  # legacy shape (≤ 0.5) and guardrail policies (0.6)
+    for shape in shapes:
+        bundle = PolicyBundle.model_validate(yaml.safe_load(shape))
+        assert validate_bundle(bundle) == []
 
 
 def test_l1_doc_examples() -> None:

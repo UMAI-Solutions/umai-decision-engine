@@ -61,6 +61,13 @@ class RecognizerSpec:
     known_non_pii: frozenset[str] = frozenset()
     priority: int = 1
     flags: int = field(default=regex.MULTILINE)
+    # Recognizer name; distinct when one entity type has several specs (their context words
+    # and priorities differ). Default: umai_<entity>.
+    name: str | None = None
+
+    @property
+    def recognizer_name(self) -> str:
+        return self.name or f"umai_{self.entity.lower()}"
 
 
 class SpecRecognizer(LocalRecognizer):
@@ -71,7 +78,7 @@ class SpecRecognizer(LocalRecognizer):
         self._compiled = [(p, regex.compile(p.regex, flags=spec.flags)) for p in spec.patterns]
         super().__init__(
             supported_entities=[spec.entity],
-            name=f"umai_{spec.entity.lower()}",
+            name=spec.recognizer_name,
             supported_language=supported_language,
             context=None,  # context scoring is ours (l0/context.py)
         )

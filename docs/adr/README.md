@@ -29,5 +29,6 @@ listed in [`../open-questions.md`](../open-questions.md) as blocking, and flag d
 | [0018](0018-saas-and-self-hosted-editions.md) | UMAI ships as cloud SaaS and self-hosted, in Community and Enterprise editions | Accepted |
 | [0019](0019-editions-as-runtime-entitlements.md) | Editions are runtime entitlements: tenant keys, signed licences, engine-enforced limits | Proposed |
 | [0020](0020-deterministic-baselines-names-addresses.md) | Names and addresses start with deterministic recognizers; NER is added on evidence | Accepted (NER deferred) |
+| [0021](0021-guardrail-model-policies-pinning-hierarchy.md) | Guardrail model: versioned policies pinned into guardrails; company → project → guardrail | Accepted |
 
 New ADR: copy [`0000-template.md`](0000-template.md), or use skill `write-adr`.

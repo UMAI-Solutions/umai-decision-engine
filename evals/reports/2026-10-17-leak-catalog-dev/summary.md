@@ -1,7 +1,7 @@
 # leak — catalog-dev
 
 - **Date:** 2026-10-17
-- **Git commit:** 0f0b420 (uncommitted changes)
+- **Git commit:** c543b45 (uncommitted changes)
 - **Dataset:** `evals/datasets/l0-pii-tr/v2.jsonl` (sha256 `6f59a1c3d0b3`), split `dev`
 - **Engine:** umai-decision-engine 0.1.0, presidio-analyzer 2.2.364, phonenumbers 9.0.41
 - **Host:** Windows 11, Python 3.12.6, AMD64

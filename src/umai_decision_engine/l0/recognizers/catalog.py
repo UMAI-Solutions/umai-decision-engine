@@ -317,6 +317,7 @@ def _refine_obfuscated_email(fragment: str) -> list[Candidate]:
 
 _EMAIL_OBFUSCATED = RecognizerSpec(
     entity="EMAIL_ADDRESS",
+    name="umai_email_address_obfuscated",
     patterns=(
         PatternSpec(
             "email_obfuscated",
@@ -377,6 +378,10 @@ for _spec in ALL_SPECS:
     SPECS_BY_ENTITY.setdefault(_spec.entity, _spec)
 
 SUPPORTED_ENTITIES: frozenset[str] = frozenset(SPECS_BY_ENTITY)
+
+# The spec behind each recognizer, so context words and priority come from the spec that
+# produced a result (an entity type may have several specs).
+SPECS_BY_RECOGNIZER: dict[str, RecognizerSpec] = {s.recognizer_name: s for s in ALL_SPECS}
 
 
 # Tag codes emitted by L0 (docs/contracts/tag-taxonomy.md).

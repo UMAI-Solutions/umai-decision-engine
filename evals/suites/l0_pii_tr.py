@@ -24,7 +24,7 @@ from evals.common import (
     write_results,
 )
 from evals.metrics import Scores, Span, TypeScore, match_case
-from umai_decision_engine.contracts.bundle import L0Config
+from umai_decision_engine.contracts.bundle import SENSITIVITY_MIN_SCORE, L0Config
 from umai_decision_engine.l0.detector import EntityDetector
 from umai_decision_engine.l0.recognizers.catalog import SPECS_BY_ENTITY
 from umai_decision_engine.policy.sources import BUNDLE_FILE
@@ -85,6 +85,10 @@ def _row(score: TypeScore) -> str:
 def run(args: argparse.Namespace) -> Path:
     cases = load_cases(L0_DATASET, args.split)
     config, config_label = _config(args.bundle)
+    level = getattr(args, "sensitivity", None)
+    if level:
+        config = config.model_copy(update={"min_score": SENSITIVITY_MIN_SCORE[level]})
+        config_label += f"; sensitivity {level}"
     supported = set(config.entities) & set(SPECS_BY_ENTITY)
 
     detector = EntityDetector(lambda _tenant: EVAL_HMAC_KEY, threads=1)

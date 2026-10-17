@@ -76,6 +76,13 @@ flowchart LR
 6. **Redact**: replace each entity with `<TYPE_n>`, numbered per type in order of first
    appearance; the same value gets the same placeholder within one evaluation.
 
+## Guardrail policies (ADR-0021)
+
+Each detected type has one rule: the guardrail policy that lists it (policy-bundle 0.6: action,
+severity, roles, sensitivity) or, for older bundles, `l0.on_detect`. Per phase the detector
+runs only the types whose policy screens that phase's role, each at its policy's minimum score
+(`pipeline/l0_policies.py`). The gate records the deciding policies in `decision.matched`.
+
 ## L0 gate (ADR-0014)
 
 Runs right after detection when at least one entity survived thresholds.

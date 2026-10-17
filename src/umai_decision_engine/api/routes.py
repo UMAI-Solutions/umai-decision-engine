@@ -143,6 +143,7 @@ async def bundles(request: Request) -> dict[str, Any]:
                 "signed": loaded.signed,
                 "key_id": loaded.key_id,
                 "mode": loaded.bundle.mode,
+                "name": loaded.bundle.name,
                 "loaded_at": loaded.loaded_at.isoformat(),
             }
         )
@@ -153,6 +154,27 @@ async def bundles(request: Request) -> dict[str, Any]:
         "errors": [
             {"location": e.location, "error": e.error, "at": e.at.isoformat()} for e in state.errors
         ],
+    }
+
+
+@router.get("/v1/bundles/{bundle_id}/versions/{version}", dependencies=_AUTH)
+async def bundle_version(bundle_id: str, version: int, request: Request) -> dict[str, Any]:
+    """One loaded bundle (guardrail) version with its content, for the console's guardrail view.
+    Bundles never contain secrets (ADR-0012); content is policy data only."""
+
+    store = request.app.state.store
+    loaded = store.get(bundle_id, version)
+    if loaded is None:
+        raise HTTPException(status_code=404, detail=f"bundle {bundle_id} v{version} is not loaded")
+    return {
+        "id": bundle_id,
+        "version": version,
+        "active": store.state.active.get(bundle_id) == version,
+        "sha256": loaded.sha256,
+        "signed": loaded.signed,
+        "key_id": loaded.key_id,
+        "loaded_at": loaded.loaded_at.isoformat(),
+        "bundle": loaded.bundle.model_dump(mode="json", by_alias=True, exclude_none=True),
     }
 
 

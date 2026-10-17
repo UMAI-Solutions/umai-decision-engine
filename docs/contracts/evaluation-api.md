@@ -1,6 +1,6 @@
 # Contract: evaluation API
 
-**Version:** 0.4 · **Endpoints:** `POST /v1/evaluate`, `GET /v1/bundles`, `POST /v1/bundles/reload`, `POST /v1/detect` (development) · **Health:** `GET /healthz`, `GET /readyz`
+**Version:** 0.5 · **Endpoints:** `POST /v1/evaluate`, `GET /v1/bundles`, `POST /v1/bundles/reload`, `POST /v1/detect` (development) · **Health:** `GET /healthz`, `GET /readyz`
 
 `/readyz` returns 200 only after Presidio analyzers are loaded and warmed up, the policy
 bundles are loaded, and the configured L1b provider answered a probe.
@@ -12,7 +12,7 @@ not part of this API ([ADR-0010](../adr/0010-l2-asynchronous-review.md)).
 
 ```json
 {
-  "contract_version": "0.4",
+  "contract_version": "0.5",
   "request_id": "req-01J9X7Z8QK",
   "timestamp": "2026-10-15T09:30:00Z",
   "tenant_id": "tenant-demo",
@@ -67,7 +67,7 @@ Which content L0 scans is set by `l0.target` in the bundle (`LAST_MESSAGE`,
 
 ```json
 {
-  "contract_version": "0.4",
+  "contract_version": "0.5",
   "request_id": "req-01J9X7Z8QK",
   "tenant_id": "tenant-demo",
   "bundle": { "id": "gr-demo-data-protection", "version": 3, "mode": "ENFORCE", "sha256": "<hex sha256 of bundle.yaml>" },
@@ -77,7 +77,10 @@ Which content L0 scans is set by `l0.target` in the bundle (`LAST_MESSAGE`,
     "allowed": false,
     "severity": "HIGH",
     "reason": "L0: TR_TCKN detected",
-    "decided_by": "L0"
+    "decided_by": "L0",
+    "matched": [
+      { "kind": "l0_on_detect", "id": "on_detect.default", "action": "BLOCK", "entities": ["TR_TCKN"] }
+    ]
   },
   "would_have": null,
   "degraded": false,
@@ -102,6 +105,7 @@ Which content L0 scans is set by `l0.target` in the bundle (`LAST_MESSAGE`,
 | `bundle` | Id, version, mode and content hash of the bundle that decided (every decision is traceable to an exact bundle) |
 | `decision.decided_by` | `L0` (an entity was detected: the L0 gate decided and L1 did not run, ADR-0014), `L1a`, `L1b`, or `pipeline` (failure policy) |
 | `decision.reason` | Entity types and exception ids only, never values: `L0: TR_TCKN, CREDIT_CARD detected`, `L0: TR_TCKN allowed by exception ex-kyc-internal` |
+| `decision.matched[]` | What produced the decision, strictest first: `{kind, id, version?, name?, action, entities[]}` with `kind` `l0_policy` (guardrail policy, ADR-0021), `l0_on_detect` (bundles ≤ 0.5), `l0_exception`, `l1a_rule`. Ids only, never content |
 | `would_have` | In `MONITOR` mode: the decision `ENFORCE` would have returned; `decision` is then `ALLOW` |
 | `degraded` | Any failure path or fallback was taken; details in `errors` |
 | `tags[]` | See [tag-taxonomy](tag-taxonomy.md) |
@@ -142,6 +146,12 @@ operators and, later, the policy dashboard to confirm a published version is liv
 and returns `{"changed": true|false}`. The poller does the same every
 `UMAI_DE_BUNDLE_POLL_INTERVAL_S` seconds.
 
+## `GET /v1/bundles/{id}/versions/{version}`
+
+One loaded guardrail version with its content (policy data; bundles never contain secrets,
+ADR-0012) for the console's guardrail view: `{id, version, active, sha256, signed, key_id,
+loaded_at, bundle}`. 404 when that version is not loaded.
+
 ## `POST /v1/detect` (development only)
 
 Runs L0 only for an `EvaluationRequest` and returns entity types, offsets, scores,
@@ -163,6 +173,8 @@ HTTP 503 only before readiness.
 
 ## Changelog
 
+- 0.5 (2026-10-17): `decision.matched` (provenance, ADR-0021); guardrail `name` in
+  `/v1/bundles`; `GET /v1/bundles/{id}/versions/{version}`. Requests 0.2–0.5 accepted.
 - 0.4 (2026-10-17): bearer-token authentication on `/v1` routes (ADR-0016); no payload change.
 - 0.4 (2026-10-16): `decided_by: "L0"`; L0 gate reasons; `output_modifications` from the L0
   gate (ADR-0014).

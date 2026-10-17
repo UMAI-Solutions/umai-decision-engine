@@ -1,4 +1,4 @@
-"""Policy bundle (docs/contracts/policy-bundle.md v0.5, decision-questions.md v0.3)."""
+"""Policy bundle (docs/contracts/policy-bundle.md v0.6, decision-questions.md v0.3)."""
 
 from __future__ import annotations
 
@@ -101,6 +101,43 @@ class OnDetect(ContractModel):
         return Action(self.actions.get(entity_type, self.default))
 
 
+# Guardrail policies (ADR-0021): a named, versioned group of detectors with one action, the
+# message roles it screens (Lakera's user / assistant / tool / tool_call, plus memory) and a
+# sensitivity level (Lakera's L1–L4 → minimum detection score).
+Role = Literal["user", "assistant", "tool", "tool_call", "memory"]
+ALL_ROLES: tuple[Role, ...] = ("user", "assistant", "tool", "tool_call", "memory")
+ROLE_PHASES: dict[str, frozenset[Phase]] = {
+    "user": frozenset({Phase.PRE_LLM}),
+    "assistant": frozenset({Phase.POST_LLM}),
+    "tool_call": frozenset({Phase.TOOL_INPUT, Phase.MCP_REQUEST}),
+    "tool": frozenset({Phase.TOOL_OUTPUT, Phase.MCP_RESPONSE}),
+    "memory": frozenset({Phase.MEMORY_WRITE}),
+}
+Sensitivity = Literal["L1", "L2", "L3", "L4"]
+# L1 lenient (fewest false positives) … L4 paranoid (fewest misses). L3 = the engine's calibrated
+# threshold 0.5; context-required shapes stay context-required at every level.
+SENSITIVITY_MIN_SCORE: dict[str, float] = {"L1": 0.8, "L2": 0.65, "L3": 0.5, "L4": 0.35}
+
+
+class L0Policy(ContractModel):
+    id: str = Field(pattern=r"^[a-z0-9][a-z0-9._\-]{0,63}$")
+    version: int = Field(1, ge=1)  # the library version pinned into this guardrail version
+    name: str | None = Field(None, max_length=120)
+    description: str | None = Field(None, max_length=500)
+    entities: list[str] = Field(min_length=1)
+    action: DetectAction = "BLOCK"
+    severity: Severity = Severity.HIGH
+    roles: list[Role] = Field(default_factory=lambda: list(ALL_ROLES), min_length=1)
+    sensitivity: Sensitivity = "L3"
+
+    def phases(self) -> frozenset[Phase]:
+        return frozenset().union(*(ROLE_PHASES[role] for role in self.roles))
+
+    @property
+    def min_score(self) -> float:
+        return SENSITIVITY_MIN_SCORE[self.sensitivity]
+
+
 class L0Exception(ContractModel):
     id: str = Field(min_length=1)
     description: str | None = None
@@ -116,7 +153,8 @@ class L0Config(ContractModel):
     """Detection settings plus the L0 gate: a detection is terminal (ADR-0014)."""
 
     target: TargetScope = "LAST_MESSAGE"
-    entities: list[str] = Field(min_length=1)
+    # Detected types: listed here (bundles ≤ 0.5) or derived from `policies` (0.6).
+    entities: list[str] = Field(default_factory=list)
     min_score: float = Field(0.5, ge=0, le=1)
     min_score_overrides: dict[str, float] = Field(default_factory=dict)
     ner: NerConfig = Field(default_factory=NerConfig)
@@ -126,7 +164,22 @@ class L0Config(ContractModel):
     # (registrable domain, e.g. "example.com"; subdomains are covered).
     allowed_domains: list[str] = Field(default_factory=list)
     on_detect: OnDetect = Field(default_factory=OnDetect)
+    # Guardrail policies (0.6): when present they replace `entities` + `on_detect`.
+    policies: list[L0Policy] = Field(default_factory=list)
     exceptions: list[L0Exception] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _entities_from_policies(self) -> L0Config:
+        if self.policies:
+            if self.entities or self.on_detect.actions:
+                raise ValueError("with l0.policies, do not set l0.entities or l0.on_detect.actions")
+            derived: list[str] = []
+            for policy in self.policies:
+                derived.extend(e for e in policy.entities if e not in derived)
+            object.__setattr__(self, "entities", derived)
+        elif not self.entities:
+            raise ValueError("l0 needs entities (or policies)")
+        return self
 
 
 class L1aRule(ContractModel):
@@ -321,9 +374,12 @@ class L2Config(ContractModel):
 
 
 class PolicyBundle(ContractModel):
-    contract_version: Literal["0.3", "0.4", "0.5"]
+    contract_version: Literal["0.3", "0.4", "0.5", "0.6"]
     id: str = Field(pattern=r"^[a-z0-9][a-z0-9._\-]{0,127}$")
     version: int = Field(ge=1)
+    # Guardrail display data (0.6); the id stays the identifier callers use.
+    name: str | None = Field(None, max_length=120)
+    description: str | None = Field(None, max_length=1000)
     mode: Mode
     phases: list[Phase] = Field(min_length=1)
     on_evaluation_failure: FailurePolicy = FailurePolicy.FAIL_CLOSED

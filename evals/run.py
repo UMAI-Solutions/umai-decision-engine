@@ -25,6 +25,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--split", default="dev", choices=["dev", "test", "all"])
     parser.add_argument("--tag", help="report name suffix (default: the split)")
     parser.add_argument("--bundle", help="l0-pii-tr: bundle version directory for the L0 config")
+    parser.add_argument(
+        "--sensitivity", choices=["L1", "L2", "L3", "L4"], help="l0-pii-tr: min score of a level"
+    )
     parser.add_argument("--bundle-id", help="leak: bundle id (default gr-demo-data-protection)")
     parser.add_argument("--bundle-version", type=int, help="leak: version (default: active)")
     args = parser.parse_args(argv)

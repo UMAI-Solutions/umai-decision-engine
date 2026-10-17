@@ -1,6 +1,6 @@
 # Contract: policy golden tests
 
-**Version:** 0.1
+**Version:** 0.2
 
 Golden cases state what a policy bundle version must decide: "this input, in this context →
 this decision". They are written by whoever writes the policy, run by
@@ -103,6 +103,7 @@ List fields are compared as sets (order does not matter); an empty list asserts 
 | `would_have` | `MONITOR` mode: `would_have.action` |
 | `errors` | Exactly these error types (`errors[].type`), e.g. `[L1_NOT_IMPLEMENTED]` |
 | `degraded` | `response.degraded` |
+| `matched` | Exactly these policy / exception / rule ids in `decision.matched` (0.2) |
 
 Load-time checks (a failing check fails the run, like a failing case):
 
@@ -131,4 +132,5 @@ Exit code 0 when every loaded version is valid and every case passes; 1 otherwis
 
 ## Changelog
 
+- 0.2 (2026-10-17): `expect.matched` (ADR-0021); files may declare `0.1` or `0.2`.
 - 0.1 (2026-10-17): initial version (ADR-0015).

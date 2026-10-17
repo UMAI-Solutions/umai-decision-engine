@@ -104,6 +104,14 @@ def test_l0_detection_blocks_and_l1_does_not_run(write_bundle, make_client) -> N
         "severity": "HIGH",
         "reason": "L0: TR_TCKN, TR_IBAN detected",
         "decided_by": "L0",
+        "matched": [  # provenance (evaluation API 0.5): legacy bundles name on_detect.default
+            {
+                "kind": "l0_on_detect",
+                "id": "on_detect.default",
+                "action": "BLOCK",
+                "entities": ["TR_TCKN", "TR_IBAN"],
+            }
+        ],
     }
     assert [t["layer"] for t in body["trace"]] == ["L0"]  # no L1 step at all
     assert "l1a" not in body["latency_ms"]
@@ -413,3 +421,49 @@ def test_refuses_to_start_without_token_outside_development(write_bundle, detect
         TestClient(create_app(settings, detector=detector)),
     ):
         pass
+
+
+# ------------------------------------------------------------------ guardrail view and provenance
+
+
+POLICY_BUNDLE = """\
+contract_version: "0.6"
+id: gr-test
+version: 1
+name: Test guardrail
+mode: ENFORCE
+phases: [PRE_LLM, TOOL_INPUT]
+l0:
+  policies:
+    - {id: ids, version: 2, name: Kimlik, entities: [TR_TCKN], action: BLOCK}
+    - {id: contact, entities: [EMAIL_ADDRESS], action: ALLOW_WITH_MODIFICATIONS, roles: [user]}
+"""
+
+
+def test_bundle_version_endpoint(write_bundle, make_client) -> None:
+    write_bundle(POLICY_BUNDLE, active=1)
+    client = make_client()
+    body = client.get("/v1/bundles/gr-test/versions/1").json()
+    assert body["active"] is True and len(body["sha256"]) == 64
+    assert body["bundle"]["name"] == "Test guardrail"
+    assert [p["id"] for p in body["bundle"]["l0"]["policies"]] == ["ids", "contact"]
+    assert client.get("/v1/bundles/gr-test/versions/9").status_code == 404
+    assert client.get("/v1/bundles").json()["bundles"][0]["versions"][0]["name"] == "Test guardrail"
+
+
+def test_policy_provenance_and_roles(write_bundle, make_client) -> None:
+    write_bundle(POLICY_BUNDLE, active=1)
+    client = make_client()
+    blocked = client.post(
+        "/v1/evaluate", json=_request("TC 10000000146, mail ali@example.com")
+    ).json()
+    assert blocked["decision"]["reason"] == "L0: TR_TCKN detected by policy Kimlik v2"
+    assert [(m["id"], m["action"]) for m in blocked["decision"]["matched"]] == [
+        ("ids", "BLOCK"),
+        ("contact", "ALLOW_WITH_MODIFICATIONS"),
+    ]
+    # the contact policy screens the user role only: a tool call may carry an e-mail
+    tool = client.post(
+        "/v1/evaluate", json=_request("send to ali@example.com", phase="TOOL_INPUT")
+    ).json()
+    assert tool["decision"]["action"] == "ALLOW" and tool["entities"] == []

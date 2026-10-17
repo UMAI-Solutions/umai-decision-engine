@@ -1,6 +1,6 @@
 # Contract: policy bundle
 
-**Version:** 0.5
+**Version:** 0.6
 
 The configuration the engine evaluates against (successor of `umai-engine`'s
 `GuardrailSnapshot`). A bundle is a signed, immutable artifact; the engine only reads it
@@ -133,6 +133,51 @@ l2:                                # asynchronous review (ADR-0010); never affec
 | `l2.model_ref` | string | — | Key into settings' model registry; no URLs or keys in bundles |
 | `l2.finding_threshold` | `{severity, confidence}` | `HIGH`, `medium` | Analysis at or above → finding candidate |
 
+## Guardrail policies (0.6, ADR-0021)
+
+A guardrail states what happens to each detected type through named, versioned **policies**
+pinned into the bundle. With `l0.policies`, `l0.entities` and `l0.on_detect.actions` are not
+set (the entities are derived from the policies).
+
+```yaml
+contract_version: "0.6"
+id: gr-demo-data-protection
+version: 4
+name: Demo veri koruma
+mode: ENFORCE
+phases: [PRE_LLM, POST_LLM, TOOL_INPUT, TOOL_OUTPUT]
+l0:
+  allowed_domains: [example-partner.com]
+  policies:
+    - id: identity-data
+      version: 2                     # library version pinned into this guardrail version
+      name: Kimlik verileri
+      entities: [TR_TCKN, TR_VKN, US_SSN]
+      action: BLOCK                  # BLOCK | STEP_UP_APPROVAL | ALLOW_WITH_MODIFICATIONS
+      severity: HIGH
+      roles: [user, assistant, tool, tool_call, memory]
+      sensitivity: L3                # L1 0.80 · L2 0.65 · L3 0.50 · L4 0.35
+    - id: contact-data
+      name: İletişim bilgileri
+      entities: [EMAIL_ADDRESS, TR_PHONE]
+      action: ALLOW_WITH_MODIFICATIONS
+      severity: MEDIUM
+      roles: [user, assistant]
+  exceptions:
+    - id: ex-kyc-internal
+      when: { all: [{ field: subject.department, operator: EQUALS, value: KYC }] }
+      entities: [TR_TCKN]
+      action: ALLOW
+```
+
+| Field | Notes |
+|---|---|
+| `name`, `description` | Guardrail display data (console) |
+| `l0.policies[].id`, `version` | Library id and pinned version; ids unique per guardrail |
+| `l0.policies[].entities` | Catalog or custom types; a type belongs to exactly one policy |
+| `l0.policies[].roles` | `user` → `PRE_LLM`, `assistant` → `POST_LLM`, `tool_call` → `TOOL_INPUT` / `MCP_REQUEST`, `tool` → `TOOL_OUTPUT` / `MCP_RESPONSE`, `memory` → `MEMORY_WRITE`; default all; at least one must map to an enabled phase |
+| `l0.policies[].sensitivity` | Minimum detection score of the policy's types; `min_score_overrides` still wins per type |
+
 ## Validation beyond the schema
 
 The loader rejects a bundle when:
@@ -147,6 +192,8 @@ The loader rejects a bundle when:
 
 ## Changelog
 
+- 0.6 (2026-10-17): `l0.policies` (named, versioned, roles, sensitivity) and guardrail
+  `name` / `description` (ADR-0021). Bundles ≤ 0.5 still load.
 - 0.5 (2026-10-17): `l0.allowed_domains`; `l0.custom_recognizers` supported (validators, regex
   safety checks); `l0.entities` covers the full [entity catalog](../architecture/l0-entity-catalog.md)
   (ADR-0017). 0.3 / 0.4 bundles still load.

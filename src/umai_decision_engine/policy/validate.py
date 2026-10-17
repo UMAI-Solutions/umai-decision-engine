@@ -129,6 +129,21 @@ def validate_bundle(bundle: PolicyBundle) -> list[str]:
     if bundle.l0.ner.enabled:
         problems.append("l0.ner: not supported by this engine version")
 
+    # Guardrail policies (ADR-0021) -----------------------------------------
+    seen_policies: set[str] = set()
+    owner: dict[str, str] = {}
+    for policy in bundle.l0.policies:
+        where = f"l0.policies[{policy.id}]"
+        if policy.id in seen_policies:
+            problems.append(f"{where}: duplicate policy id")
+        seen_policies.add(policy.id)
+        for entity in policy.entities:
+            if entity in owner:
+                problems.append(f"{where}: {entity!r} is already in policy {owner[entity]!r}")
+            owner.setdefault(entity, policy.id)
+        if not policy.phases() & set(bundle.phases):
+            problems.append(f"{where}: none of its roles maps to a phase this bundle enables")
+
     # L0 gate (ADR-0014) ----------------------------------------------------
     for entity in bundle.l0.on_detect.actions:
         if entity not in entities:

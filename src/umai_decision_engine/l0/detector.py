@@ -28,7 +28,11 @@ from umai_decision_engine.l0.context import has_context
 from umai_decision_engine.l0.hashing import KeyProvider, value_hash
 from umai_decision_engine.l0.normalize import normalize
 from umai_decision_engine.l0.recognizers.base import META_VALIDATED, SpecRecognizer
-from umai_decision_engine.l0.recognizers.catalog import ALL_SPECS, SPECS_BY_ENTITY
+from umai_decision_engine.l0.recognizers.catalog import (
+    ALL_SPECS,
+    SPECS_BY_ENTITY,
+    SPECS_BY_RECOGNIZER,
+)
 from umai_decision_engine.l0.recognizers.custom import custom_recognizers
 from umai_decision_engine.l0.recognizers.network import registrable_domain, url_domain
 from umai_decision_engine.l0.redact import PlaceholderAllocator, apply_redaction
@@ -172,6 +176,7 @@ class EntityDetector:
         entities = [e for e in config.entities if e in SPECS_BY_ENTITY]
         custom = custom_recognizers(config.custom_recognizers, language)
         specs = {**SPECS_BY_ENTITY, **{c.spec.entity: c.spec for c in custom}}
+        by_recognizer = {**SPECS_BY_RECOGNIZER, **{c.name: c.spec for c in custom}}
         allowed_domains = {registrable_domain(d) for d in config.allowed_domains}
 
         raw: dict[tuple[str, int, int], _Hit] = {}
@@ -186,7 +191,10 @@ class EntityDetector:
             for recognizer in custom:
                 results.extend(recognizer.analyze(chunk, [recognizer.spec.entity]))
             for r in results:
-                spec = specs[r.entity_type]
+                spec = by_recognizer.get(
+                    r.recognition_metadata.get(RecognizerResult.RECOGNIZER_NAME_KEY, ""),
+                    specs[r.entity_type],
+                )
                 start, end = r.start + offset, r.end + offset
                 score = r.score
                 if has_context(norm.text, start, end, spec.context):

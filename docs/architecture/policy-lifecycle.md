@@ -39,6 +39,9 @@ Until the control plane exists, Git plays its role: pull request = draft + revie
 validate + test, the `active` file = activation. Team workflow:
 [`workflow/policy-authoring.md`](../workflow/policy-authoring.md).
 
+Policies are versioned in the library and **pinned** into each guardrail version at publish;
+editing a policy never changes a published guardrail (ADR-0021).
+
 ## Engine requirements (keep these true from the first commit)
 
 | Requirement | Status |

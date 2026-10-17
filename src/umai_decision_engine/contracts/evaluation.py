@@ -19,8 +19,8 @@ from umai_decision_engine.contracts.common import (
 )
 from umai_decision_engine.contracts.entities import EntitySummary
 
-CONTRACT_VERSION = "0.4"
-_ACCEPTED_REQUEST_VERSIONS = Literal["0.2", "0.3", "0.4"]
+CONTRACT_VERSION = "0.5"
+_ACCEPTED_REQUEST_VERSIONS = Literal["0.2", "0.3", "0.4", "0.5"]
 
 # ------------------------------------------------------------------ request
 
@@ -100,12 +100,26 @@ class EvaluationRequest(ContractModel):
 # ------------------------------------------------------------------ response
 
 
+class MatchedRule(ContractModel):
+    """What produced (part of) a decision: a guardrail policy, the legacy per-type action, an
+    L0 exception or an L1a rule. Ids and versions only, never content."""
+
+    kind: Literal["l0_policy", "l0_on_detect", "l0_exception", "l1a_rule"]
+    id: str
+    version: int | None = None
+    name: str | None = None
+    action: Action
+    entities: list[str] = Field(default_factory=list)
+
+
 class Decision(ContractModel):
     action: Action
     allowed: bool
     severity: Severity
     reason: str
     decided_by: Literal["L0", "L1a", "L1b", "pipeline"]
+    # Strictest first; empty when no rule applied (e.g. failure policy, nothing detected).
+    matched: list[MatchedRule] = Field(default_factory=list)
 
 
 class Tag(ContractModel):
@@ -154,7 +168,7 @@ class ErrorInfo(ContractModel):
 
 
 class EvaluationResponse(ContractModel):
-    contract_version: Literal["0.2", "0.3", "0.4"] = CONTRACT_VERSION
+    contract_version: Literal["0.2", "0.3", "0.4", "0.5"] = CONTRACT_VERSION
     request_id: str
     tenant_id: str
     bundle: BundleInfo

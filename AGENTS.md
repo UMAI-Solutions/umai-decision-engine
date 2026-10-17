@@ -97,7 +97,8 @@ other than `l0-pii-tr` and `leak`. Do not invent replacements; update this secti
 commands change.
 
 Implemented so far (2026-10-17): contracts for the evaluation API, policy bundle, L0
-output (incl. policy-bundle 0.5: custom recognizers, allowed domains) and policy golden tests; bundle store (directory source, Ed25519, hot reload, active pointer); L0 core
+output (incl. policy-bundle 0.6: guardrail policies with roles and sensitivity, custom
+recognizers, allowed domains; evaluation API 0.5: decision provenance) and policy golden tests; bundle store (directory source, Ed25519, hot reload, active pointer); L0 core
 entities, the full L0 entity catalog (ADR-0017: Lakera parity, Türkiye, Europe, secrets; 27
 types) and the L0 gate (ADR-0014: a detection is terminal, L1 skipped); shared condition
 evaluator (`rules/`); `/v1/evaluate`, `/v1/detect` (dev), `/v1/bundles`, `/v1/bundles/reload`,

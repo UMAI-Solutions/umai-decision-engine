@@ -281,6 +281,7 @@ def compare(expect: Expectation, response: EvaluationResponse) -> list[str]:
         would = response.would_have.action if response.would_have else "none (not MONITOR mode)"
         check("would_have", expect.would_have, would)
     check_set("errors", expect.errors, (e.type for e in response.errors))
+    check_set("matched", expect.matched, (m.id for m in decision.matched))
     check("degraded", expect.degraded, response.degraded)
     return failures
 

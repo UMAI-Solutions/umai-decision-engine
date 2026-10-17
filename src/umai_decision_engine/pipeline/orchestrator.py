@@ -41,6 +41,7 @@ from umai_decision_engine.l0.recognizers.catalog import TAG_BY_ENTITY
 from umai_decision_engine.l0.target import extract_target_text
 from umai_decision_engine.pipeline.failure import config_failure_decision, failure_decision
 from umai_decision_engine.pipeline.l0_gate import decide_l0
+from umai_decision_engine.pipeline.l0_policies import phase_config, type_rules
 from umai_decision_engine.policy.store import BundleStore, LoadedBundle
 from umai_decision_engine.policy.validate import BundleValidationError
 from umai_decision_engine.rules.facts import build_facts
@@ -164,13 +165,17 @@ class Evaluator:
         # ---------------- L0
         l0_started = time.perf_counter()
         text = ""
+        # Per-type rules (guardrail policies or legacy on_detect) and the detector configuration
+        # for this phase: a policy only screens the roles / phases it is enabled for (ADR-0021).
+        rules = type_rules(bundle.l0)
+        l0_config = phase_config(bundle.l0, rules, request.phase)
         try:
             text = extract_target_text(request.content, bundle.l0.target)
             l0_result = await asyncio.wait_for(
                 self._detector.adetect(
                     text,
                     tenant_id=request.tenant_id,
-                    config=bundle.l0,
+                    config=l0_config,
                     language_hint=request.content.language,
                 ),
                 timeout=max(budget_s - (time.perf_counter() - started), 0.001),
@@ -188,7 +193,12 @@ class Evaluator:
         if decision is None and l0_result is not None:
             if l0_result.summary:
                 gate = decide_l0(
-                    bundle.l0, l0_result, build_facts(request, l0_result), request.phase, text
+                    bundle.l0,
+                    l0_result,
+                    build_facts(request, l0_result),
+                    request.phase,
+                    text,
+                    rules,
                 )
                 decision = gate.decision
                 output_modifications = gate.output_modifications
@@ -248,6 +258,7 @@ class Evaluator:
                 severity=decision.severity,
                 reason=f"MONITOR mode (would have: {would_have.action})",
                 decided_by=would_have.decided_by,
+                matched=would_have.matched,
             )
             output_modifications = None  # MONITOR never changes the caller's content
         assert decision.allowed == (decision.action in ALLOWED_ACTIONS)

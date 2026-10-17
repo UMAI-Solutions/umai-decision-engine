@@ -92,6 +92,7 @@ API_KEY = RecognizerSpec(
 # shape needs "secret" context next to it.
 _AWS_SECRET_ACCESS_KEY = RecognizerSpec(
     entity="API_KEY",
+    name="umai_api_key_aws_secret",
     patterns=(
         PatternSpec(
             "aws_secret_access_key",
