@@ -19,8 +19,8 @@ from umai_decision_engine.contracts.common import (
 )
 from umai_decision_engine.contracts.entities import EntitySummary
 
-CONTRACT_VERSION = "0.5"
-_ACCEPTED_REQUEST_VERSIONS = Literal["0.2", "0.3", "0.4", "0.5"]
+CONTRACT_VERSION = "0.6"
+_ACCEPTED_REQUEST_VERSIONS = Literal["0.2", "0.3", "0.4", "0.5", "0.6"]
 
 # ------------------------------------------------------------------ request
 
@@ -85,7 +85,9 @@ class EvaluationRequest(ContractModel):
     contract_version: _ACCEPTED_REQUEST_VERSIONS
     request_id: str = Field(min_length=1, max_length=128)
     timestamp: datetime
-    tenant_id: str = Field(min_length=1, max_length=128)
+    # 0.6: optional; the credential's tenant is authoritative and fills it (ADR-0023 §5).
+    # Required when the caller uses the shared operator token (self-hosted, ADR-0016).
+    tenant_id: str | None = Field(None, min_length=1, max_length=128)
     bundle: BundleRef
     bundle_inline: PolicyBundle | None = None
     phase: Phase
@@ -168,7 +170,7 @@ class ErrorInfo(ContractModel):
 
 
 class EvaluationResponse(ContractModel):
-    contract_version: Literal["0.2", "0.3", "0.4", "0.5"] = CONTRACT_VERSION
+    contract_version: Literal["0.2", "0.3", "0.4", "0.5", "0.6"] = CONTRACT_VERSION
     request_id: str
     tenant_id: str
     bundle: BundleInfo

@@ -1,4 +1,5 @@
-# Lint, tests and policy golden tests (ADR-0015) on Linux and Windows.
+# Lint, tests and policy golden tests (ADR-0015) on Linux and Windows. The Linux job also runs
+# the tenant-isolation tests against a PostgreSQL service container (ADR-0025 Validation).
 name: ci
 
 on:
@@ -49,3 +50,42 @@ jobs:
 
       - name: Policy golden tests
         run: python -m umai_decision_engine.policy.cli test policies --require-tests
+
+  isolation:
+    name: tenant isolation (PostgreSQL)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: umai_owner
+          POSTGRES_PASSWORD: ci-owner # synthetic, CI only
+          POSTGRES_DB: umai
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U umai_owner -d umai"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PYTHONUTF8: "1"
+      UMAI_DE_TEST_POSTGRES_ADMIN_URL: postgresql+asyncpg://umai_owner:ci-owner@127.0.0.1:5432/umai
+      UMAI_DE_TEST_POSTGRES_APP_URL: postgresql+asyncpg://umai_app:ci-app@127.0.0.1:5432/umai
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+
+      - name: Application role (deploy/postgres-init.sql)
+        run: |
+          PGPASSWORD=ci-owner psql -h 127.0.0.1 -U umai_owner -d umai \
+            -v app_password=ci-app -f deploy/postgres-init.sql
+
+      - name: Isolation tests
+        run: python -m pytest -q tests/db -ra

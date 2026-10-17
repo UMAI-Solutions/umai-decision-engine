@@ -19,6 +19,9 @@ from umai_decision_engine.policy.sources import DirectorySource
 from umai_decision_engine.policy.store import BundleStore
 from umai_decision_engine.settings import Settings, get_settings
 from umai_decision_engine.telemetry.logging import configure_logging
+from umai_decision_engine.tenancy.admission import Admission
+from umai_decision_engine.tenancy.limits import RateLimiter
+from umai_decision_engine.tenancy.registry import DirectoryKeyRegistrySource, KeyRegistry
 
 
 def create_app(
@@ -30,8 +33,11 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         cfg = settings or get_settings()
-        if cfg.env != "development" and cfg.api_token is None:
-            raise RuntimeError("UMAI_DE_API_TOKEN is required outside development (ADR-0016)")
+        if cfg.env != "development" and cfg.api_token is None and cfg.key_registry_dir is None:
+            raise RuntimeError(
+                "UMAI_DE_API_TOKEN or UMAI_DE_KEY_REGISTRY_DIR is required outside development"
+                " (ADR-0016, ADR-0023)"
+            )
         configure_logging(cfg.log_level)
         state = app.state
         state.ready = False
@@ -45,17 +51,34 @@ def create_app(
         state.detector = detector or EntityDetector(cfg.tenant_key, threads=cfg.l0_threads)
         await asyncio.to_thread(state.detector.warm_up)
         state.evaluator = Evaluator(state.store, state.detector, cfg)
-        poller = (
-            asyncio.create_task(state.store.poll(cfg.bundle_poll_interval_s))
-            if cfg.bundle_poll_interval_s > 0
-            else None
+        registry = None
+        if cfg.key_registry_dir is not None:
+            registry = KeyRegistry(
+                DirectoryKeyRegistrySource(cfg.key_registry_dir),
+                public_keys=cfg.bundle_public_keys,
+                require_signed=bool(cfg.require_signed_bundles),
+            )
+            await asyncio.to_thread(registry.reload, force=True)
+        state.registry = registry
+        state.admission = Admission(
+            shared_token=cfg.api_token.get_secret_value() if cfg.api_token else None,
+            registry=registry,
+            limiter=RateLimiter(cfg.rate_limit_rps, cfg.rate_limit_burst)
+            if cfg.rate_limit_rps
+            else None,
+            development=cfg.env == "development",
         )
+        pollers = []
+        if cfg.bundle_poll_interval_s > 0:
+            pollers.append(asyncio.create_task(state.store.poll(cfg.bundle_poll_interval_s)))
+        if registry is not None and cfg.key_registry_poll_interval_s > 0:
+            pollers.append(asyncio.create_task(registry.poll(cfg.key_registry_poll_interval_s)))
         state.ready = True
         try:
             yield
         finally:
             state.ready = False
-            if poller is not None:
+            for poller in pollers:
                 poller.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await poller

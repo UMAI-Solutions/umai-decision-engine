@@ -43,6 +43,12 @@ secret() {  # $1 = Key Vault secret name; in secrets.env: upper case, '-' -> '_'
   fi
 }
 
+ensure_local_secret() {  # $1 = name; local-file mode only: generate once, append
+  [[ -n "$UMAI_KEY_VAULT" ]] && return 0
+  grep -q "^$1=" "$SECRETS" 2>/dev/null && return 0
+  printf "%s='%s'\n" "$1" "$(openssl rand -hex 24)" >>"$SECRETS"
+}
+
 put() {  # $1 = file, $2 = owner uid, stdin = content
   install -m 0400 -o "$2" -g "$2" /dev/null "$1"
   cat >"$1"
@@ -52,7 +58,11 @@ secrets() {
   mkdir -p "$RUN"
   chmod 0711 "$RUN"
   if [[ -n "$UMAI_KEY_VAULT" ]]; then KV_TOKEN="$(imds_token https://vault.azure.net)"; fi
-  local api control hmac
+  ensure_local_secret UMAI_DB_OWNER_PASSWORD  # added after the first release: generated once
+  ensure_local_secret UMAI_DB_APP_PASSWORD
+  local api control hmac db_owner db_app
+  db_owner="$(secret umai-db-owner-password)"
+  db_app="$(secret umai-db-app-password)"
   api="$(secret umai-api-token)"
   control="$(secret umai-control-token)"
   hmac="$(secret umai-tenant-hmac-keys)"
@@ -60,6 +70,12 @@ secrets() {
   printf 'UMAI_DE_API_TOKEN=%s\nUMAI_DE_TENANT_HMAC_KEYS=%s\n' "$api" "$hmac" |
     put "$RUN/engine.env" 0
   printf 'UMAI_DE_CONTROL_API_TOKEN=%s\n' "$control" | put "$RUN/policy.env" 0
+  {
+    printf 'UMAI_DE_DATABASE_URL=postgresql+asyncpg://umai_app:%s@postgres:5432/umai\n' "$db_app"
+    printf 'UMAI_DE_DATABASE_ADMIN_URL=postgresql+asyncpg://umai_owner:%s@postgres:5432/umai\n' "$db_owner"
+  } >>"$RUN/policy.env"
+  printf 'POSTGRES_PASSWORD=%s\nUMAI_DB_APP_PASSWORD=%s\n' "$db_owner" "$db_app" |
+    put "$RUN/postgres.env" 0
   printf 'UMAI_ENGINE_TOKEN=%s\nUMAI_CONTROL_TOKEN=%s\n' "$api" "$control" |
     put "$RUN/console.env" 0
   printf '%s %s\n' "$UMAI_CONSOLE_USER" "$(secret umai-console-password-hash)" |
@@ -106,12 +122,13 @@ backup() {
   stamp="$(date -u +%Y%m%dT%H%M%SZ)"
   name="umai-backup-$stamp.tar.gz"
   file="/var/tmp/$name"
-  # Consistent SQLite copy through the policy-service container, then both volumes.
-  compose exec -T policy python -c \
-    "import sqlite3;s=sqlite3.connect('/data/control/control.sqlite');d=sqlite3.connect('/data/control/backup.sqlite');s.backup(d);d.close()"
-  docker run --rm -v umai_policies:/p:ro -v umai_control:/c:ro -v /var/tmp:/out alpine \
-    tar -czf "/out/$name" -C / p c/backup.sqlite
-  compose exec -T policy rm -f /data/control/backup.sqlite
+  # Logical dump of the tenant store (owner role) plus the policy volume.
+  mkdir -p /var/tmp/umai-backup && chmod 700 /var/tmp/umai-backup
+  compose exec -T postgres pg_dump -U umai_owner -d umai --no-owner --no-privileges |
+    gzip -1 >/var/tmp/umai-backup/umai.sql.gz
+  docker run --rm -v umai_policies:/p:ro -v /var/tmp/umai-backup:/db:ro -v /var/tmp:/out alpine \
+    tar -czf "/out/$name" -C / p db/umai.sql.gz
+  rm -rf /var/tmp/umai-backup
   url="https://${UMAI_BACKUP_ACCOUNT}.blob.core.windows.net/backups/$name"
   if [[ -n "$UMAI_KEY_VAULT" ]]; then  # managed identity with a blob data role
     token="$(imds_token https://storage.azure.com/)"

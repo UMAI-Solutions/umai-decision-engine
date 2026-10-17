@@ -65,7 +65,7 @@ address, support channel for the partners.
 
 | # | Control | Evidence | Owner | Status |
 |---|---|---|---|---|
-| S0-1 | Tenant from credential; cross-tenant evaluate refused | readiness T1, T3 green in CI | eng | open |
+| S0-1 | Tenant from credential; cross-tenant evaluate refused | readiness T1, T3 green in CI | eng | **done** (2026-10-18; bundle listing per tenant pending) |
 | S0-2 | Keys hashed, scoped, revocable; revocation effective ≤ 10 s | readiness T4, T5; revocation latency measurement | eng | open |
 | S0-3 | Size and rate limits with explicit 413/429; ingress body cap | readiness T2, T6; load test report | eng | open |
 | S0-4 | No raw content in responses, logs or errors | readiness C1, L1 green; leak suite 0 | eng | open (L1) |
@@ -112,7 +112,7 @@ accepted; billing provider chosen.
 
 | # | Control | Evidence | Owner | Status |
 |---|---|---|---|---|
-| S1-1 | Database-enforced tenant isolation | I1–I3 green in CI against Postgres | eng | open |
+| S1-1 | Database-enforced tenant isolation | I1–I3 green in CI against Postgres | eng | **done** for `api_keys`, `drafts` (2026-10-18); events/usage/members tables follow with their ADRs |
 | S1-2 | Per-tenant encryption of confidential columns; erasure destroys keys | key inventory; erasure test | eng | open |
 | S1-3 | West Europe and East US 2 stacks cannot reach each other's data; wrong-region key refused | AKS NetworkPolicy and VNet test; readiness T7 | ops / eng | open |
 | S1-4 | Usage ledger = usage endpoint = invoice line on a test tenant | reconciliation report; provider invoice | eng + company | open |

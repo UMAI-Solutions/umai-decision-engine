@@ -33,13 +33,24 @@ class Settings(BaseSettings):
     tenant_hmac_keys: dict[str, str] = Field(default_factory=dict)  # tenant → base64 key
     l0_threads: int = Field(4, ge=1, le=64)
 
-    # API access (ADR-0016): bearer token on every /v1 route; health routes stay open.
-    # Required outside development: the API refuses to start without it.
+    # API access. Shared operator token (ADR-0016; self-hosted) and/or per-tenant API keys
+    # from signed registry snapshots (ADR-0023). Outside development at least one of the two
+    # must be configured: the API refuses to start otherwise. Health routes stay open.
     api_token: SecretStr | None = None
+    key_registry_dir: Path | None = None  # control plane writes <tenant>.json here; engine reads
+    key_registry_poll_interval_s: float = Field(5.0, ge=0)
+    region: Literal["eu", "us", "sh"] = "sh"  # region stamped into new keys; sh = self-hosted
+    rate_limit_rps: float | None = Field(20.0, gt=0)  # per credential (ADR-0023 §7); None = off
+    rate_limit_burst: int = Field(40, ge=1)
 
     # Policy service (control plane, ADR-0022): drafts, publish, activate. Separate process.
     control_api_token: SecretStr | None = None  # required outside development
-    control_db_path: Path = Path(".data/control.sqlite")
+    control_db_path: Path = Path(".data/control.sqlite")  # SQLite when database_url is unset
+    # Tenant-scoped store (ADR-0025). Application role URL (no BYPASSRLS) and the owner URL
+    # used only for migrations. postgresql+asyncpg://… in SaaS; unset → SQLite (control_db_path).
+    database_url: SecretStr | None = None
+    database_admin_url: SecretStr | None = None
+    default_tenant_id: str = "default"  # control-plane requests without X-Umai-Tenant
     signing_key_file: Path | None = None  # Ed25519 private key (base64) for published manifests
     signing_key_id: str | None = None
 

@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-import hmac
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from umai_decision_engine.contracts.credentials import Scope
 from umai_decision_engine.contracts.evaluation import (
     BundleInfo,
     DetectedEntityView,
@@ -18,29 +18,14 @@ from umai_decision_engine.contracts.evaluation import (
 )
 from umai_decision_engine.l0.target import extract_target_text
 from umai_decision_engine.policy.validate import BundleValidationError
+from umai_decision_engine.tenancy.admission import Principal, require_scope
 
 router = APIRouter()
 
-
-async def require_api_token(request: Request) -> None:
-    """Bearer token check for /v1 routes (ADR-0016). No token configured → development only;
-    the app refuses to start without one in any other environment."""
-
-    token = request.app.state.settings.api_token
-    if token is None:
-        return
-    scheme, _, value = request.headers.get("authorization", "").partition(" ")
-    if scheme.lower() != "bearer" or not hmac.compare_digest(
-        value.encode(), token.get_secret_value().encode()
-    ):
-        raise HTTPException(
-            status_code=401,
-            detail="missing or invalid API token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-
-_AUTH = [Depends(require_api_token)]
+# Admission (ADR-0023): credential → principal (tenant, scopes), rate limit, scope per route.
+_EVALUATE = Depends(require_scope(Scope.EVALUATE))
+_BUNDLES_READ = [Depends(require_scope(Scope.BUNDLES_READ))]
+_BUNDLES_RELOAD = [Depends(require_scope(Scope.BUNDLES_RELOAD))]
 
 
 @router.get("/healthz")
@@ -67,24 +52,29 @@ async def readyz(request: Request) -> JSONResponse:
     "/v1/evaluate",
     response_model=EvaluationResponse,
     response_model_exclude_none=True,
-    dependencies=_AUTH,
 )
-async def evaluate(body: EvaluationRequest, request: Request) -> EvaluationResponse:
+async def evaluate(
+    body: EvaluationRequest, request: Request, principal: Principal = _EVALUATE
+) -> EvaluationResponse:
     _require_ready(request)
+    body = body.model_copy(update={"tenant_id": principal.bind_tenant(body.tenant_id)})
     try:
         return await request.app.state.evaluator.evaluate(body)
     except PermissionError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.post("/v1/detect", response_model=DetectResponse, dependencies=_AUTH)
-async def detect(body: EvaluationRequest, request: Request) -> DetectResponse:
+@router.post("/v1/detect", response_model=DetectResponse)
+async def detect(
+    body: EvaluationRequest, request: Request, principal: Principal = _EVALUATE
+) -> DetectResponse:
     """Development endpoint: L0 only. Disabled unless ``expose_detect_endpoint``."""
 
     state = request.app.state
     if not state.settings.expose_detect_endpoint:
         raise HTTPException(status_code=404)
     _require_ready(request)
+    body = body.model_copy(update={"tenant_id": principal.bind_tenant(body.tenant_id)})
     try:
         loaded, missing = state.evaluator.resolve_bundle(body)
     except PermissionError as exc:
@@ -124,7 +114,7 @@ async def detect(body: EvaluationRequest, request: Request) -> DetectResponse:
     )
 
 
-@router.get("/v1/bundles", dependencies=_AUTH)
+@router.get("/v1/bundles", dependencies=_BUNDLES_READ)
 async def bundles(request: Request) -> dict[str, Any]:
     """Loaded and active bundle versions and load errors (for operators and the dashboard)."""
 
@@ -157,7 +147,7 @@ async def bundles(request: Request) -> dict[str, Any]:
     }
 
 
-@router.get("/v1/bundles/{bundle_id}/versions/{version}", dependencies=_AUTH)
+@router.get("/v1/bundles/{bundle_id}/versions/{version}", dependencies=_BUNDLES_READ)
 async def bundle_version(bundle_id: str, version: int, request: Request) -> dict[str, Any]:
     """One loaded bundle (guardrail) version with its content, for the console's guardrail view.
     Bundles never contain secrets (ADR-0012); content is policy data only."""
@@ -178,7 +168,7 @@ async def bundle_version(bundle_id: str, version: int, request: Request) -> dict
     }
 
 
-@router.post("/v1/bundles/reload", dependencies=_AUTH)
+@router.post("/v1/bundles/reload", dependencies=_BUNDLES_RELOAD)
 async def reload_bundles(request: Request) -> dict[str, Any]:
     """Rescan the bundle source now (the "new version available" signal; ADR-0013)."""
 

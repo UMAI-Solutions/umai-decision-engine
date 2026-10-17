@@ -90,6 +90,7 @@ uvicorn umai_decision_engine.control_plane.app:app --port 9200  # policy service
 python -m umai_decision_engine.policy.cli validate policies/<bundle_id>/<version>
 python -m umai_decision_engine.policy.cli test policies --require-tests   # golden tests (ADR-0015)
 python -m umai_decision_engine.policy.cli keygen | sign | verify  # bundle signing (ADR-0012)
+python -m umai_decision_engine.db.migrate <database url>         # tenant store migrations (ADR-0025)
 python -m evals.run --suite l0-pii-tr --split dev --tag <label>  # L0 accuracy (also: --suite leak)
 docker build -t umai-decision-engine .                            # one image: engine API + policy service
 az deployment group create -g <rg> -f deploy/azure/main.bicep -p deploy/azure/main.bicepparam  # starter VM (ADR-0032)
@@ -112,6 +113,12 @@ tests with accepted changes, publish, activate, rollback); eval harness with the
 suites; golden-test runner (`cli test`) and CI (`.github/workflows/ci.yml`: ruff, pytest,
 golden tests on Linux and Windows). L1 is not implemented: input without detected entities, evaluated against a bundle
 with L1 rules or policies, is answered with `on_evaluation_failure` and `L1_NOT_IMPLEMENTED`.
+Tenancy (2026-10-18): per-tenant API keys with scopes and rate limits at admission (ADR-0023:
+`tenancy/`, contract `credentials` 0.1, evaluation API 0.6; shared token kept for self-hosted),
+key management in the policy service (`/v1/tenants`, `/v1/tenants/{id}/keys`, signed registry
+snapshots), the tenant store `db/` (SQLAlchemy async + Alembic; Postgres row-level security
+with FORCE and `WITH CHECK`, SQLite for development; isolation tests in `tests/db/`, run in CI
+against a Postgres service container). Bundles are not tenant-owned yet (ADR-0025 §8).
 Deployment (2026-10-17): single-VM starter on Azure (ADR-0032: `Dockerfile`, `deploy/vm/` Docker
 Compose with Caddy, `deploy/azure/main.bicep`); the console image lives in `umai-control-center`.
 SaaS readiness (2026-10-17): threat model, gap analysis, launch plan and eight proposed ADRs in

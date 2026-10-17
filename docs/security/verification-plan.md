@@ -12,18 +12,18 @@ without one of these is a claim, not a control.
 |---|---|---|---|---|
 | C1 | No raw content in logs or response metadata (ADR-0005) | Evaluate synthetic PII with DEBUG logging captured; assert no raw value in logs or response | `tests/readiness/test_saas_readiness.py::test_c1_*`; `python -m evals.run --suite leak` | **green** |
 | C2 | Distinct HMAC key per tenant | `Settings.tenant_key(a) != tenant_key(b)` | readiness C2 | **green** |
-| T1 | Credential tenant = body tenant, else 403 (ADR-0023) | Shared token, body `tenant-b` → expect 403 | readiness T1 | **red** (xfail, GAP-T1) |
+| T1 | Credential tenant = body tenant, else 403 (ADR-0023) | Key of tenant A, body `tenant-b` → 403 `tenant_mismatch` | readiness T1; `tests/integration/test_api_keys.py` | **green** (2026-10-18) |
 | T2 | Oversized input → 413, nothing scanned (ADR-0019 §4) | 700 kB body → expect 413 | readiness T2 | **red** (xfail, GAP-T2) |
 | L1 | Validation errors never echo content | Missing `timestamp` with PII in content → 422 without the value | readiness L1 | **red** (xfail, GAP-L1) |
 | A1 | Every configuration change names its actor (ADR-0030) | Activate a version → history entry has `actor` | readiness A1 | **red** (xfail, GAP-A1) |
-| T3 | Key of tenant A cannot evaluate, list or reload tenant B's bundles | Two keys, cross calls → 403 / empty | to write with ADR-0023 | not yet testable (no keys) |
-| T4 | Revoked key refused within the poll interval | Revoke → 401 after reload | with ADR-0023 | — |
-| T5 | Scope enforcement (`evaluate`-only key on `GET /v1/bundles` → 403) | with ADR-0023 | — |
-| T6 | Per-key rate limit → 429 with `Retry-After`, no decision | with ADR-0023 | — |
+| T3 | Key of tenant A cannot evaluate as tenant B; cannot reload | Cross calls → 403 | `test_api_keys.py::test_key_of_tenant_a_cannot_act_as_tenant_b`, `::test_scopes_are_enforced_per_route` | **green** for evaluate/reload; bundle *listing* per tenant waits for tenant-owned bundles (ADR-0025 §8) |
+| T4 | Revoked key refused within the poll interval | Revoke → 401 after reload | `test_api_keys.py::test_key_lifecycle_create_use_revoke` | **green** |
+| T5 | Scope enforcement (`evaluate`-only key on `GET /v1/bundles` → 403) | `test_api_keys.py::test_scopes_are_enforced_per_route` | **green** |
+| T6 | Per-key rate limit → 429 with `Retry-After`, no decision | `test_api_keys.py::test_rate_limit_answers_429_with_retry_after` | **green** (in-process bucket; Redis in the regional stack) |
 | T7 | Wrong-region key → 403 `wrong_region` before content is read (ADR-0026) | with ADR-0026 | — |
-| I1 | Schema: every tenant table has RLS **and** FORCE RLS and the isolation policy, or is allowlisted (ADR-0025) | Introspect `pg_class`/`pg_policy` in CI | with ADR-0025 | — |
-| I2 | Generated cross-tenant tests: write as A, read as B → 0 rows; no `app.tenant_id` → 0 rows; `WITH CHECK` blocks foreign inserts | Generated from SQLAlchemy metadata | with ADR-0025 | — |
-| I3 | App role: no `BYPASSRLS`, not superuser, not a member of `azure_pg_admin`, owns no tenant table | `pg_roles` / `pg_auth_members` check | with ADR-0025, ADR-0031 | — |
+| I1 | Schema: every tenant table has RLS **and** FORCE RLS and the isolation policy, or is allowlisted (ADR-0025) | `tests/db/test_isolation.py::test_every_table_is_tenant_scoped_with_rls_or_allowlisted` (Postgres service container in CI) | **green** (2026-10-18) |
+| I2 | Generated cross-tenant tests: write as A, read as B → 0 rows; no `app.tenant_id` → **error** (never an empty page); `WITH CHECK` blocks foreign inserts | `test_isolation.py`, parametrised over `TENANT_TABLES` | **green** |
+| I3 | App role: no `BYPASSRLS`, not superuser, not a member of `azure_pg_admin`, owns no tenant table | `test_isolation.py::test_application_role_cannot_bypass_rls_or_own_tenant_tables` | **green** |
 | Z1 | Permission matrix: each role × each endpoint; undeclared endpoint fails (ADR-0029) | with ADR-0029 | — |
 | Z2 | Four-eyes: publisher cannot activate own production version when required | with ADR-0029 | — |
 | E1 | Every mutating route emits exactly one audit event; event rows are insert-only; hash chain breaks on tampering (ADR-0030) | with ADR-0030 | — |

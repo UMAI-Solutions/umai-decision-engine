@@ -79,18 +79,44 @@ def test_c2_tenant_hashing_keys_are_distinct_per_tenant(write_bundle) -> None:
     assert settings.tenant_key("tenant-a") != settings.tenant_key("tenant-b")
 
 
-# ------------------------------------------------------------ gaps (xfail until closed)
+def test_t1_credential_tenant_must_match_body_tenant(write_bundle, detector, tmp_path) -> None:
+    """ADR-0023 §5: a key issued to tenant A must not evaluate as tenant B: HTTP 403. The engine
+    resolves the tenant from the credential (signed key registry); the body field is checked
+    against it. The shared operator token of ADR-0016 stays valid for self-hosted installs and
+    acts as the body tenant (ADR-0023 §8); SaaS engines run without it."""
 
+    from umai_decision_engine.control_plane.app import create_app as create_control_app
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="GAP-T1: one shared bearer token; tenant comes from the body (ADR-0019 §1, ADR-0023)",
-)
-def test_t1_credential_tenant_must_match_body_tenant(client) -> None:
-    """A credential issued to tenant A must not evaluate as tenant B: HTTP 403."""
-
-    response = client.post("/v1/evaluate", json=_request(tenant_id="tenant-b"))
+    write_bundle(bundle_yaml(), active=1)
+    registry_dir = tmp_path / "keys"
+    control = Settings(
+        env="development",
+        policy_dir=write_bundle.root,
+        control_db_path=tmp_path / "c.sqlite",
+        key_registry_dir=registry_dir,
+    )
+    with TestClient(create_control_app(control, detector=detector)) as cp:
+        cp.post("/v1/tenants", json={"id": "tenant-a"})
+        secret = cp.post("/v1/tenants/tenant-a/keys", json={"name": "t1"}).json()["secret"]
+    engine = Settings(
+        env="test",
+        policy_dir=write_bundle.root,
+        key_registry_dir=registry_dir,
+        require_signed_bundles=False,  # no signing key in this fixture; signature tested elsewhere
+        bundle_poll_interval_s=0,
+        key_registry_poll_interval_s=0,
+        l0_threads=1,
+    )
+    with TestClient(
+        create_app(engine, detector=detector), headers={"Authorization": f"Bearer {secret}"}
+    ) as c:
+        assert c.post("/v1/evaluate", json=_request(tenant_id="tenant-a")).status_code == 200
+        response = c.post("/v1/evaluate", json=_request(tenant_id="tenant-b"))
     assert response.status_code == 403
+    assert response.json()["detail"]["error"] == "tenant_mismatch"
+
+
+# ------------------------------------------------------------ gaps (xfail until closed)
 
 
 @pytest.mark.xfail(

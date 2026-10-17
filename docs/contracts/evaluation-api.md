@@ -1,6 +1,6 @@
 # Contract: evaluation API
 
-**Version:** 0.5 · **Endpoints:** `POST /v1/evaluate`, `GET /v1/bundles`, `POST /v1/bundles/reload`, `POST /v1/detect` (development) · **Health:** `GET /healthz`, `GET /readyz`
+**Version:** 0.6 · **Endpoints:** `POST /v1/evaluate`, `GET /v1/bundles`, `POST /v1/bundles/reload`, `POST /v1/detect` (development) · **Health:** `GET /healthz`, `GET /readyz`
 
 `/readyz` returns 200 only after Presidio analyzers are loaded and warmed up, the policy
 bundles are loaded, and the configured L1b provider answered a probe.
@@ -12,7 +12,7 @@ not part of this API ([ADR-0010](../adr/0010-l2-asynchronous-review.md)).
 
 ```json
 {
-  "contract_version": "0.5",
+  "contract_version": "0.6",
   "request_id": "req-01J9X7Z8QK",
   "timestamp": "2026-10-15T09:30:00Z",
   "tenant_id": "tenant-demo",
@@ -40,10 +40,10 @@ not part of this API ([ADR-0010](../adr/0010-l2-asynchronous-review.md)).
 
 | Field | Type | Req. | Notes |
 |---|---|---|---|
-| `contract_version` | string | yes | `"0.4"` (`"0.2"`, `"0.3"` still accepted) |
+| `contract_version` | string | yes | `"0.6"` (`"0.2"`–`"0.5"` still accepted) |
 | `request_id` | string | yes | Echoed; used as trace id |
 | `timestamp` | RFC 3339 string | yes | Caller time |
-| `tenant_id` | string | yes | Selects HMAC key and history namespace |
+| `tenant_id` | string | no (0.6) | The credential's tenant is authoritative (ADR-0023 §5): omitted → filled from the API key; present → must equal it, else 403 `tenant_mismatch`. Required with the shared operator token (400 `tenant_required`). Selects HMAC key and history namespace |
 | `bundle.id` | string | yes | Policy bundle to evaluate against |
 | `bundle.version` | int | no | Explicit version; omitted → the bundle's **active** version (ADR-0012) |
 | `bundle_inline` | PolicyBundle | no | R&D only: evaluate against an inline bundle; disabled unless `settings.allow_inline_bundles` |
@@ -67,7 +67,7 @@ Which content L0 scans is set by `l0.target` in the bundle (`LAST_MESSAGE`,
 
 ```json
 {
-  "contract_version": "0.5",
+  "contract_version": "0.6",
   "request_id": "req-01J9X7Z8QK",
   "tenant_id": "tenant-demo",
   "bundle": { "id": "gr-demo-data-protection", "version": 3, "mode": "ENFORCE", "sha256": "<hex sha256 of bundle.yaml>" },
@@ -118,13 +118,31 @@ Which content L0 scans is set by `l0.target` in the bundle (`LAST_MESSAGE`,
 
 The response never contains raw content. `reason` is leak-checked.
 
-## Authentication
+## Authentication and admission
 
-Every `/v1` route requires `Authorization: Bearer <token>` when `UMAI_DE_API_TOKEN` is set;
-a missing or wrong token is answered with HTTP 401 and `WWW-Authenticate: Bearer`.
-`/healthz` and `/readyz` never require a token. Outside `development` the API refuses to
-start without a token ([ADR-0016](../adr/0016-control-center-separate-repo.md)). The token is
-held by server-side callers only (the console's backend), never by browsers.
+Every `/v1` route requires `Authorization: Bearer <credential>`; `/healthz` and `/readyz` never
+do. Two credential types ([ADR-0023](../adr/0023-identity-planes-and-api-keys.md), contract
+[credentials](credentials.md)):
+
+| Credential | Tenant | Scopes | Where |
+|---|---|---|---|
+| **Per-tenant API key** `umai_<env>_<region>_<key_id>_<secret>` from the control plane, resolved against the signed key registry (`UMAI_DE_KEY_REGISTRY_DIR`) | the key's tenant | the key's scopes (default `evaluate`) | SaaS and self-hosted |
+| **Shared operator token** `UMAI_DE_API_TOKEN` ([ADR-0016](../adr/0016-control-center-separate-repo.md)) | the body's `tenant_id` | all | self-hosted single-customer installs; unset in SaaS |
+
+Outside `development` the API refuses to start unless at least one is configured.
+Credentials are held by server-side callers only (SDKs, the console's backend), never by browsers.
+
+| Route | Scope |
+|---|---|
+| `POST /v1/evaluate`, `POST /v1/detect` | `evaluate` |
+| `GET /v1/bundles`, `GET /v1/bundles/{id}/versions/{version}` | `bundles:read` |
+| `POST /v1/bundles/reload` | `bundles:reload` (operator token only) |
+
+Admission answers 401 `invalid_credential`, 403 `tenant_mismatch` / `insufficient_scope` and
+429 `rate_limited` (`Retry-After`; token bucket per credential, `UMAI_DE_RATE_LIMIT_RPS` /
+`_BURST`) with a JSON body `{"detail": {"error": "<code>", "detail": "<text>"}}`; a
+refused request is never evaluated. Bundles are not tenant-owned yet, so `bundles:read` lists
+every loaded bundle (ADR-0025 §8 follow-up).
 
 ## `GET /v1/bundles`
 
@@ -168,11 +186,14 @@ validation problems in `errors[].message`.
 ## Errors
 
 The endpoint returns HTTP 200 with a decision for every evaluable request, including
-failure-policy decisions. HTTP 4xx only for malformed requests (schema violations) and authentication (401),
-HTTP 503 only before readiness.
+failure-policy decisions. HTTP 4xx only for malformed requests (schema violations) and admission
+(401, 403, 429; see above), HTTP 503 only before readiness.
 
 ## Changelog
 
+- 0.6 (2026-10-18): per-tenant API keys and scopes at admission (ADR-0023): `tenant_id` optional
+  and derived from the credential; 403 `tenant_mismatch` / `insufficient_scope`, 429
+  `rate_limited`, 400 `tenant_required`; error bodies carry an `error` code. Requests 0.2–0.6 accepted.
 - 0.5 (2026-10-17): `decision.matched` (provenance, ADR-0021); guardrail `name` in
   `/v1/bundles`; `GET /v1/bundles/{id}/versions/{version}`. Requests 0.2–0.5 accepted.
 - 0.4 (2026-10-17): bearer-token authentication on `/v1` routes (ADR-0016); no payload change.

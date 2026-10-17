@@ -4,11 +4,11 @@ Decision and limits: [ADR-0032](../../docs/adr/0032-single-vm-starter-on-azure.m
 few pilot tenants, not paid SaaS. About $45/month at list price.
 
 ```text
-Internet ──443──▶ Caddy ──/v1, /healthz, /readyz──▶ engine :9100 ──reads──▶ policies volume
+Internet ──443──▶ Caddy ──/v1, /healthz, /readyz──▶ engine :9100 ──reads──▶ policies volume (+ .keys/)
                    │                                                         ▲ signs + writes
-                   └──everything else (basic auth)──▶ console :3100 ──▶ policy service :9200
-secrets: Key Vault or /opt/umai/secrets.env ──(umai.sh, at start)──▶ /run/umai (tmpfs)
-nightly backup ──▶ Blob Storage                      images: built on the workstation, ship.sh
+                   └──everything else (basic auth)──▶ console :3100 ──▶ policy service :9200 ──▶ postgres :5432
+secrets: Key Vault or /opt/umai/secrets.env ──(umai.sh, at start)──▶ /run/umai (tmpfs)        (tenants, keys, drafts; RLS)
+nightly backup (policies + pg_dump) ──▶ Blob Storage          images: built on the workstation, ship.sh
 ```
 
 The VM never holds repository credentials: images are built on the operator workstation and
@@ -51,7 +51,7 @@ D=/opt/umai/src/umai-decision-engine/deploy/vm
 docker pull caddy:2.10-alpine && docker pull alpine
 install -m 600 $D/config.env.example /opt/umai/config.env
 vi /opt/umai/config.env        # UMAI_HOSTNAME, UMAI_BACKUP_ACCOUNT, UMAI_CONSOLE_USER; vault empty
-$D/umai.sh init                # tokens, tenant HMAC keys, signing key + public key in config.env
+$D/umai.sh init                # tokens, tenant HMAC keys, DB passwords, signing key + public key in config.env
 cat /root/console-password.txt # store it in your password manager, then:
 shred -u /root/console-password.txt
 cp $D/umai.service $D/umai-backup.service $D/umai-backup.timer /etc/systemd/system/
@@ -89,10 +89,10 @@ Caddy obtains the TLS certificate on the first HTTPS request.
 | Status | VM, root | `$D/umai.sh status` |
 | Logs | VM, root | `docker compose -p umai logs -f engine` (no raw content is logged, ADR-0005) |
 | API token for a pilot client | VM, root | `grep UMAI_API_TOKEN /opt/umai/secrets.env`; hand over on a secure channel |
-| Add a pilot tenant | VM, root | add `"<tenant>":"<openssl rand -base64 32>"` to `UMAI_TENANT_HMAC_KEYS`, then `$D/umai.sh up` |
+| Add a pilot tenant | VM, root | `curl -X POST -H "Authorization: Bearer $CONTROL" http://127.0.0.1:9200/v1/tenants -d '{"id":"pilot-1"}'` then `POST /v1/tenants/pilot-1/keys` (ADR-0023; the secret is in the response once). Also add its HMAC key to `UMAI_TENANT_HMAC_KEYS` and `$D/umai.sh up`. The policy service port is not published; run the curl inside the network: `docker compose -p umai exec policy python -c …` or add a temporary `docker run --network umai_default` |
 | Rotate a secret | VM, root | edit `/opt/umai/secrets.env` (or the vault), then `$D/umai.sh up` |
 | Backup now | VM, root | `$D/umai.sh backup` |
-| Restore | VM, root | `systemctl stop umai`; fetch the archive (`az storage blob download` on the workstation, then `scp`); `docker run --rm -v umai_policies:/p -v umai_control:/c -v $PWD:/in alpine sh -c 'cd / && tar -xzf /in/<archive> && mv /c/backup.sqlite /c/control.sqlite'`; `systemctl start umai` |
+| Restore | VM, root | `systemctl stop umai`; fetch the archive (`az storage blob download` on the workstation, then `scp`); `tar -xzf <archive> db/umai.sql.gz` and `docker run --rm -v umai_policies:/p -v $PWD/p:/in:ro alpine sh -c 'rm -rf /p/* && cp -a /in/. /p/'`; `systemctl start umai`, then `gunzip -c db/umai.sql.gz \| docker compose -p umai exec -T postgres psql -U umai_owner -d umai` into a freshly initialised database |
 | Your IP changed (SSH times out) | workstation | `az network nsg rule update -g <rg> --nsg-name umaibeta-nsg -n ssh-operator --source-address-prefixes <ip>/32`; storage: `az storage account network-rule add/remove … --ip-address` |
 
 ## 5. Checks after a deployment

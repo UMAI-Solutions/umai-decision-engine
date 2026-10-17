@@ -58,6 +58,16 @@ pages are built on these answers; field additions are backwards compatible.
 | `POST /v1/guardrails/{id}/draft/test` | Golden-case report of the draft |
 | `POST /v1/guardrails/{id}/draft/publish` | `{activate, accept[], note}` → new version; 422 with `problems` or `unaccepted` cases |
 | `POST /v1/guardrails/{id}/activate` | `{version, note}` → moves the active pointer (rollback) |
+| `GET/POST /v1/tenants`, `GET /v1/tenants/{id}` | Tenants (global table, ADR-0025): `{id, name?, region?}`; 409 when it exists |
+| `GET/POST /v1/tenants/{id}/keys` | API keys (ADR-0023): create `{name, scopes?, env?, expires_at?}` → `{key, secret, published}` (secret shown once); list records |
+| `DELETE /v1/tenants/{id}/keys/{key_id}` | Revoke; effective at engines within one poll interval |
+| `POST /v1/tenants/{id}/keys/publish` | Rewrite the tenant's signed registry snapshot |
+
+Drafts are tenant-scoped (Postgres with row-level security in SaaS, SQLite otherwise, ADR-0025);
+the tenant a request acts for is the `X-Umai-Tenant` header, else `UMAI_DE_DEFAULT_TENANT_ID`.
+Until console login (ADR-0024) exists the control token is an operator credential that may act
+for any tenant. Published guardrail versions stay on the shared directory source (self-hosted
+format); tenant-owned bundles in the store are the ADR-0025 §8 follow-up.
 
 `published_at`, `base_version` and `note` come from the publish entry in `changelog.jsonl`; they
 are empty for versions added through Git. `signed` means the version's manifest carries a

@@ -18,12 +18,17 @@ import yaml
 from pydantic import ValidationError
 
 from umai_decision_engine.contracts.bundle import ALL_ROLES, PolicyBundle
-from umai_decision_engine.control_plane.drafts import Draft, DraftStore
 from umai_decision_engine.control_plane.repository import (
     TESTS_DIR,
     GuardrailRepository,
     bundle_to_data,
     bundle_to_yaml,
+)
+from umai_decision_engine.db.repositories import (
+    Conflict,
+    DraftInfo,
+    DraftRepository,
+    TenantInfo,
 )
 from umai_decision_engine.golden.runner import RunReport, run_golden
 from umai_decision_engine.l0.detector import EntityDetector
@@ -154,7 +159,7 @@ class PolicyService:
     def __init__(
         self,
         repository: GuardrailRepository,
-        drafts: DraftStore,
+        drafts: DraftRepository,
         detector: EntityDetector,
         signing_key: tuple[str, str] | None = None,
     ) -> None:
@@ -165,7 +170,7 @@ class PolicyService:
 
     # ----------------------------------------------------------- guardrails
 
-    def summary(self, bundle_id: str) -> dict:
+    async def summary(self, tenant: TenantInfo, bundle_id: str) -> dict:
         history = self.repository.changelog(bundle_id)
         published = {e["version"]: e for e in history if e.get("action") == "publish"}
         versions = []
@@ -192,7 +197,7 @@ class PolicyService:
                 versions.append({"version": version, "valid": False, "error": str(exc)[:300]})
         if not versions:
             raise ServiceError(404, f"guardrail {bundle_id} does not exist")
-        draft = self.drafts.get(bundle_id)
+        draft = await self.drafts.get(tenant, bundle_id)
         return {
             "id": bundle_id,
             "active_version": self.repository.active(bundle_id),
@@ -201,8 +206,8 @@ class PolicyService:
             "history": history[-50:],
         }
 
-    def list(self) -> list[dict]:
-        drafts = self.drafts.ids()
+    async def list(self, tenant: TenantInfo) -> list[dict]:
+        drafts = await self.drafts.ids(tenant)
         out = []
         for bundle_id in self.repository.ids():
             active = self.repository.active(bundle_id)
@@ -234,7 +239,7 @@ class PolicyService:
 
     # ----------------------------------------------------------- drafts
 
-    def draft_view(self, draft: Draft) -> dict:
+    def draft_view(self, draft: DraftInfo) -> dict:
         _, problems = problems_of(draft.bundle)
         return {
             "bundle_id": draft.bundle_id,
@@ -245,14 +250,16 @@ class PolicyService:
             "updated_at": draft.updated_at,
         }
 
-    def get_draft(self, bundle_id: str) -> dict:
-        draft = self.drafts.get(bundle_id)
+    async def get_draft(self, tenant: TenantInfo, bundle_id: str) -> dict:
+        draft = await self.drafts.get(tenant, bundle_id)
         if draft is None:
             raise ServiceError(404, f"guardrail {bundle_id} has no draft")
         return self.draft_view(draft)
 
-    def create_draft(self, bundle_id: str, base_version: int | None) -> dict:
-        if self.drafts.get(bundle_id) is not None:
+    async def create_draft(
+        self, tenant: TenantInfo, bundle_id: str, base_version: int | None
+    ) -> dict:
+        if await self.drafts.get(tenant, bundle_id) is not None:
             raise ServiceError(409, f"guardrail {bundle_id} already has a draft")
         version = base_version or self.repository.active(bundle_id)
         if version is None:
@@ -262,24 +269,30 @@ class PolicyService:
         except Exception as exc:
             raise ServiceError(404, str(exc)) from exc
         data = to_policy_form(bundle_to_data(bundle))
-        return self.draft_view(self.drafts.create(bundle_id, version, data))
+        try:
+            draft = await self.drafts.create(tenant, bundle_id, version, data)
+        except Conflict as exc:
+            raise ServiceError(409, str(exc)) from exc
+        return self.draft_view(draft)
 
-    def save_draft(self, bundle_id: str, data: dict) -> dict:
+    async def save_draft(self, tenant: TenantInfo, bundle_id: str, data: dict) -> dict:
         if not isinstance(data, dict) or data.get("id") != bundle_id:
             raise ServiceError(400, "the draft must be a bundle object with the guardrail's id")
-        draft = self.drafts.save(bundle_id, data)  # saved even when invalid: no lost work
+        draft = await self.drafts.save(tenant, bundle_id, data)  # saved even when invalid
         if draft is None:
             raise ServiceError(404, f"guardrail {bundle_id} has no draft")
         return self.draft_view(draft)
 
-    def discard_draft(self, bundle_id: str) -> None:
-        if not self.drafts.delete(bundle_id):
+    async def discard_draft(self, tenant: TenantInfo, bundle_id: str) -> None:
+        if not await self.drafts.delete(tenant, bundle_id):
             raise ServiceError(404, f"guardrail {bundle_id} has no draft")
 
     # ----------------------------------------------------------- test and publish
 
-    def _valid_draft(self, bundle_id: str) -> tuple[Draft, PolicyBundle]:
-        draft = self.drafts.get(bundle_id)
+    async def _valid_draft(
+        self, tenant: TenantInfo, bundle_id: str
+    ) -> tuple[DraftInfo, PolicyBundle]:
+        draft = await self.drafts.get(tenant, bundle_id)
         if draft is None:
             raise ServiceError(404, f"guardrail {bundle_id} has no draft")
         bundle, problems = problems_of(draft.bundle)
@@ -287,7 +300,7 @@ class PolicyService:
             raise ServiceError(422, "the draft is not valid", {"problems": problems})
         return draft, bundle
 
-    async def _run_tests(self, draft: Draft, bundle: PolicyBundle, workdir: Path) -> RunReport:
+    async def _run_tests(self, draft: DraftInfo, bundle: PolicyBundle, workdir: Path) -> RunReport:
         version_dir = workdir / bundle.id / str(draft.base_version)
         version_dir.mkdir(parents=True)
         (version_dir / BUNDLE_FILE).write_bytes(
@@ -298,16 +311,22 @@ class PolicyService:
             shutil.copytree(base_tests, version_dir / TESTS_DIR)
         return await run_golden(version_dir, detector=self.detector)
 
-    async def test_draft(self, bundle_id: str) -> dict:
-        draft, bundle = self._valid_draft(bundle_id)
+    async def test_draft(self, tenant: TenantInfo, bundle_id: str) -> dict:
+        draft, bundle = await self._valid_draft(tenant, bundle_id)
         with tempfile.TemporaryDirectory(prefix="umai-draft-") as tmp:
             report = await self._run_tests(draft, bundle, Path(tmp))
         return report_to_data(report)
 
     async def publish(
-        self, bundle_id: str, *, activate: bool, accept: list[str], note: str | None
+        self,
+        tenant: TenantInfo,
+        bundle_id: str,
+        *,
+        activate: bool,
+        accept: list[str],
+        note: str | None,
     ) -> dict:
-        draft, bundle = self._valid_draft(bundle_id)
+        draft, bundle = await self._valid_draft(tenant, bundle_id)
         with tempfile.TemporaryDirectory(prefix="umai-draft-") as tmp:
             report = await self._run_tests(draft, bundle, Path(tmp))
             failing = {c.case_id: c for c in report.cases if not c.passed}
@@ -332,7 +351,7 @@ class PolicyService:
                 signing_key=self.signing_key,
             )
         previous = self.repository.activate(bundle_id, version, note) if activate else None
-        self.drafts.delete(bundle_id)
+        await self.drafts.delete(tenant, bundle_id)
         return {
             "version": version,
             "activated": activate,

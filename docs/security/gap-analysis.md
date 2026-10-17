@@ -31,14 +31,14 @@ Executable form: `tests/readiness/test_saas_readiness.py` (C = holds, T/L/A = ga
 | ID | L | Requirement (paraphrase) | Status | Evidence / gap | Closes with |
 |---|---|---|---|---|---|
 | 7.2.1 | 1 | Validate every API token through a trusted backend | holds | `routes.py:25-38` | — |
-| 7.2.2 | 1 | Dynamically generated reference tokens, not static API secrets | **missing** | one static token for all callers | ADR-0023 |
+| 7.2.2 | 1 | Dynamically generated reference tokens, not static API secrets | **holds** (2026-10-18) | per-tenant API keys (`tenancy/keys.py`); the static token remains a self-hosted option | ADR-0023 |
 | 7.2.3 | 1 | Reference tokens unique, CSPRNG, ≥ 128 bits | n/a | tokens are operator-chosen strings | ADR-0023 (32 random bytes) |
 | 7.2.4 | 1 | New token on re-authentication, old one ended | n/a | no sessions | ADR-0024 |
-| 6.5.2 | 2 | Lookup secrets stored hashed | **missing** | token compared in clear from settings (`SecretStr` in memory) | ADR-0023 (SHA-256 of a 256-bit secret) |
+| 6.5.2 | 2 | Lookup secrets stored hashed | **holds** | `api_keys.secret_sha256`; constant-time compare (`tenancy/admission.py`) | — |
 | 11.5.1 | 2 | Random values from a CSPRNG, ≥ 128 bits | partial | `event_id` uses `uuid4` (fine as id, not as secret); no secret generation exists | ADR-0023 |
 | 13.2.1–13.2.3 | 2 | Backend-to-backend auth with individual service accounts, least privilege, no default credentials | **missing** | console → services with one shared token each; no acting-user identity | ADR-0023 (service credential + on-behalf-of assertion) |
 | 6.3.2 | 1 | No default accounts | holds | none exist | — |
-| 6.1.1 / 6.3.1 | 1 | Documented and implemented anti-brute-force on authentication | **missing** | no rate limit on token checks | ADR-0023 §7 |
+| 6.1.1 / 6.3.1 | 1 | Documented and implemented anti-brute-force on authentication | partial | per-credential token bucket (429); no limit per source IP on failed attempts yet | ADR-0023 §7, ingress |
 | 6.3.3 | 2 | MFA for console access | **missing** | no login | ADR-0024 §3 |
 | 9.1.1–9.1.3, 9.2.1 | 1 | Verify signature, algorithm allowlist, trusted keys, `nbf`/`exp` on self-contained tokens | n/a | no JWTs yet; bundle manifests already verify signature with known keys (`manifest.py`) | ADR-0023 (assertion), ADR-0027 (registry) |
 | 9.2.3 | 2 | Audience allowlist | n/a | — | ADR-0023 |
@@ -62,11 +62,11 @@ Executable form: `tests/readiness/test_saas_readiness.py` (C = holds, T/L/A = ga
 | ID | L | Requirement | Status | Evidence / gap | Closes with |
 |---|---|---|---|---|---|
 | 8.1.1 / 8.1.2 | 1/2 | Documented function- and data-level (and field-level) access rules | **missing** | no rules document; this analysis and ADR-0029 are the first | ADR-0029 §3 |
-| 8.2.1 | 1 | Function-level access only for permitted consumers | **missing** | `POST /v1/bundles/reload` callable by any caller | ADR-0023 scopes |
+| 8.2.1 | 1 | Function-level access only for permitted consumers | **holds** | scopes per route; `bundles:reload` is operator-only | — |
 | 8.2.2 | 1 | Object-level access (no IDOR / BOLA) | **missing** | any token reads any bundle (`GET /v1/bundles/{id}/versions/{v}`), any guardrail draft | ADR-0023, ADR-0025 |
 | 8.2.3 | 2 | Field-level access | n/a | — | with roles |
 | 8.3.1 | 1 | Enforce in a trusted service layer, not the client | partial | engine decides policy in code (good); console actions are not authorized anywhere | ADR-0029 §1 |
-| 8.4.1 | 2 | Multi-tenant cross-tenant controls | **missing** | `tenant_id` from the body; readiness T1 red | ADR-0023, ADR-0025 |
+| 8.4.1 | 2 | Multi-tenant cross-tenant controls | **holds** for keys and the store | tenant from the credential (T1 green); Postgres RLS with FORCE and `WITH CHECK` (I1–I3 green); bundles still shared | ADR-0025 §8 for bundles |
 | 15.3.1 | 1 | Return only necessary fields | holds | response models with `exclude_none`; bundle content is policy data only | — |
 | 15.3.3 | 2 | Restrict writable fields (mass assignment) | holds | Pydantic models with `extra="forbid"` on contracts (422 on unknown fields: `tests/integration/test_api.py::test_malformed_request_is_422`) | — |
 | 15.3.4 | 2 | Client IP from trusted headers only | n/a | no IP use yet | ADR-0030 (audit `ip`) |
@@ -112,7 +112,7 @@ Executable form: `tests/readiness/test_saas_readiness.py` (C = holds, T/L/A = ga
 | 2.1.3, 2.3.2, 2.4.1 | 2 | Documented and implemented business limits; anti-automation | **missing** | no quota, size or rate limit; readiness T2 red | ADR-0019 §4, ADR-0023 §7, ADR-0028 |
 | 15.1.3 / 15.2.2 | 2 | Resource-intensive functions documented and protected | partial | regex timeout exists; scan length unbounded | ADR-0019 §4 |
 
-ASVS tally over the rows above: **holds 14 · partial 9 · missing 29 · n/a 10**.
+ASVS tally over the rows above (2026-10-18, after ADR-0023/0025 code): **holds 18 · partial 10 · missing 24 · n/a 10**.
 
 ## 3. SOC 2 common criteria CC6–CC8
 
@@ -136,10 +136,10 @@ ASVS tally over the rows above: **holds 14 · partial 9 · missing 29 · n/a 10*
 | Item | Status | Evidence / gap |
 |---|---|---|
 | API1 Broken object-level authorization | **missing** | any token reads any bundle version or guardrail draft |
-| API2 Broken authentication | **missing** | static shared secret, no rotation or revocation |
+| API2 Broken authentication | **holds** | per-tenant keys, hashed, revocable within one poll interval, rotation by second key |
 | API3 Broken object property-level authorization | holds | `extra="forbid"` contracts; response models exclude internals |
 | API4 Unrestricted resource consumption | **missing** | no body, scan-length or rate limits (readiness T2) |
-| API5 Broken function-level authorization | **missing** | `reload` and publish/activate open to any token holder |
+| API5 Broken function-level authorization | partial | engine routes behind scopes; policy-service publish/activate still open to the operator token (roles: ADR-0029) |
 | API6 Unrestricted access to sensitive business flows | **missing** | publish → activate without approval or actor |
 | API7 SSRF | holds | no user-supplied URLs are fetched (allowed domains are matched, not fetched) |
 | API8 Security misconfiguration | partial | dev gates good; `/docs` exposed; no TLS/headers |
