@@ -1,0 +1,14 @@
+[Unit]
+Description=UMAI single-VM stack (ADR-0032)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/umai/src/umai-decision-engine/deploy/vm/umai.sh up
+TimeoutStartSec=900
+
+[Install]
+WantedBy=multi-user.target

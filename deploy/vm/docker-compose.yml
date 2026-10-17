@@ -1,0 +1,121 @@
+# Single-VM starter stack (ADR-0032). Run through ./umai.sh, which fetches secrets from Key Vault
+# into /run/umai (tmpfs) first; never start it with a hand-written .env holding secrets.
+#
+#   caddy  :80/:443  TLS (Let's Encrypt), basic auth on the console, body cap, security headers
+#   engine :9100     /v1, /healthz, /readyz      (internal network only)
+#   policy :9200     policy service, console only (internal network only)
+#   console :3100    umai-control-center         (internal network only)
+
+name: umai
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "5" }
+
+x-engine-env: &engine-env
+  UMAI_DE_ENV: production
+  UMAI_DE_LOG_LEVEL: INFO
+  UMAI_DE_POLICY_DIR: /data/policies
+  UMAI_DE_BUNDLE_PUBLIC_KEYS: ${UMAI_BUNDLE_PUBLIC_KEYS:?set in config.env}
+  UMAI_DE_REQUIRE_SIGNED_BUNDLES: "true"
+
+services:
+  seed:
+    # One-shot: fills an empty policy volume from the image and signs it with the deployment key.
+    build: { context: ../.., dockerfile: Dockerfile }
+    image: umai-decision-engine:current
+    command: ["sh", "/app/deploy/seed-policies.sh"]
+    environment:
+      UMAI_SIGNING_KEY_ID: ${UMAI_SIGNING_KEY_ID:?set in config.env}
+    volumes:
+      - policies:/data/policies
+      - ./seed-policies.sh:/app/deploy/seed-policies.sh:ro
+      - "${UMAI_RUN_DIR:-/run/umai}/signing.key:/run/secrets/signing.key:ro"
+    restart: "no"
+    logging: *logging
+
+  engine:
+    image: umai-decision-engine:current
+    environment:
+      <<: *engine-env
+    env_file: ["${UMAI_RUN_DIR:-/run/umai}/engine.env"]
+    volumes:
+      - policies:/data/policies:ro
+    depends_on:
+      seed: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:9100/readyz',timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      start_period: 60s
+    read_only: true
+    tmpfs: [/tmp]
+    mem_limit: 900m
+    restart: unless-stopped
+    logging: *logging
+
+  policy:
+    image: umai-decision-engine:current
+    command: ["uvicorn", "umai_decision_engine.control_plane.app:app", "--host", "0.0.0.0", "--port", "9200", "--no-server-header"]
+    environment:
+      <<: *engine-env
+      UMAI_DE_CONTROL_DB_PATH: /data/control/control.sqlite
+      UMAI_DE_SIGNING_KEY_FILE: /run/secrets/signing.key
+      UMAI_DE_SIGNING_KEY_ID: ${UMAI_SIGNING_KEY_ID:?set in config.env}
+    env_file: ["${UMAI_RUN_DIR:-/run/umai}/policy.env"]
+    volumes:
+      - policies:/data/policies
+      - control:/data/control
+      - "${UMAI_RUN_DIR:-/run/umai}/signing.key:/run/secrets/signing.key:ro"
+    depends_on:
+      seed: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:9200/healthz',timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      start_period: 60s
+    read_only: true
+    tmpfs: [/tmp]
+    mem_limit: 900m
+    restart: unless-stopped
+    logging: *logging
+
+  console:
+    build: { context: "${UMAI_CONSOLE_SRC:-/opt/umai/src/umai-control-center}" }
+    image: umai-control-center:current
+    environment:
+      UMAI_ENGINE_URL: http://engine:9100
+      UMAI_CONTROL_URL: http://policy:9200
+      UMAI_ENGINE_TIMEOUT_MS: "10000"
+      UMAI_CONSOLE_TENANT_ID: ${UMAI_CONSOLE_TENANT_ID:-console}
+    env_file: ["${UMAI_RUN_DIR:-/run/umai}/console.env"]
+    depends_on:
+      engine: { condition: service_healthy }
+      policy: { condition: service_healthy }
+    read_only: true
+    tmpfs: [/tmp, /app/.next/cache]
+    mem_limit: 512m
+    restart: unless-stopped
+    logging: *logging
+
+  caddy:
+    image: caddy:2.10-alpine
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      UMAI_HOSTNAME: ${UMAI_HOSTNAME:?set in config.env}
+      UMAI_ACME_EMAIL: ${UMAI_ACME_EMAIL:?set in config.env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - "${UMAI_RUN_DIR:-/run/umai}/console-auth.caddy:/run/umai/console-auth.caddy:ro"
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [engine, console]
+    mem_limit: 256m
+    restart: unless-stopped
+    logging: *logging
+
+volumes:
+  policies:
+  control:
+  caddy_data:
+  caddy_config:

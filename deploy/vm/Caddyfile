@@ -1,0 +1,59 @@
+# One hostname (Azure DNS label or a custom domain): the engine API on /v1, /healthz, /readyz;
+# everything else is the console behind basic auth until console login (ADR-0024) lands.
+{
+	email {$UMAI_ACME_EMAIL}
+	servers {
+		protocols h1 h2 h3
+	}
+}
+
+{$UMAI_HOSTNAME} {
+	tls {
+		protocols tls1.2 tls1.3
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		Content-Security-Policy "frame-ancestors 'none'"
+		-Server
+	}
+
+	# Ingress body cap (ADR-0019 §4) until the engine enforces its own prompt-size limit.
+	request_body {
+		max_size 512KB
+	}
+
+	# OpenAPI and docs are development aids (gap analysis 13.4.5); not served here.
+	@docs path /docs /docs/* /redoc /openapi.json
+	handle @docs {
+		respond 404
+	}
+
+	@engine path /v1/* /healthz /readyz
+	handle @engine {
+		header Cache-Control "no-store"
+		reverse_proxy engine:9100
+	}
+
+	handle {
+		basic_auth {
+			# "<user> <bcrypt hash>", written by umai.sh from Key Vault into tmpfs.
+			import /run/umai/console-auth.caddy
+		}
+		reverse_proxy console:3100
+	}
+
+	log {
+		# Access log without query strings or headers (no content, no credentials).
+		format filter {
+			request>uri query {
+				delete *
+			}
+			request>headers delete
+			request>tls delete
+			resp_headers delete
+		}
+	}
+}

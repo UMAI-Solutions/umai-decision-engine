@@ -31,5 +31,15 @@ listed in [`../open-questions.md`](../open-questions.md) as blocking, and flag d
 | [0020](0020-deterministic-baselines-names-addresses.md) | Names and addresses start with deterministic recognizers; NER is added on evidence | Accepted (NER deferred) |
 | [0021](0021-guardrail-model-policies-pinning-hierarchy.md) | Guardrail model: versioned policies pinned into guardrails; company → project → guardrail | Accepted |
 | [0022](0022-policy-service-control-plane.md) | Policy service: drafts, tests and publishing from the console | Accepted |
+| [0023](0023-identity-planes-and-api-keys.md) | Two identity planes: per-tenant API keys for workloads, people through the console | Proposed |
+| [0024](0024-human-identity-oidc-keycloak.md) | Human identity: standard OIDC, Keycloak as default identity service, broker interface | Proposed |
+| [0025](0025-tenant-isolation-postgres-rls.md) | Tenant isolation: Postgres per region with RLS, per-tenant envelope encryption | Proposed |
+| [0026](0026-region-pinning-and-global-directory.md) | Region pinning: independent regional stacks, content-free global directory | Proposed |
+| [0027](0027-key-custody-kms-and-secrets.md) | Key custody: signing keys in Key Vault behind a Signer interface, secrets out of files | Proposed (amended by 0031) |
+| [0028](0028-metering-entitlements-and-billing.md) | Metering, entitlements and billing: own ledger, Redis counters, billing adapter | Proposed |
+| [0029](0029-authorization-roles-and-four-eyes.md) | Authorization: tenant roles enforced in services, four-eyes for production activation | Proposed |
+| [0030](0030-audit-events-and-structured-telemetry.md) | Audit and decision events: append-only per tenant, exportable; telemetry allowlist | Proposed |
+| [0031](0031-umai-cloud-on-azure.md) | UMAI Cloud on Azure: West Europe / North Europe, ECDSA P-256 in Key Vault Premium, Flexible Server, Application Gateway (no Front Door), AKS + Notation, Managed Redis | Proposed |
+| [0032](0032-single-vm-starter-on-azure.md) | Single-VM starter on Azure: Docker Compose (Caddy, engine, policy service, console), Key Vault secrets, ≈ $41/month; demos and pilots only | Accepted |
 
 New ADR: copy [`0000-template.md`](0000-template.md), or use skill `write-adr`.

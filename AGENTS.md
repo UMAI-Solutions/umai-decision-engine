@@ -91,6 +91,9 @@ python -m umai_decision_engine.policy.cli validate policies/<bundle_id>/<version
 python -m umai_decision_engine.policy.cli test policies --require-tests   # golden tests (ADR-0015)
 python -m umai_decision_engine.policy.cli keygen | sign | verify  # bundle signing (ADR-0012)
 python -m evals.run --suite l0-pii-tr --split dev --tag <label>  # L0 accuracy (also: --suite leak)
+docker build -t umai-decision-engine .                            # one image: engine API + policy service
+az deployment group create -g <rg> -f deploy/azure/main.bicep -p deploy/azure/main.bicepparam  # starter VM (ADR-0032)
+deploy/vm/umai.sh up | update | backup | status                   # on the VM; runbook: deploy/vm/README.md
 ```
 
 Not available yet: `python -m pytest -m live` (no live providers before L1b) and eval suites
@@ -108,6 +111,12 @@ tests with accepted changes, publish, activate, rollback); eval harness with the
 suites; golden-test runner (`cli test`) and CI (`.github/workflows/ci.yml`: ruff, pytest,
 golden tests on Linux and Windows). L1 is not implemented: input without detected entities, evaluated against a bundle
 with L1 rules or policies, is answered with `on_evaluation_failure` and `L1_NOT_IMPLEMENTED`.
+Deployment (2026-10-17): single-VM starter on Azure (ADR-0032: `Dockerfile`, `deploy/vm/` Docker
+Compose with Caddy, `deploy/azure/main.bicep`); the console image lives in `umai-control-center`.
+SaaS readiness (2026-10-17): threat model, gap analysis, launch plan and eight proposed ADRs in
+`docs/security/` and `docs/adr/0023`–`0031` (0031: UMAI Cloud runs on Azure); `tests/readiness/`
+measures the open gaps (xfail).
+The engine is still single-tenant and the console has no login.
 
 ## Where to look
 
@@ -123,6 +132,7 @@ with L1 rules or policies, is answered with `on_evaluation_failure` and `L1_NOT_
 | Change a policy, write golden cases | [`docs/workflow/policy-authoring.md`](docs/workflow/policy-authoring.md), [`docs/contracts/policy-tests.md`](docs/contracts/policy-tests.md) |
 | Evals, datasets, metrics | [`docs/evals/`](docs/evals/), skill `run-evals` |
 | A vendor's API or limits | [`docs/reference/`](docs/reference/), skill `verify-vendor-facts` |
+| Security, tenancy, SaaS readiness (threat model, gaps, launch stages, Azure) | [`docs/security/`](docs/security/), ADR-0023 to ADR-0031, `tests/readiness/` |
 | Why something is the way it is | [`docs/adr/`](docs/adr/) |
 | What the old engine did | [`docs/platform-context/`](docs/platform-context/) |
 | What is undecided | [`docs/open-questions.md`](docs/open-questions.md) |
@@ -131,6 +141,8 @@ with L1 rules or policies, is answered with `on_evaluation_failure` and `L1_NOT_
 ## Definition of done
 
 - Tests added or updated; `pytest -q` and `ruff check` pass.
+- A readiness test in `tests/readiness/` that starts passing has its `xfail` marker removed and
+  `docs/security/gap-analysis.md` updated in the same change (a closed gap is recorded, not hidden).
 - Policy golden tests pass (`cli test policies --require-tests`). A policy change comes with
   cases that show its effect and its boundary.
 - No raw content in logs, fixtures or snapshots (rule 1); synthetic data only (rule 2).

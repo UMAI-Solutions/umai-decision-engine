@@ -1,0 +1,33 @@
+#cloud-config
+# Base system for the single-VM stack (ADR-0032). The application itself is installed by the
+# operator (deploy/vm/README.md): it needs repository access and Key Vault secrets first.
+package_update: true
+package_upgrade: true
+packages:
+  - docker.io
+  - docker-compose-v2
+  - git
+  - jq
+  - curl
+  - unattended-upgrades
+
+write_files:
+  - path: /etc/docker/daemon.json
+    content: |
+      {
+        "log-driver": "json-file",
+        "log-opts": { "max-size": "10m", "max-file": "5" },
+        "live-restore": true
+      }
+  - path: /etc/apt/apt.conf.d/52umai-unattended-reboot
+    content: |
+      Unattended-Upgrade::Automatic-Reboot "true";
+      Unattended-Upgrade::Automatic-Reboot-Time "03:30";
+
+runcmd:
+  # 2 GiB swap: headroom for image builds on a 4 GiB VM.
+  - fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+  - echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  - mkdir -p /opt/umai/src && chmod 0750 /opt/umai
+  - systemctl enable --now docker
+  - systemctl enable --now unattended-upgrades

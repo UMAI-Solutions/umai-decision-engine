@@ -1,0 +1,7 @@
+[Unit]
+Description=UMAI backup to Blob Storage
+After=umai.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/umai/src/umai-decision-engine/deploy/vm/umai.sh backup

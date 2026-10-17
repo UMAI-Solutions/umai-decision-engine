@@ -1,0 +1,292 @@
+// Single-VM starter deployment of UMAI on Azure (ADR-0032).
+// One Linux VM (Docker Compose stack from deploy/vm), a Key Vault for secrets, a storage account
+// for nightly backups. No secrets in parameters: they are set in Key Vault after deployment.
+//
+//   az group create -n rg-umai-beta -l westeurope
+//   az deployment group create -g rg-umai-beta -f deploy/azure/main.bicep -p deploy/azure/main.bicepparam
+
+targetScope = 'resourceGroup'
+
+@description('Region. West Europe by ADR-0031; any EU region works for the starter VM.')
+param location string = resourceGroup().location
+
+@description('Short prefix for resource names (lowercase letters and digits).')
+@minLength(3)
+@maxLength(10)
+param prefix string = 'umaibeta'
+
+@description('DNS label: <label>.<region>.cloudapp.azure.com becomes the public hostname.')
+param dnsLabel string
+
+@description('VM size. B2als_v2 = 2 vCPU, 4 GiB (ADR-0032 sizing).')
+param vmSize string = 'Standard_B2als_v2'
+
+param adminUsername string = 'umaiops'
+
+@description('SSH public key of the operator. Password login is disabled.')
+param adminSshPublicKey string
+
+@description('CIDR allowed to reach SSH (22) and the Key Vault data plane, e.g. 203.0.113.7/32.')
+param adminSourceCidr string
+
+@description('Entra object id of the operator who writes secrets into Key Vault (optional).')
+param operatorObjectId string = ''
+
+@description('Days a backup blob is kept.')
+param backupRetentionDays int = 30
+
+var suffix = uniqueString(resourceGroup().id)
+var kvName = take('${prefix}-kv-${suffix}', 24)
+var saName = take('${prefix}${suffix}', 24)
+var roleKeyVaultSecretsUser = '4633458b-17de-408a-b874-0445c86b69e6'
+var roleKeyVaultSecretsOfficer = 'b86a8fe4-44ce-4948-aee5-eccb2c155cd7'
+var roleStorageBlobDataContributor = 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
+
+resource nsg 'Microsoft.Network/networkSecurityGroups@2024-05-01' = {
+  name: '${prefix}-nsg'
+  location: location
+  properties: {
+    securityRules: [
+      {
+        name: 'ssh-operator'
+        properties: {
+          priority: 100
+          direction: 'Inbound'
+          access: 'Allow'
+          protocol: 'Tcp'
+          sourceAddressPrefix: adminSourceCidr
+          sourcePortRange: '*'
+          destinationAddressPrefix: '*'
+          destinationPortRange: '22'
+        }
+      }
+      {
+        name: 'https'
+        properties: {
+          priority: 110
+          direction: 'Inbound'
+          access: 'Allow'
+          protocol: '*'
+          sourceAddressPrefix: 'Internet'
+          sourcePortRange: '*'
+          destinationAddressPrefix: '*'
+          destinationPortRange: '443'
+        }
+      }
+      {
+        name: 'http-acme-redirect'
+        properties: {
+          priority: 120
+          direction: 'Inbound'
+          access: 'Allow'
+          protocol: 'Tcp'
+          sourceAddressPrefix: 'Internet'
+          sourcePortRange: '*'
+          destinationAddressPrefix: '*'
+          destinationPortRange: '80'
+        }
+      }
+    ]
+  }
+}
+
+resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' = {
+  name: '${prefix}-vnet'
+  location: location
+  properties: {
+    addressSpace: { addressPrefixes: ['10.40.0.0/24'] }
+    subnets: [
+      {
+        name: 'vm'
+        properties: {
+          addressPrefix: '10.40.0.0/27'
+          networkSecurityGroup: { id: nsg.id }
+          // Same-region traffic to Key Vault and Storage arrives from the subnet, not the public
+          // IP, so their firewalls admit the subnet through service endpoints.
+          serviceEndpoints: [{ service: 'Microsoft.KeyVault' }, { service: 'Microsoft.Storage' }]
+        }
+      }
+    ]
+  }
+}
+
+resource pip 'Microsoft.Network/publicIPAddresses@2024-05-01' = {
+  name: '${prefix}-pip'
+  location: location
+  sku: { name: 'Standard' }
+  properties: {
+    publicIPAllocationMethod: 'Static'
+    dnsSettings: { domainNameLabel: dnsLabel }
+  }
+}
+
+resource nic 'Microsoft.Network/networkInterfaces@2024-05-01' = {
+  name: '${prefix}-nic'
+  location: location
+  properties: {
+    ipConfigurations: [
+      {
+        name: 'ipconfig'
+        properties: {
+          subnet: { id: vnet.properties.subnets[0].id }
+          privateIPAllocationMethod: 'Dynamic'
+          publicIPAddress: { id: pip.id }
+        }
+      }
+    ]
+  }
+}
+
+resource vm 'Microsoft.Compute/virtualMachines@2024-07-01' = {
+  name: '${prefix}-vm'
+  location: location
+  identity: { type: 'SystemAssigned' }
+  properties: {
+    hardwareProfile: { vmSize: vmSize }
+    osProfile: {
+      computerName: '${prefix}-vm'
+      adminUsername: adminUsername
+      customData: base64(loadTextContent('cloud-init.yaml'))
+      linuxConfiguration: {
+        disablePasswordAuthentication: true
+        ssh: {
+          publicKeys: [
+            {
+              path: '/home/${adminUsername}/.ssh/authorized_keys'
+              keyData: adminSshPublicKey
+            }
+          ]
+        }
+        patchSettings: { patchMode: 'ImageDefault' }
+      }
+    }
+    storageProfile: {
+      imageReference: {
+        publisher: 'Canonical'
+        offer: 'ubuntu-24_04-lts'
+        sku: 'server'
+        version: 'latest'
+      }
+      osDisk: {
+        createOption: 'FromImage'
+        diskSizeGB: 64
+        managedDisk: { storageAccountType: 'StandardSSD_LRS' }
+        deleteOption: 'Delete'
+      }
+    }
+    networkProfile: {
+      networkInterfaces: [{ id: nic.id, properties: { deleteOption: 'Delete' } }]
+    }
+    securityProfile: {
+      securityType: 'TrustedLaunch'
+      uefiSettings: { secureBootEnabled: true, vTpmEnabled: true }
+    }
+  }
+}
+
+resource kv 'Microsoft.KeyVault/vaults@2023-07-01' = {
+  name: kvName
+  location: location
+  properties: {
+    tenantId: subscription().tenantId
+    sku: { family: 'A', name: 'standard' }
+    enableRbacAuthorization: true
+    enableSoftDelete: true
+    softDeleteRetentionInDays: 30
+    enablePurgeProtection: true
+    publicNetworkAccess: 'Enabled'
+    networkAcls: {
+      defaultAction: 'Deny'
+      bypass: 'AzureServices'
+      virtualNetworkRules: [{ id: vnet.properties.subnets[0].id }]
+      ipRules: [{ value: adminSourceCidr }]
+    }
+  }
+}
+
+resource sa 'Microsoft.Storage/storageAccounts@2023-05-01' = {
+  name: saName
+  location: location
+  sku: { name: 'Standard_LRS' }
+  kind: 'StorageV2'
+  properties: {
+    accessTier: 'Cool'
+    minimumTlsVersion: 'TLS1_2'
+    supportsHttpsTrafficOnly: true
+    allowBlobPublicAccess: false
+    allowSharedKeyAccess: false
+    networkAcls: {
+      defaultAction: 'Deny'
+      bypass: 'AzureServices'
+      virtualNetworkRules: [{ id: vnet.properties.subnets[0].id, action: 'Allow' }]
+      // Storage IP rules take plain addresses for /31 and /32.
+      ipRules: [{ value: replace(adminSourceCidr, '/32', ''), action: 'Allow' }]
+    }
+  }
+}
+
+resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01' = {
+  parent: sa
+  name: 'default'
+}
+
+resource backups 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
+  parent: blobService
+  name: 'backups'
+  properties: { publicAccess: 'None' }
+}
+
+resource lifecycle 'Microsoft.Storage/storageAccounts/managementPolicies@2023-05-01' = {
+  parent: sa
+  name: 'default'
+  properties: {
+    policy: {
+      rules: [
+        {
+          name: 'expire-backups'
+          enabled: true
+          type: 'Lifecycle'
+          definition: {
+            filters: { blobTypes: ['blockBlob'], prefixMatch: ['backups/'] }
+            actions: { baseBlob: { delete: { daysAfterModificationGreaterThan: backupRetentionDays } } }
+          }
+        }
+      ]
+    }
+  }
+}
+
+resource vmReadsSecrets 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: kv
+  name: guid(kv.id, vm.id, roleKeyVaultSecretsUser)
+  properties: {
+    principalId: vm.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roleKeyVaultSecretsUser)
+  }
+}
+
+resource operatorWritesSecrets 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(operatorObjectId)) {
+  scope: kv
+  name: guid(kv.id, operatorObjectId, roleKeyVaultSecretsOfficer)
+  properties: {
+    principalId: operatorObjectId
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roleKeyVaultSecretsOfficer)
+  }
+}
+
+resource vmWritesBackups 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: sa
+  name: guid(sa.id, vm.id, roleStorageBlobDataContributor)
+  properties: {
+    principalId: vm.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roleStorageBlobDataContributor)
+  }
+}
+
+output hostname string = pip.properties.dnsSettings.fqdn
+output publicIp string = pip.properties.ipAddress
+output keyVaultName string = kv.name
+output backupStorageAccount string = sa.name
+output sshCommand string = 'ssh ${adminUsername}@${pip.properties.dnsSettings.fqdn}'
