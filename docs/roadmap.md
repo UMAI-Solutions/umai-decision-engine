@@ -18,6 +18,7 @@ Each phase ends with a short report in `evals/reports/` or `docs/` and an update
 
 | Date | Done | Notes |
 |---|---|---|
+| 2026-10-17 | Demo guardrail `gr-demo-data-protection` v4 (policy form, ADR-0021) activated | Pointer change only; v2 and v3 stay loaded for rollback |
 | 2026-10-17 | Guardrail model (ADR-0021): `l0.policies` with roles and sensitivity (policy-bundle 0.6), decision provenance `decision.matched` (evaluation API 0.5), guardrail detail endpoint, demo guardrail v4 (52 golden cases), sensitivity sweep report; console Guardrails pages | 298 tests; 111 golden cases |
 | 2026-10-17 | Name detection parked by the product owner: gazetteer baseline kept, no NER; `PERSON` out of the F1 exit criterion (ADR-0020) | Every-culture names need a multilingual NER model when resumed |
 | 2026-10-17 | Full L0 catalog as Presidio recognizers: IP, unknown links, international phones, US SSN, VKN, plate, 7 EU IDs, addresses, names (gazetteer, ADR-0020), secrets, custom recognizers, e-mail obfuscation, digit-evasion normalization; policy-bundle 0.5; demo bundle v3 (40 golden cases) | [Test split](../evals/reports/2026-10-17-l0-pii-tr-catalog-test/summary.md) (run once, after development): precision 1.000, recall 0.967, 0 % false alarms; every type meets ADR-0017 except `PERSON` (recall 0.33: all misses are names outside the gazetteer → NER, Q8). One test-split label inconsistency (a private IP marked clean) was corrected in the generator, detector unchanged. Leak suite PASS. 4 kB business text p95 11 ms (all 27 types) |
