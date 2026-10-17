@@ -45,6 +45,23 @@ class BundleSource(Protocol):
     def scan(self) -> SourceSnapshot: ...
 
 
+class SnapshotSource:
+    """A fixed, in-memory snapshot. Loads a chosen set of artifacts through the regular store
+    path (manifest check, validation) without a running engine: golden tests (ADR-0015) and,
+    later, the control plane's validate/test stages."""
+
+    name = "snapshot"
+
+    def __init__(self, snapshot: SourceSnapshot) -> None:
+        self._snapshot = snapshot
+
+    def fingerprint(self) -> str:
+        return "snapshot"
+
+    def scan(self) -> SourceSnapshot:
+        return self._snapshot
+
+
 class DirectorySource:
     name = "directory"
 

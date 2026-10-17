@@ -14,10 +14,12 @@ docs/
 ├── architecture/
 │   ├── overview.md               the L0 → L1 → L2 pipeline, diagrams, principles
 │   ├── l0-entity-detection.md    Presidio, Turkish recognizers, redaction
+│   ├── l0-entity-catalog.md      target entity types: Lakera parity + Türkiye + Europe
 │   ├── l1-policy-decision.md     L1a rules, L1b decision models, question compilation
 │   ├── l2-llm-analyst.md         asynchronous review worker, event delivery, findings
 │   ├── decision-merge-and-failure.md   precedence, floor, budgets, failure modes
 │   ├── policy-lifecycle.md       edit in a dashboard → publish → live (design constraint)
+│   ├── deployment-and-editions.md  SaaS vs self-hosted, Community vs Enterprise, entitlements
 │   └── code-layout.md            target package layout and module boundaries
 ├── contracts/                    versioned data shapes (the source of truth for code)
 │   ├── README.md                 versioning rules
@@ -27,12 +29,14 @@ docs/
 │   ├── decision-questions.md     provider-agnostic question schema for L1b
 │   ├── tagged-action.md          decision event: L1 output, history record, L2 input
 │   ├── l2-analysis.md            L2 output and stored analysis
-│   └── tag-taxonomy.md           tag codes
+│   ├── tag-taxonomy.md           tag codes
+│   └── policy-tests.md           golden cases for a bundle version
 ├── adr/                          architecture decision records
 ├── reference/                    external facts: vendors, libraries, algorithms (dated)
 ├── platform-context/             background: what umai-engine (the engine this may replace) does
 ├── evals/                        eval strategy, datasets, metrics
 └── workflow/                     how to develop, test and ship changes here
+    └── policy-authoring.md       how the team changes, tests and activates a policy
 ```
 
 ## Reading order for a newcomer

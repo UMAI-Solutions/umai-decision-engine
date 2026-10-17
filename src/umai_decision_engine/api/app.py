@@ -30,6 +30,8 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         cfg = settings or get_settings()
+        if cfg.env != "development" and cfg.api_token is None:
+            raise RuntimeError("UMAI_DE_API_TOKEN is required outside development (ADR-0016)")
         configure_logging(cfg.log_level)
         state = app.state
         state.ready = False

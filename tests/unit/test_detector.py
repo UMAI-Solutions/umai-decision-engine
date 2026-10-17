@@ -58,9 +58,17 @@ def test_validated_tckn_outranks_unvalidated(detector, core_config) -> None:
     assert [e.validated for e in result.entities] == [True, False]
 
 
-def test_grouped_tckn_needs_context(detector, core_config) -> None:
-    _, found = _found(detector, "sipariş kodu 100 000 001 46", core_config)
-    assert ("TR_TCKN", "100 000 001 46") not in found
+def test_checksum_valid_tckn_is_caught_in_any_written_form(detector, core_config) -> None:
+    # 1 % of random 11-digit strings pass the checksum: a valid one is reported grouped,
+    # dashed or dotted, with or without ID context (ADR-0017 eval: separated forms were missed).
+    for written in ("100 000 001 46", "100-000-001-46", "100.000.001.46"):
+        _, found = _found(detector, f"kayıt {written} eksik", core_config)
+        assert found == [("TR_TCKN", written)]
+
+
+def test_grouped_invalid_checksum_needs_context(detector, core_config) -> None:
+    _, found = _found(detector, "sipariş kodu 100 000 001 47", core_config)
+    assert not [f for f in found if f[0] == "TR_TCKN"]
 
 
 def test_placeholder_number_ignored(detector, core_config) -> None:

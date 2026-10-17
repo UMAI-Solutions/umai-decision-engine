@@ -1,4 +1,5 @@
-"""Core entity catalogue (docs/architecture/l0-entity-detection.md, "core" scope).
+"""Entity catalogue (docs/architecture/l0-entity-catalog.md): core specs defined here, the
+other families in their own modules, all registered through ``ALL_SPECS``.
 
 Patterns use ``[0-9]`` (never ``\\d``) and digit lookarounds instead of ``\\b`` so that
 suffixed Turkish words (``10000000146dır``) still match. Scores are calibrated so that a
@@ -8,8 +9,15 @@ strong checksum passes ``min_score`` 0.5 alone, while weak ones need context.
 from __future__ import annotations
 
 import phonenumbers
+import regex
 
+from umai_decision_engine.l0.recognizers.address import ADDRESS
 from umai_decision_engine.l0.recognizers.base import Candidate, PatternSpec, RecognizerSpec
+from umai_decision_engine.l0.recognizers.network import IP_ADDRESS, UNKNOWN_LINK
+from umai_decision_engine.l0.recognizers.person import PERSON
+from umai_decision_engine.l0.recognizers.phones import PHONE_NUMBER
+from umai_decision_engine.l0.recognizers.regional import REGIONAL_SPECS
+from umai_decision_engine.l0.recognizers.secrets import SECRET_SPECS
 from umai_decision_engine.l0.validators import (
     card_is_valid,
     digits_only,
@@ -25,12 +33,15 @@ from umai_decision_engine.l0.validators import (
 # TCKN context boost (+0.3) lifts it to 0.5, so "kimlik no <typo or fake ID>" is still caught
 # while a random 11-digit number without ID context is not.
 _TCKN_UNVALIDATED_SCORE = 0.2
+# A checksum-valid TCKN (1 % random pass rate) is reported in every written form — grouped,
+# dashed, dotted — even without context words.
+_TCKN_VALID_SCORE = 0.6
 
 
 def _refine_tckn(fragment: str) -> list[Candidate]:
     digits = digits_only(fragment)
     if tckn_is_valid(digits):
-        return [Candidate(0, len(fragment), True)]
+        return [Candidate(0, len(fragment), True, score=_TCKN_VALID_SCORE)]
     if len(set(digits)) <= 2:  # 11111111111, 10000000000 … are placeholders, not IDs
         return []
     return [Candidate(0, len(fragment), False, score=_TCKN_UNVALIDATED_SCORE)]
@@ -69,7 +80,7 @@ TR_TCKN = RecognizerSpec(
 
 
 def _iban_canonical(value: str) -> str:
-    return "".join(ch for ch in value if not ch.isspace()).upper()
+    return "".join(ch for ch in value if not ch.isspace() and ch != "-").upper()
 
 
 def _alnum_end_offsets(fragment: str) -> list[tuple[int, int]]:
@@ -78,7 +89,7 @@ def _alnum_end_offsets(fragment: str) -> list[tuple[int, int]]:
     ends: list[tuple[int, int]] = []
     count = 0
     for i, ch in enumerate(fragment):
-        if not ch.isspace():
+        if not ch.isspace() and ch != "-":
             count += 1
             ends.append((i + 1, count))
     return list(reversed(ends))
@@ -104,7 +115,9 @@ TR_IBAN = RecognizerSpec(
     entity="TR_IBAN",
     patterns=(
         PatternSpec(
-            "tr_iban", r"(?<![A-Za-z0-9])(?:TR|tr)[0-9]{2}(?: ?[0-9A-Z]){22,30}(?![a-z0-9])", 0.75
+            "tr_iban",
+            r"(?<![A-Za-z0-9])(?:TR|tr)[0-9]{2}(?:[ \-]?[0-9A-Z]){22,30}(?![a-z0-9])",
+            0.75,
         ),
     ),
     canonical=_iban_canonical,
@@ -180,7 +193,12 @@ TR_PHONE = RecognizerSpec(
         PatternSpec(
             "tr_phone_prefixed", r"(?<![0-9+])(?:\+90|0090|90|0)[ .\-]?" + _NSN + r"(?![0-9])", 0.55
         ),
-        PatternSpec("tr_phone_bare", r"(?<![0-9+])" + _NSN + r"(?![0-9])", 0.35),
+        PatternSpec(
+            "tr_phone_bare",
+            # not right after a foreign country code ("+44 20 7946 0958", "0049 30 …")
+            r"(?<![0-9+])(?<!\+[0-9]{1,3}[ .\-]?)(?<!00[0-9]{1,3}[ .\-]?)" + _NSN + r"(?![0-9])",
+            0.35,
+        ),
     ),
     canonical=_phone_canonical,
     refine=_refine_tr_phone,
@@ -216,6 +234,11 @@ CREDIT_CARD = RecognizerSpec(
         PatternSpec(
             "card_amex_grouped", r"(?<![0-9])3[47][0-9]{2}[ \-][0-9]{6}[ \-][0-9]{5}(?![0-9])", 0.6
         ),
+        PatternSpec(
+            "card_diners_grouped",
+            r"(?<![0-9])3[0689][0-9]{2}[ \-][0-9]{6}[ \-][0-9]{4}(?![0-9])",
+            0.6,
+        ),
         PatternSpec("card_contiguous", r"(?<![0-9])[0-9]{13,19}(?![0-9])", 0.55),
     ),
     canonical=digits_only,
@@ -237,6 +260,78 @@ CREDIT_CARD = RecognizerSpec(
 )
 
 # ---------------------------------------------------------------- e-mail
+
+_AT = r"(?:\s*[\[(]\s*(?:at|et)\s*[\])]\s*|\s+(?:at|et)\s+)"
+_DOT = r"(?:\s*[\[(]\s*(?:dot|nokta)\s*[\])]\s*|\s+(?:dot|nokta)\s+|\.)"
+# Top-level domains accepted after an obfuscated address (avoids "meet at home dot now").
+_OBFUSCATED_TLDS = frozenset(
+    {
+        "com",
+        "net",
+        "org",
+        "edu",
+        "gov",
+        "io",
+        "co",
+        "info",
+        "biz",
+        "tr",
+        "de",
+        "fr",
+        "es",
+        "it",
+        "nl",
+        "be",
+        "at",
+        "ch",
+        "uk",
+        "eu",
+        "pl",
+        "pt",
+        "se",
+        "no",
+        "dk",
+        "fi",
+        "ie",
+        "gr",
+        "cz",
+        "ro",
+        "hu",
+        "us",
+        "ca",
+        "au",
+        "ai",
+        "app",
+        "dev",
+    }
+)
+_TLD_TAIL = regex.compile(r"([a-z]{2,24})\s*$", regex.IGNORECASE)
+
+
+def _refine_obfuscated_email(fragment: str) -> list[Candidate]:
+    match = _TLD_TAIL.search(fragment)
+    if not match or match.group(1).lower() not in _OBFUSCATED_TLDS:
+        return []
+    return [Candidate(0, len(fragment), True, score=0.65)]
+
+
+_EMAIL_OBFUSCATED = RecognizerSpec(
+    entity="EMAIL_ADDRESS",
+    patterns=(
+        PatternSpec(
+            "email_obfuscated",
+            r"(?i)(?<![A-Za-z0-9._%+\-])[A-Za-z0-9._%+\-]{1,64}"
+            + _AT
+            + r"[A-Za-z0-9\-]{1,63}(?:"
+            + _DOT
+            + r"[A-Za-z0-9\-]{1,63}){1,3}(?![A-Za-z0-9\-])",
+            0.65,
+        ),
+    ),
+    canonical=lambda value: value.strip().lower(),
+    refine=_refine_obfuscated_email,
+    priority=2,
+)
 
 EMAIL_ADDRESS = RecognizerSpec(
     entity="EMAIL_ADDRESS",
@@ -263,7 +358,23 @@ CORE_SPECS: tuple[RecognizerSpec, ...] = (
     EMAIL_ADDRESS,
 )
 
-SPECS_BY_ENTITY: dict[str, RecognizerSpec] = {spec.entity: spec for spec in CORE_SPECS}
+# Every registered recognizer. One entity type may have several specs (EMAIL_ADDRESS: plain
+# and obfuscated); SPECS_BY_ENTITY keeps the primary one (context words, canonical form).
+ALL_SPECS: tuple[RecognizerSpec, ...] = (
+    *CORE_SPECS,
+    _EMAIL_OBFUSCATED,
+    PHONE_NUMBER,
+    IP_ADDRESS,
+    UNKNOWN_LINK,
+    *REGIONAL_SPECS,
+    *SECRET_SPECS,
+    ADDRESS,
+    PERSON,
+)
+
+SPECS_BY_ENTITY: dict[str, RecognizerSpec] = {}
+for _spec in ALL_SPECS:
+    SPECS_BY_ENTITY.setdefault(_spec.entity, _spec)
 
 SUPPORTED_ENTITIES: frozenset[str] = frozenset(SPECS_BY_ENTITY)
 
@@ -276,4 +387,25 @@ TAG_BY_ENTITY: dict[str, str] = {
     "TR_PHONE": "data.pii.tr_phone",
     "CREDIT_CARD": "data.pii.credit_card",
     "EMAIL_ADDRESS": "data.pii.email",
+    "PHONE_NUMBER": "data.pii.phone",
+    "IP_ADDRESS": "data.pii.ip_address",
+    "UNKNOWN_LINK": "data.link.unknown",
+    "US_SSN": "data.pii.us_ssn",
+    "TR_VKN": "data.pii.tr_vkn",
+    "TR_PLATE": "data.pii.tr_plate",
+    "UK_NINO": "data.pii.uk_nino",
+    "DE_TAX_ID": "data.pii.de_tax_id",
+    "FR_NIR": "data.pii.fr_nir",
+    "ES_NIF": "data.pii.es_nif",
+    "ES_NIE": "data.pii.es_nie",
+    "IT_FISCAL_CODE": "data.pii.it_fiscal_code",
+    "NL_BSN": "data.pii.nl_bsn",
+    "PL_PESEL": "data.pii.pl_pesel",
+    "ADDRESS": "data.pii.address",
+    "PERSON": "data.pii.person",
+    "API_KEY": "data.secret.api_key",
+    "PRIVATE_KEY": "data.secret.private_key",
+    "JWT": "data.secret.jwt",
+    "CONNECTION_STRING": "data.secret.connection_string",
+    "PASSWORD": "data.secret.password",
 }

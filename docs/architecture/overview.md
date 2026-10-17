@@ -24,6 +24,10 @@ Afterwards, review selected decisions in the context of their session and raise 
 6. **Models classify, code authorizes.** Thresholds, precedence and enforcement are code.
 7. **On-prem first.** Every runtime component, including the decision model, must run on
    a customer's own server. ([ADR-0004](../adr/0004-decision-model-provider-abstraction.md))
+8. **One release, every edition.** The same engine runs as multi-tenant SaaS and as a
+   self-hosted install, in Community and Enterprise editions; limits and features are
+   entitlements loaded as data. ([ADR-0018](../adr/0018-saas-and-self-hosted-editions.md),
+   [deployment and editions](deployment-and-editions.md))
 
 ## Flow
 
@@ -109,6 +113,7 @@ carried over as commitments; see [`../platform-context/umai-engine-today.md`](..
 - [L1 — policy decision](l1-policy-decision.md)
 - [L2 — asynchronous LLM review](l2-llm-analyst.md)
 - [Decision merge and failure](decision-merge-and-failure.md)
+- [Deployment modes and editions](deployment-and-editions.md)
 - [Code layout](code-layout.md)
 
 ## Relationship to `umai-engine`

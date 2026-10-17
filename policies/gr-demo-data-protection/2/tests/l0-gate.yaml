@@ -1,0 +1,136 @@
+# Golden cases for the L0 gate of gr-demo-data-protection v2 (docs/contracts/policy-tests.md).
+# Synthetic data only: identifiers from docs/reference/turkish-identifiers.md.
+contract_version: "0.1"
+defaults:
+  phase: PRE_LLM
+  destination: { app: chatgpt.com, class: external_llm }
+cases:
+  # ---------------------------------------------------------------- on_detect: BLOCK (default)
+  - id: tckn-to-external-llm-blocked
+    description: A national ID sent to an external LLM is blocked; L1 does not run
+    input:
+      text: "Müşterinin TC kimlik numarası 10000000146, kontrol eder misin?"
+    expect:
+      action: BLOCK
+      decided_by: L0
+      severity: HIGH
+      entities: [TR_TCKN]
+      masked: []
+      reason_contains: "TR_TCKN detected"
+
+  - id: iban-to-external-llm-blocked
+    input:
+      text: "Ödemeyi TR33 0006 1005 1978 6457 8413 26 hesabına yaptım"
+    expect:
+      action: BLOCK
+      decided_by: L0
+      entities: [TR_IBAN]
+
+  - id: troy-card-to-external-llm-blocked
+    input:
+      text: "kart numaram 9792 0000 0000 0003"
+    expect:
+      action: BLOCK
+      entities: [CREDIT_CARD]
+
+  # ---------------------------------------------------------------- on_detect: masking
+  - id: phone-masked
+    description: Phone numbers are masked, not blocked; the caller gets the masked text
+    input:
+      text: "Müşteriyi 0532 123 45 67 numarasından aramamı hatırlat"
+    expect:
+      action: ALLOW_WITH_MODIFICATIONS
+      decided_by: L0
+      severity: MEDIUM
+      entities: [TR_PHONE]
+      masked: [TR_PHONE]
+      redacted_text: "Müşteriyi <TR_PHONE_1> numarasından aramamı hatırlat"
+
+  - id: email-masked
+    input:
+      text: "Teklifi ali.veli@example.com.tr adresine gönder"
+    expect:
+      action: ALLOW_WITH_MODIFICATIONS
+      masked: [EMAIL_ADDRESS]
+      redacted_text: "Teklifi <EMAIL_ADDRESS_1> adresine gönder"
+
+  - id: strictest-action-wins
+    description: A blocked type next to a masked type blocks the whole input
+    input:
+      text: "TC 10000000146, cep 0532 123 45 67"
+    expect:
+      action: BLOCK
+      entities: [TR_TCKN, TR_PHONE]
+      masked: []
+      reason_contains: "TR_TCKN detected"
+
+  # ---------------------------------------------------------------- exception ex-kyc-internal
+  - id: kyc-internal-tckn-allowed
+    input:
+      text: "TC kimlik 10000000146 için müşteri kaydını doğrula"
+      subject: { department: KYC }
+      destination: { app: kyc-portal, class: internal_app }
+    expect:
+      action: ALLOW
+      decided_by: L0
+      severity: LOW
+      entities: [TR_TCKN]
+      reason_contains: ex-kyc-internal
+
+  - id: kyc-internal-exception-covers-tckn-only
+    description: The exception allows TCKN; the e-mail next to it is still masked
+    input:
+      text: "TC kimlik 10000000146, e-posta ali.veli@example.com.tr"
+      subject: { department: KYC }
+      destination: { app: kyc-portal, class: internal_app }
+    expect:
+      action: ALLOW_WITH_MODIFICATIONS
+      entities: [TR_TCKN, EMAIL_ADDRESS]
+      masked: [EMAIL_ADDRESS]
+      redacted_text: "TC kimlik 10000000146, e-posta <EMAIL_ADDRESS_1>"
+
+  - id: kyc-to-external-llm-blocked
+    description: The exception needs both conditions; KYC sending to an external LLM is blocked
+    input:
+      text: "TC kimlik 10000000146 için müşteri kaydını doğrula"
+      subject: { department: KYC }
+    expect:
+      action: BLOCK
+      entities: [TR_TCKN]
+
+  - id: other-department-internal-blocked
+    input:
+      text: "TC kimlik 10000000146 için müşteri kaydını doğrula"
+      subject: { department: Marketing }
+      destination: { app: kyc-portal, class: internal_app }
+    expect:
+      action: BLOCK
+
+  - id: kyc-internal-iban-not-covered
+    description: The exception lists TR_TCKN only; an IBAN is blocked even for KYC
+    input:
+      text: "IBAN TR33 0006 1005 1978 6457 8413 26"
+      subject: { department: KYC }
+      destination: { app: kyc-portal, class: internal_app }
+    expect:
+      action: BLOCK
+      entities: [TR_IBAN]
+
+  # ---------------------------------------------------------------- other phases
+  - id: llm-answer-with-iban-blocked
+    input:
+      phase: POST_LLM
+      focus: LAST_ASSISTANT_MESSAGE
+      text: "Hesap bilgisi: TR33 0006 1005 1978 6457 8413 26"
+    expect:
+      action: BLOCK
+      entities: [TR_IBAN]
+
+  - id: tool-input-with-card-blocked
+    input:
+      phase: TOOL_INPUT
+      text: "charge card 4242 4242 4242 4242"
+      destination: { app: payments-tool, class: agent_tool }
+    expect:
+      action: BLOCK
+      entities: [CREDIT_CARD]

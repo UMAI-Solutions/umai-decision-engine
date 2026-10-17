@@ -28,30 +28,38 @@ def _term_words(term: str) -> tuple[str, ...]:
     return tuple(_WORD.findall(match_fold(term)))
 
 
-def _word_matches(word: str, term_word: str) -> bool:
-    if len(term_word) >= _PREFIX_MIN_LEN:
-        return word.startswith(term_word)
-    return word == term_word
+@lru_cache(maxsize=256)
+def _matcher(terms: tuple[str, ...]) -> regex.Pattern[str] | None:
+    """One regex per term list over the space-joined window words: words of 4+ letters match
+    as prefixes (``kimlik`` → ``kimliğim``), shorter ones exactly; phrases match adjacent words."""
+
+    alternatives = []
+    for term in terms:
+        words = _term_words(term)
+        if words:
+            alternatives.append(
+                " ".join(
+                    regex.escape(w) + (r"\w*" if len(w) >= _PREFIX_MIN_LEN else "") for w in words
+                )
+            )
+    if not alternatives:
+        return None
+    return regex.compile(r"(?:^| )(?:" + "|".join(alternatives) + r")(?= |$)")
 
 
-def _contains_term(words: Sequence[str], term: tuple[str, ...]) -> bool:
-    if not term:
-        return False
-    span = len(term)
-    for i in range(len(words) - span + 1):
-        if all(_word_matches(words[i + k], term[k]) for k in range(span)):
-            return True
-    return False
+@lru_cache(maxsize=8192)
+def _window(text: str, start: int, end: int) -> str:
+    before = _WORD.findall(match_fold(text[max(0, start - 200) : start]))[-WORDS_BEFORE:]
+    after = _WORD.findall(match_fold(text[end : end + 120]))[:WORDS_AFTER]
+    return " ".join([*before, *after])
 
 
 def context_words(text: str, start: int, end: int) -> list[str]:
-    before = _WORD.findall(match_fold(text[max(0, start - 200) : start]))[-WORDS_BEFORE:]
-    after = _WORD.findall(match_fold(text[end : end + 120]))[:WORDS_AFTER]
-    return [*before, *after]
+    return _window(text, start, end).split()
 
 
 def has_context(text: str, start: int, end: int, terms: Sequence[str]) -> bool:
     if not terms:
         return False
-    words = context_words(text, start, end)
-    return any(_contains_term(words, _term_words(term)) for term in terms)
+    matcher = _matcher(tuple(terms))
+    return matcher is not None and matcher.search(_window(text, start, end)) is not None

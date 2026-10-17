@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 import regex
 from presidio_analyzer import LocalRecognizer, RecognizerResult
 
+from umai_decision_engine.l0.context import has_context
+
 # Presidio reads REGEX_TIMEOUT_SECONDS as an int; we use the same variable for our matching.
 _REGEX_TIMEOUT_S = float(os.getenv("REGEX_TIMEOUT_SECONDS", "1") or 1)
 
@@ -38,6 +40,10 @@ class PatternSpec:
     name: str
     regex: str
     score: float
+    # Matches without one of the spec's context words are dropped before validation: for
+    # shapes that collide with ordinary numbers (VKN, BSN, national-format phones, …) and are
+    # never reported without context, this also saves the cost of validating them.
+    requires_context: bool = False
 
 
 @dataclass(frozen=True)
@@ -85,6 +91,10 @@ class SpecRecognizer(LocalRecognizer):
                 continue
             for match in matches:
                 m_start, m_end = match.span()
+                if pattern.requires_context and not has_context(
+                    text, m_start, m_end, self.spec.context
+                ):
+                    continue
                 fragment = text[m_start:m_end]
                 candidates = (
                     self.spec.refine(fragment)

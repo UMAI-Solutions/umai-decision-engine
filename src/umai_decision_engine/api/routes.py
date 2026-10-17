@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from umai_decision_engine.contracts.evaluation import (
@@ -19,6 +20,27 @@ from umai_decision_engine.l0.target import extract_target_text
 from umai_decision_engine.policy.validate import BundleValidationError
 
 router = APIRouter()
+
+
+async def require_api_token(request: Request) -> None:
+    """Bearer token check for /v1 routes (ADR-0016). No token configured → development only;
+    the app refuses to start without one in any other environment."""
+
+    token = request.app.state.settings.api_token
+    if token is None:
+        return
+    scheme, _, value = request.headers.get("authorization", "").partition(" ")
+    if scheme.lower() != "bearer" or not hmac.compare_digest(
+        value.encode(), token.get_secret_value().encode()
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="missing or invalid API token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+_AUTH = [Depends(require_api_token)]
 
 
 @router.get("/healthz")
@@ -41,7 +63,12 @@ async def readyz(request: Request) -> JSONResponse:
     )
 
 
-@router.post("/v1/evaluate", response_model=EvaluationResponse, response_model_exclude_none=True)
+@router.post(
+    "/v1/evaluate",
+    response_model=EvaluationResponse,
+    response_model_exclude_none=True,
+    dependencies=_AUTH,
+)
 async def evaluate(body: EvaluationRequest, request: Request) -> EvaluationResponse:
     _require_ready(request)
     try:
@@ -50,7 +77,7 @@ async def evaluate(body: EvaluationRequest, request: Request) -> EvaluationRespo
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.post("/v1/detect", response_model=DetectResponse)
+@router.post("/v1/detect", response_model=DetectResponse, dependencies=_AUTH)
 async def detect(body: EvaluationRequest, request: Request) -> DetectResponse:
     """Development endpoint: L0 only. Disabled unless ``expose_detect_endpoint``."""
 
@@ -97,7 +124,7 @@ async def detect(body: EvaluationRequest, request: Request) -> DetectResponse:
     )
 
 
-@router.get("/v1/bundles")
+@router.get("/v1/bundles", dependencies=_AUTH)
 async def bundles(request: Request) -> dict[str, Any]:
     """Loaded and active bundle versions and load errors (for operators and the dashboard)."""
 
@@ -129,7 +156,7 @@ async def bundles(request: Request) -> dict[str, Any]:
     }
 
 
-@router.post("/v1/bundles/reload")
+@router.post("/v1/bundles/reload", dependencies=_AUTH)
 async def reload_bundles(request: Request) -> dict[str, Any]:
     """Rescan the bundle source now (the "new version available" signal; ADR-0013)."""
 

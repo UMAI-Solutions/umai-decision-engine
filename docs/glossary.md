@@ -28,6 +28,13 @@ is in English. Use the English term in code and docs.
 | Fail-closed / fail-open | Kapalı / açık hata davranışı | Block vs allow when evaluation cannot complete. |
 | Step-up approval | Step-up / ek onay | User must confirm or justify before continuing. |
 | Session history | Oturum geçmişi | Recent tagged actions of the same session/agent/user, read by L2. |
+| UMAI Cloud (SaaS) | UMAI Bulut (SaaS) | Multi-tenant deployment operated by UMAI, one stack per region (ADR-0018). |
+| Self-hosted | Kurum içi kurulum (on-prem) | The same release run by the customer on its own servers, possibly air-gapped. |
+| Edition | Sürüm / paket | Community or Enterprise: a named set of entitlements, never a separate build. |
+| Entitlement | Yetkilendirme / hak | A tenant's limits (monthly requests, max prompt size) and features (SSO, RBAC, SIEM, version pinning), loaded as signed data (ADR-0019). |
+| Licence file | Lisans dosyası | Signed entitlement record for a self-hosted install, verified offline. |
+| Tenant | Kiracı / müşteri | A customer organisation; in SaaS its identity comes from its API key. |
+| Data residency | Veri yerleşimi | The region whose stack processes and stores a tenant's data (EU or US). |
 | TCKN | T.C. Kimlik Numarası | 11-digit Turkish national ID with checksum. |
 | VKN | Vergi Kimlik Numarası | 10-digit Turkish tax ID with checksum. |
 | KVKK | Kişisel Verilerin Korunması Kanunu | Turkish personal data protection law (Law No. 6698). |

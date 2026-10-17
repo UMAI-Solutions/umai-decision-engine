@@ -5,6 +5,7 @@
 | Unit | `tests/unit/` | always | no | Validators, recognizers, normalization, rules, question compiler, merge, adapters with mocked HTTP |
 | Integration | `tests/integration/` | always | no | FastAPI app + pipeline with fake providers; L2 worker with fake model, SQLite queue and redelivery |
 | Live | `tests/live/` | `-m live` only | yes | Real providers; needs keys in `.env`; never in default CI |
+| Policy golden | `policies/<id>/<version>/tests/` | always (CI step and `pytest`) | no | `python -m umai_decision_engine.policy.cli test policies --require-tests`; see [`policy-authoring.md`](policy-authoring.md) |
 | Evals | `evals/` | on demand | optional | Accuracy and latency; see `docs/evals/` |
 
 ## Required test kinds
@@ -22,6 +23,12 @@
   the payload sent to fakes; assert no raw entity value appears (with and without separators).
 - **Contracts:** example payloads in `docs/contracts/*.md` parse with the Pydantic models
   (doc examples are tests).
+
+## CI
+
+`.github/workflows/ci.yml` runs on every push to `main` and every pull request, on
+`ubuntu-latest` and `windows-latest`: `ruff check`, `ruff format --check`, `pytest -q`, then
+the policy golden tests. Live tests and evals never run in default CI.
 
 ## Conventions
 

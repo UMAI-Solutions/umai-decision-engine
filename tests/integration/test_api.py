@@ -34,20 +34,30 @@ def _request(text: str = PII_TEXT, **overrides):
     return body
 
 
+API_TOKEN = "test-api-token"  # synthetic
+
+
 @pytest.fixture
 def make_client(write_bundle, detector):
     clients = []
 
     def _make(*, own_detector: bool = False, **settings_overrides):
+        env = settings_overrides.pop("env", "development")
+        if env != "development":
+            settings_overrides.setdefault("api_token", API_TOKEN)
         settings = Settings(
-            env=settings_overrides.pop("env", "development"),
+            env=env,
             policy_dir=write_bundle.root,
             bundle_poll_interval_s=0,
             l0_threads=1,
             **settings_overrides,
         )
+        token = settings.api_token
+        headers = {"Authorization": f"Bearer {token.get_secret_value()}"} if token else {}
         # The shared detector uses a fixed test key provider; own_detector uses the settings'.
-        client = TestClient(create_app(settings, detector=None if own_detector else detector))
+        client = TestClient(
+            create_app(settings, detector=None if own_detector else detector), headers=headers
+        )
         client.__enter__()
         clients.append(client)
         return client
@@ -321,7 +331,7 @@ def test_inline_bundle_gate(write_bundle, make_client) -> None:
     dev = make_client()
     body = dev.post("/v1/evaluate", json=_request(bundle_inline=inline)).json()
     assert body["bundle"]["id"] == "gr-inline"
-    bad = dict(inline, l0={"entities": ["TR_VKN"]})
+    bad = dict(inline, l0={"entities": ["TR_PASSPORT"]})
     body = dev.post("/v1/evaluate", json=_request(bundle_inline=bad)).json()
     assert body["errors"][0]["type"] == "CONFIG_INVALID"
     prod_like = make_client(
@@ -354,3 +364,52 @@ def test_malformed_request_is_422(write_bundle, make_client) -> None:
     bad = _request()
     bad["unexpected"] = True
     assert make_client().post("/v1/evaluate", json=bad).status_code == 422
+
+
+# ------------------------------------------------------------------ API token (ADR-0016)
+
+
+def test_api_token_required_on_v1_routes(write_bundle, make_client) -> None:
+    write_bundle(bundle_yaml(), active=1)
+    client = make_client(api_token=API_TOKEN)  # sends the right token by default
+    assert client.post("/v1/evaluate", json=_request(CLEAN_TEXT)).status_code == 200
+
+    for headers in (
+        {"Authorization": ""},
+        {"Authorization": "Bearer wrong"},
+        {"Authorization": f"Basic {API_TOKEN}"},
+    ):
+        response = client.post("/v1/evaluate", json=_request(CLEAN_TEXT), headers=headers)
+        assert response.status_code == 401
+        assert response.headers["www-authenticate"] == "Bearer"
+        assert API_TOKEN not in response.text
+    for path in ("/v1/bundles",):
+        assert client.get(path, headers={"Authorization": ""}).status_code == 401
+    assert client.post("/v1/bundles/reload", headers={"Authorization": ""}).status_code == 401
+    assert (
+        client.post("/v1/detect", json=_request(), headers={"Authorization": ""}).status_code == 401
+    )
+
+
+def test_health_routes_stay_open(write_bundle, make_client) -> None:
+    write_bundle(bundle_yaml(), active=1)
+    client = make_client(api_token=API_TOKEN)
+    assert client.get("/healthz", headers={"Authorization": ""}).status_code == 200
+    assert client.get("/readyz", headers={"Authorization": ""}).status_code == 200
+
+
+def test_development_without_token_is_open(write_bundle, make_client) -> None:
+    write_bundle(bundle_yaml(), active=1)
+    assert make_client().get("/v1/bundles").status_code == 200
+
+
+def test_refuses_to_start_without_token_outside_development(write_bundle, detector) -> None:
+    write_bundle(bundle_yaml(), active=1)
+    settings = Settings(
+        env="test", policy_dir=write_bundle.root, bundle_poll_interval_s=0, l0_threads=1
+    )
+    with (
+        pytest.raises(RuntimeError, match="UMAI_DE_API_TOKEN"),
+        TestClient(create_app(settings, detector=detector)),
+    ):
+        pass

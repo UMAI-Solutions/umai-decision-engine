@@ -14,6 +14,7 @@ in the same commit (skill `change-contract`).
 | [tagged-action](tagged-action.md) | 0.2 | L1 → event sink, session history, L2 worker |
 | [l2-analysis](l2-analysis.md) | 0.1 | L2 model → worker → findings |
 | [tag-taxonomy](tag-taxonomy.md) | 0.1 | all layers |
+| [policy-tests](policy-tests.md) | 0.1 | policy author → golden-test runner, CI (ADR-0015) |
 
 ## Versioning rules
 

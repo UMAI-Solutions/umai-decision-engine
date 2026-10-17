@@ -17,9 +17,18 @@ of the UMAI AI-security platform. L0 + L1 decide synchronously at runtime; L2 re
 
 Full design: [`docs/architecture/overview.md`](docs/architecture/overview.md).
 
+UMAI ships as **cloud SaaS** (multi-tenant, EU and US regions) and **self-hosted**, in
+**Community** and **Enterprise** editions ([ADR-0018](docs/adr/0018-saas-and-self-hosted-editions.md)).
+One release serves all of them: editions differ only in entitlements loaded as data, so never
+branch code on an edition name; check the entitlement (limit or feature) instead
+([`docs/architecture/deployment-and-editions.md`](docs/architecture/deployment-and-editions.md)).
+
 **Status: standalone R&D.** This is a completely separate project from `umai-platform`; there
 is no connection between them for now. Do not read from, import from, call, or modify
 `umai-platform`, `umai-service`, or `umai-engine`, and do not add references to them.
+Its only client is the console in the separate `umai-control-center` repository, which calls
+the HTTP API from its server side with a bearer token
+([ADR-0016](docs/adr/0016-control-center-separate-repo.md)).
 The contract the engine must eventually honour is recorded in
 [`docs/platform-context/`](docs/platform-context/) so the future cutover stays possible.
 
@@ -78,18 +87,23 @@ python -m pytest -q                      # unit + integration tests, no network
 ruff check . ; ruff format --check .
 uvicorn umai_decision_engine.api.app:app --reload --port 9100   # reads policies/ and .env
 python -m umai_decision_engine.policy.cli validate policies/<bundle_id>/<version>
+python -m umai_decision_engine.policy.cli test policies --require-tests   # golden tests (ADR-0015)
 python -m umai_decision_engine.policy.cli keygen | sign | verify  # bundle signing (ADR-0012)
+python -m evals.run --suite l0-pii-tr --split dev --tag <label>  # L0 accuracy (also: --suite leak)
 ```
 
-Not available yet: `python -m pytest -m live` (no live providers before L1b) and
-`python -m evals.run` (eval harness, F0). Do not invent replacements; update this section
-when commands change.
+Not available yet: `python -m pytest -m live` (no live providers before L1b) and eval suites
+other than `l0-pii-tr` and `leak`. Do not invent replacements; update this section when
+commands change.
 
-Implemented so far (2026-10-16): contracts for the evaluation API, policy bundle and L0
-output; bundle store (directory source, Ed25519, hot reload, active pointer); L0 core
-entities and the L0 gate (ADR-0014: a detection is terminal, L1 skipped); shared condition
+Implemented so far (2026-10-17): contracts for the evaluation API, policy bundle, L0
+output (incl. policy-bundle 0.5: custom recognizers, allowed domains) and policy golden tests; bundle store (directory source, Ed25519, hot reload, active pointer); L0 core
+entities, the full L0 entity catalog (ADR-0017: Lakera parity, Türkiye, Europe, secrets; 27
+types) and the L0 gate (ADR-0014: a detection is terminal, L1 skipped); shared condition
 evaluator (`rules/`); `/v1/evaluate`, `/v1/detect` (dev), `/v1/bundles`, `/v1/bundles/reload`,
-health. L1 is not implemented: input without detected entities, evaluated against a bundle
+health; bearer-token auth on `/v1` (ADR-0016); eval harness with the `l0-pii-tr` and `leak`
+suites; golden-test runner (`cli test`) and CI (`.github/workflows/ci.yml`: ruff, pytest,
+golden tests on Linux and Windows). L1 is not implemented: input without detected entities, evaluated against a bundle
 with L1 rules or policies, is answered with `on_evaluation_failure` and `L1_NOT_IMPLEMENTED`.
 
 ## Where to look
@@ -97,11 +111,13 @@ with L1 rules or policies, is answered with `on_evaluation_failure` and `L1_NOT_
 | Task | Read first |
 |---|---|
 | Understand the system | [`docs/architecture/overview.md`](docs/architecture/overview.md) |
-| Work on L0 / add a recognizer | [`docs/architecture/l0-entity-detection.md`](docs/architecture/l0-entity-detection.md), skill `add-pii-recognizer` |
+| Work on L0 / add a recognizer | [`docs/architecture/l0-entity-detection.md`](docs/architecture/l0-entity-detection.md), [`docs/architecture/l0-entity-catalog.md`](docs/architecture/l0-entity-catalog.md), skill `add-pii-recognizer` |
 | Work on L1 rules or decision models | [`docs/architecture/l1-policy-decision.md`](docs/architecture/l1-policy-decision.md), skill `add-decision-provider` |
 | Work on L2 | [`docs/architecture/l2-llm-analyst.md`](docs/architecture/l2-llm-analyst.md) |
 | Change a request/response/tag shape | [`docs/contracts/`](docs/contracts/), skill `change-contract` |
+| SaaS vs self-hosted, editions, quotas, tenancy | [`docs/architecture/deployment-and-editions.md`](docs/architecture/deployment-and-editions.md), ADR-0018, ADR-0019 |
 | Policy bundles, loading, hot reload | [`docs/contracts/policy-bundle.md`](docs/contracts/policy-bundle.md), [`docs/architecture/policy-lifecycle.md`](docs/architecture/policy-lifecycle.md) |
+| Change a policy, write golden cases | [`docs/workflow/policy-authoring.md`](docs/workflow/policy-authoring.md), [`docs/contracts/policy-tests.md`](docs/contracts/policy-tests.md) |
 | Evals, datasets, metrics | [`docs/evals/`](docs/evals/), skill `run-evals` |
 | A vendor's API or limits | [`docs/reference/`](docs/reference/), skill `verify-vendor-facts` |
 | Why something is the way it is | [`docs/adr/`](docs/adr/) |
@@ -112,6 +128,8 @@ with L1 rules or policies, is answered with `on_evaluation_failure` and `L1_NOT_
 ## Definition of done
 
 - Tests added or updated; `pytest -q` and `ruff check` pass.
+- Policy golden tests pass (`cli test policies --require-tests`). A policy change comes with
+  cases that show its effect and its boundary.
 - No raw content in logs, fixtures or snapshots (rule 1); synthetic data only (rule 2).
 - Latency-relevant changes include a benchmark or eval result.
 - Docs touched by the change are updated in the same change: contracts, architecture,

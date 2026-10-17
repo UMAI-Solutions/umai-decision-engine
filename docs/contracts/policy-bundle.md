@@ -1,6 +1,6 @@
 # Contract: policy bundle
 
-**Version:** 0.4
+**Version:** 0.5
 
 The configuration the engine evaluates against (successor of `umai-engine`'s
 `GuardrailSnapshot`). A bundle is a signed, immutable artifact; the engine only reads it
@@ -19,7 +19,7 @@ policies/
     └── 3/
         ├── bundle.yaml
         ├── manifest.json
-        └── tests/                   # optional golden cases (JSONL)
+        └── tests/                   # golden cases, not signed (policy-tests.md, ADR-0015)
 ```
 
 `manifest.json`:
@@ -49,7 +49,7 @@ Secrets never appear in a bundle. Provider credentials and HMAC keys come from s
 ## Shape
 
 ```yaml
-contract_version: "0.4"
+contract_version: "0.5"
 id: gr-demo-data-protection
 version: 3
 mode: ENFORCE                      # ENFORCE | MONITOR
@@ -58,12 +58,16 @@ on_evaluation_failure: fail_closed # fail_closed | fail_open | step_up
 
 l0:                                # a detection is terminal: the L0 gate decides (ADR-0014)
   target: LAST_MESSAGE             # LAST_MESSAGE | FULL_HISTORY | ATTACHMENTS | FULL_CONTEXT
-  entities: [TR_TCKN, TR_IBAN, IBAN_CODE, TR_PHONE, CREDIT_CARD, EMAIL_ADDRESS]
+  entities: [TR_TCKN, TR_IBAN, IBAN_CODE, TR_PHONE, CREDIT_CARD, EMAIL_ADDRESS, UNKNOWN_LINK, CUSTOMER_NO]
   min_score: 0.5
   min_score_overrides: {}
   ner: { enabled: false, model: null }
-  custom_recognizers: []           # later scope
+  custom_recognizers:              # customer-defined types (Lakera "custom data leakage")
+    - entity: CUSTOMER_NO
+      patterns: [{ name: customer_no, regex: "(?<![A-Z0-9])MUS-[0-9]{6}(?![0-9])", score: 0.3 }]
+      context: ["müşteri no", "customer"]
   max_chars: 32000
+  allowed_domains: [example-partner.com]   # UNKNOWN_LINK: domains this guardrail trusts
   on_detect:                       # action per detected entity type; never ALLOW
     default: BLOCK                 # BLOCK | STEP_UP_APPROVAL | ALLOW_WITH_MODIFICATIONS
     severity: HIGH
@@ -119,7 +123,9 @@ l2:                                # asynchronous review (ADR-0010); never affec
 | `l0.*` | | | See [L0](../architecture/l0-entity-detection.md) |
 | `l0.on_detect` | `{default, severity, actions{TYPE: action}}` | `{default: BLOCK, severity: HIGH}` | Action of the L0 gate per detected type. `ALLOW` / `ALLOW_WITH_WARNINGS` are rejected (ADR-0014) |
 | `l0.exceptions[]` | `{id, description?, when, entities[], action}` | `[]` | Deterministic relaxations; `when` uses the L1a condition language; `entities` ⊆ `l0.entities` (empty = all) |
-| `l0.custom_recognizers[]` | `{entity, patterns[{name, regex, score}], context[], validator?}` | `[]` | `validator` names a built-in checksum function |
+| `l0.entities[]` | entity type[] | — | Built-in types from the [entity catalog](../architecture/l0-entity-catalog.md) plus the bundle's own custom types |
+| `l0.custom_recognizers[]` | `{entity, patterns[{name, regex, score}], context[], validator?}` | `[]` | Customer-defined types, run like built-in recognizers (score + context boost 0.25 ≥ `min_score`). `entity` must not be a built-in type and must be listed in `l0.entities`. `validator`: `luhn`, `iban_mod97`, `tckn`, `vkn`, `us_ssn`, `uk_nino`, `de_tax_id`, `fr_nir`, `es_nif`, `es_nie`, `it_fiscal_code`, `nl_bsn`, `pl_pesel`. Patterns that do not compile, match the empty string or contain nested unbounded quantifiers are rejected; matching runs with a timeout |
+| `l0.allowed_domains[]` | lowercase domain[] | `[]` | `UNKNOWN_LINK` is not reported for URLs whose registrable domain is listed (subdomains included), in addition to the engine's popular-domain list (Lakera's "allowed domains") |
 | `l1a.rules[]` | `{id, when, effect, severity, tags[], final, force_review, redact[]}` | `[]` | Facts and operators in [L1](../architecture/l1-policy-decision.md) |
 | `l1a.legacy_preflight` | `umai-engine` HeuristicConfig | null | Compatibility; converted to L1a rules at load |
 | `l1b.policies[]` | DecisionPolicy | `[]` | [decision-questions](decision-questions.md) |
@@ -141,6 +147,9 @@ The loader rejects a bundle when:
 
 ## Changelog
 
+- 0.5 (2026-10-17): `l0.allowed_domains`; `l0.custom_recognizers` supported (validators, regex
+  safety checks); `l0.entities` covers the full [entity catalog](../architecture/l0-entity-catalog.md)
+  (ADR-0017). 0.3 / 0.4 bundles still load.
 - 0.4 (2026-10-16): `l0.on_detect` and `l0.exceptions` — an L0 detection is terminal
   (ADR-0014). 0.3 bundles still load; without `on_detect` every detection blocks.
 - 0.3 (2026-10-16): breaking — bundles are directory artifacts with `manifest.json`

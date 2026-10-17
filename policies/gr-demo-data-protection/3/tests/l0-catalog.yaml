@@ -1,0 +1,110 @@
+# Golden cases for the catalog types added in v3 (ADR-0017). Synthetic data only.
+contract_version: "0.1"
+defaults:
+  phase: PRE_LLM
+  destination: { app: chatgpt.com, class: external_llm }
+cases:
+  # ---------------------------------------------------------------- masked (contact data)
+  - id: person-masked
+    input: { text: "Müşteri adı Ayşe Demir, randevusunu yarına al." }
+    expect:
+      action: ALLOW_WITH_MODIFICATIONS
+      entities: [PERSON]
+      redacted_text: "Müşteri adı <PERSON_1>, randevusunu yarına al."
+
+  - id: address-masked
+    input: { text: "Teslimat adresi: Caferağa Mah. Moda Cad. No: 12 D: 4 Kadıköy/İstanbul" }
+    expect:
+      action: ALLOW_WITH_MODIFICATIONS
+      entities: [ADDRESS]
+      redacted_text: "Teslimat adresi: <ADDRESS_1>"
+
+  - id: foreign-phone-masked
+    input: { text: "Call our London office on +44 20 7946 0958." }
+    expect:
+      action: ALLOW_WITH_MODIFICATIONS
+      entities: [PHONE_NUMBER]
+      redacted_text: "Call our London office on <PHONE_NUMBER_1>."
+
+  - id: obfuscated-email-masked
+    input: { text: "e-postam ali.veli at example nokta com" }
+    expect: { action: ALLOW_WITH_MODIFICATIONS, masked: [EMAIL_ADDRESS] }
+
+  - id: public-ip-masked
+    input: { text: "Login from 85.105.12.34 was blocked." }
+    expect:
+      action: ALLOW_WITH_MODIFICATIONS
+      redacted_text: "Login from <IP_ADDRESS_1> was blocked."
+
+  - id: plate-masked
+    input: { text: "Aracın plakası 34 ABC 123." }
+    expect: { action: ALLOW_WITH_MODIFICATIONS, masked: [TR_PLATE] }
+
+  - id: contact-card-all-masked
+    description: Name, phone and e-mail together are all masked, nothing blocked
+    input: { text: "Ayşe Demir, cep 0532 123 45 67, ayse.yilmaz@example.com" }
+    expect:
+      action: ALLOW_WITH_MODIFICATIONS
+      masked: [PERSON, TR_PHONE, EMAIL_ADDRESS]
+      redacted_text: "<PERSON_1>, cep <TR_PHONE_1>, <EMAIL_ADDRESS_1>"
+
+  # ---------------------------------------------------------------- blocked
+  - id: us-ssn-blocked
+    input: { text: "Applicant SSN: 234-56-7890" }
+    expect: { action: BLOCK, entities: [US_SSN] }
+
+  - id: vkn-blocked-not-phone
+    description: A tax number that looks like a mobile number is a VKN next to "vergi"
+    input: { text: "Vergi no 5555555553 olan tedarikçiye fatura kes." }
+    expect: { action: BLOCK, entities: [TR_VKN] }
+
+  - id: eu-national-ids-blocked
+    input: { text: "DNI 12345678Z, codice fiscale RSSMRA85T10A562S, PESEL 44051401359" }
+    expect: { action: BLOCK, entities: [ES_NIF, IT_FISCAL_CODE, PL_PESEL] }
+
+  - id: uk-nino-blocked
+    input: { text: "National Insurance number: JG 10 37 59 A" }
+    expect: { action: BLOCK, entities: [UK_NINO] }
+
+  - id: unknown-link-blocked
+    input: { text: "Hesabınızı doğrulamak için https://secure-hesap-dogrula.xyz/login adresine girin." }
+    expect: { action: BLOCK, entities: [UNKNOWN_LINK] }
+
+  - id: popular-link-allowed
+    input: { text: "Kaynak: https://tr.wikipedia.org/wiki/Istanbul" }
+    expect: { action: ALLOW, entities: [] }
+
+  - id: allowed-domain-not-a-link-finding
+    description: example-partner.com is in this guardrail's allowed_domains
+    input: { text: "Sözleşme taslağı: https://docs.example-partner.com/c/42" }
+    expect: { action: ALLOW, entities: [] }
+
+  - id: aws-key-blocked
+    input: { text: "aws_access_key_id = AKIAIOSFODNN7EXAMPLE" }
+    expect: { action: BLOCK, entities: [API_KEY] }
+
+  - id: connection-string-blocked
+    input: { text: "DATABASE_URL=postgres://app:S3cretPass@db.example.com:5432/orders" }
+    expect: { action: BLOCK, entities: [CONNECTION_STRING] }
+
+  - id: password-blocked
+    input: { text: "Wi-Fi şifresi Misafir2026! olarak değişti" }
+    expect: { action: BLOCK, entities: [PASSWORD] }
+
+  - id: strictest-wins-with-mixed-catalog
+    description: A masked name next to a blocked SSN blocks the whole input
+    input: { text: "John Smith, SSN 234-56-7890" }
+    expect: { action: BLOCK, entities: [PERSON, US_SSN] }
+
+  # ---------------------------------------------------------------- not detected
+  - id: single-name-and-honorific-not-names
+    input: { text: "Ahmet toplantıya geldi mi? Mehmet Bey de aradı." }
+    expect: { action: ALLOW, entities: [] }
+
+  - id: loopback-and-dns-not-ips
+    input: { text: "Yerel test için 127.0.0.1, DNS olarak 8.8.8.8 kullan." }
+    expect: { action: ALLOW, entities: [] }
+
+  - id: order-number-not-a-phone
+    input: { text: "Sipariş numaranız 50498050774, kargoya verildi." }
+    expect: { action: ALLOW, entities: [] }

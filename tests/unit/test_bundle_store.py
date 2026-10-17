@@ -119,12 +119,12 @@ def test_invalid_new_version_keeps_active(write_bundle) -> None:
     write_bundle(bundle_yaml(version=1), active=1)
     store = _store(write_bundle)
     store.reload(force=True)
-    bad = bundle_yaml(version=2).replace("TR_TCKN", "TR_VKN")  # not supported yet
+    bad = bundle_yaml(version=2).replace("TR_TCKN", "TR_PASSPORT")  # not a supported type
     write_bundle(bad, version=2, active=2)
     store.reload(force=True)
     assert store.get("gr-test").bundle.version == 1
     errors = " ".join(e.error for e in store.state.errors)
-    assert "TR_VKN" in errors and "kept 1" in errors
+    assert "TR_PASSPORT" in errors and "kept 1" in errors
 
 
 def test_active_pointer_switch_and_rollback(write_bundle) -> None:

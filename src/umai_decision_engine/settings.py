@@ -8,7 +8,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from umai_decision_engine.l0.hashing import TenantKeyError
@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     # L0
     tenant_hmac_keys: dict[str, str] = Field(default_factory=dict)  # tenant → base64 key
     l0_threads: int = Field(4, ge=1, le=64)
+
+    # API access (ADR-0016): bearer token on every /v1 route; health routes stay open.
+    # Required outside development: the API refuses to start without it.
+    api_token: SecretStr | None = None
 
     # development endpoints
     expose_detect_endpoint: bool | None = None  # None → True only in development

@@ -22,7 +22,7 @@ roll back: move the pointer to v6 → engines return to v6
 |---|---|---|
 | Draft | control plane DB | Mutable; never seen by engines |
 | Validate | control plane (engine library) | Same validation code the engine runs at load: schema, fact paths, question/option references, provider capabilities, regex safety |
-| Test | control plane + engine | Golden cases in the bundle's `tests/`; playground = single input evaluated with an inline bundle (dev/test engines only, synthetic data) |
+| Test | control plane + engine | Golden cases in the version's `tests/` ([policy-tests](../contracts/policy-tests.md), ADR-0015), run by the same runner as `cli test` and CI today; playground = single input evaluated with an inline bundle (dev/test engines only, synthetic data) |
 | Preview impact | engine replay job | Re-evaluate the last N stored decision events with the candidate: "38 of 1 240 decisions would change", with diffs. The L0 gate (`on_detect`, exceptions) and L1 only use entity types/counts, facts and redacted text, which events keep. Recognizer changes cannot be replayed (need raw content) → synthetic cases only |
 | Approve | control plane | Roles: editor, approver; four-eyes for production; diff between versions |
 | Publish | control plane | Build `bundle.yaml` + `manifest.json` (hash, Ed25519 signature); version becomes immutable |
@@ -35,6 +35,10 @@ Later: **shadow mode** (candidate evaluated alongside the active version on a sa
 caller gets the active decision, differences are recorded) and **staged rollout**
 (test → prod, single tenant, traffic percentage).
 
+Until the control plane exists, Git plays its role: pull request = draft + review, CI =
+validate + test, the `active` file = activation. Team workflow:
+[`workflow/policy-authoring.md`](../workflow/policy-authoring.md).
+
 ## Engine requirements (keep these true from the first commit)
 
 | Requirement | Status |
@@ -44,6 +48,7 @@ caller gets the active decision, differences are recorded) and **staged rollout*
 | Status endpoint `GET /v1/bundles`: loaded versions, active pointer, hash, load errors | F1 |
 | Every decision carries bundle id, version, content hash | F1 |
 | Inline-bundle evaluation (`bundle_inline`) for playground, disabled in production | F1 |
+| Golden-test runner through the real pipeline; CI gate on every change (ADR-0015) | done (`cli test`, `.github/workflows/ci.yml`) |
 | Replay endpoint/job over decision events | after F3 |
 | Shadow evaluation | later |
 | `http_pull` source + push signal | with the control plane |

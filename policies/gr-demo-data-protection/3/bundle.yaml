@@ -1,0 +1,78 @@
+# Example bundle (synthetic): the full L0 entity catalog (ADR-0017 — Lakera parity, Türkiye,
+# Europe, secrets). An L0 detection is terminal (ADR-0014): the L0 gate decides per entity type
+# and L1 does not run. Contact data is masked; identifiers, financial data, secrets and unknown
+# links are blocked.
+contract_version: "0.5"
+id: gr-demo-data-protection
+version: 3
+mode: ENFORCE
+phases: [PRE_LLM, POST_LLM, TOOL_INPUT, TOOL_OUTPUT]
+on_evaluation_failure: fail_closed
+
+l0:
+  target: LAST_MESSAGE
+  entities:
+    # Lakera parity
+    - PERSON
+    - ADDRESS
+    - TR_PHONE
+    - PHONE_NUMBER
+    - EMAIL_ADDRESS
+    - IP_ADDRESS
+    - CREDIT_CARD
+    - TR_IBAN
+    - IBAN_CODE
+    - US_SSN
+    - UNKNOWN_LINK
+    # Türkiye
+    - TR_TCKN
+    - TR_VKN
+    - TR_PLATE
+    # Europe
+    - UK_NINO
+    - DE_TAX_ID
+    - FR_NIR
+    - ES_NIF
+    - ES_NIE
+    - IT_FISCAL_CODE
+    - NL_BSN
+    - PL_PESEL
+    # secrets
+    - API_KEY
+    - PRIVATE_KEY
+    - JWT
+    - CONNECTION_STRING
+    - PASSWORD
+  min_score: 0.5
+  max_chars: 32000
+  allowed_domains: [example-partner.com]   # trusted beyond the engine's popular-domain list
+  on_detect:
+    default: BLOCK
+    severity: HIGH
+    actions:
+      PERSON: ALLOW_WITH_MODIFICATIONS
+      ADDRESS: ALLOW_WITH_MODIFICATIONS
+      TR_PHONE: ALLOW_WITH_MODIFICATIONS
+      PHONE_NUMBER: ALLOW_WITH_MODIFICATIONS
+      EMAIL_ADDRESS: ALLOW_WITH_MODIFICATIONS
+      IP_ADDRESS: ALLOW_WITH_MODIFICATIONS
+      TR_PLATE: ALLOW_WITH_MODIFICATIONS
+  exceptions:
+    - id: ex-kyc-internal
+      description: KYC may send national IDs to internal applications
+      when:
+        all:
+          - { field: subject.department, operator: EQUALS, value: KYC }
+          - { field: destination.class, operator: EQUALS, value: internal_app }
+      entities: [TR_TCKN]
+      action: ALLOW
+
+l1a:
+  rules: []
+
+l1b:
+  enabled: false
+  policies: []
+
+l2:
+  enabled: false

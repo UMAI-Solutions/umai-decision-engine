@@ -19,6 +19,8 @@ from umai_decision_engine.contracts.bundle import (
     ScoreQuestion,
 )
 from umai_decision_engine.l0.recognizers.catalog import SUPPORTED_ENTITIES
+from umai_decision_engine.l0.recognizers.custom import VALIDATORS as CUSTOM_VALIDATORS
+from umai_decision_engine.l0.recognizers.custom import pattern_problems
 
 _L1A_FACT_PREFIXES = (
     "phase",
@@ -41,6 +43,8 @@ _L2_REVIEW_FIELDS = {
 }
 _TAG = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$")
 _SCORE_OPS = {"gte", "gt", "lte", "lt", "eq"}
+
+_DOMAIN = re.compile(r"(?:[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}")
 
 
 class BundleValidationError(ValueError):
@@ -98,13 +102,30 @@ def validate_bundle(bundle: PolicyBundle) -> list[str]:
     entities = set(bundle.l0.entities)
 
     # L0 ------------------------------------------------------------------
-    for entity in sorted(entities - SUPPORTED_ENTITIES):
+    custom_entities = {c.entity for c in bundle.l0.custom_recognizers}
+    for entity in sorted(entities - SUPPORTED_ENTITIES - custom_entities):
         problems.append(f"l0.entities: {entity!r} is not supported by this engine version")
     for entity in bundle.l0.min_score_overrides:
         if entity not in entities:
             problems.append(f"l0.min_score_overrides: {entity!r} is not in l0.entities")
-    if bundle.l0.custom_recognizers:
-        problems.append("l0.custom_recognizers: not supported by this engine version")
+    seen_custom: set[str] = set()
+    for recognizer in bundle.l0.custom_recognizers:
+        where = f"l0.custom_recognizers[{recognizer.entity}]"
+        if recognizer.entity in SUPPORTED_ENTITIES:
+            problems.append(f"{where}: {recognizer.entity!r} is a built-in entity type")
+        if recognizer.entity in seen_custom:
+            problems.append(f"{where}: duplicate custom entity")
+        seen_custom.add(recognizer.entity)
+        if recognizer.entity not in entities:
+            problems.append(f"{where}: {recognizer.entity!r} is not in l0.entities")
+        if recognizer.validator is not None and recognizer.validator not in CUSTOM_VALIDATORS:
+            problems.append(f"{where}: unknown validator {recognizer.validator!r}")
+        for pattern in recognizer.patterns:
+            for problem in pattern_problems(pattern.regex):
+                problems.append(f"{where}.{pattern.name}: regex {problem}")
+    for domain in bundle.l0.allowed_domains:
+        if not _DOMAIN.fullmatch(domain):
+            problems.append(f"l0.allowed_domains: {domain!r} is not a lowercase domain name")
     if bundle.l0.ner.enabled:
         problems.append("l0.ner: not supported by this engine version")
 

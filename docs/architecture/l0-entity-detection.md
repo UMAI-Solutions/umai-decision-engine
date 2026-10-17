@@ -41,13 +41,21 @@ flowchart LR
      case-insensitive regex flags or a Turkish-aware casefold helper.
    - Digit groups separated by spaces, dots or dashes (`123 456 789 01`) must still match
      ID patterns; recognizers handle separators, normalization does not remove them.
+   - Two digit-evasion tricks are undone (measured in the `l0-pii-tr` eval): 7+ digits written
+     one by one with a separator (`1 0 0 0 0 0 0 0 1 4 6`) are joined, and `O`/`o` inside a
+     long digit run (`1OOOOOOO146`) becomes `0`. Offsets still map to the original text.
    - NFC as well as NFKC: NFD input (`s` + U+0327) breaks Turkish-letter matches.
    - Patterns use `[0-9]`, never `\d` (Python `\d` matches Arabic-Indic and full-width digits).
 2. **Analyze** with a Presidio `AnalyzerEngine` built from a **minimal registry** of our
    recognizers, registered for both `tr` and `en` (Presidio gating is exact and it does no
    language detection), with the **`no_op` NLP engine** (no spaCy pipeline per call).
-   Never the default `AnalyzerEngine()` (it loads `en_core_web_lg`). NER recognizers
-   (`HuggingFaceNerRecognizer`) are added only when `l0.ner.enabled`.
+   Never the default `AnalyzerEngine()` (it loads `en_core_web_lg`). Every catalog type is a
+   Presidio `LocalRecognizer` (`SpecRecognizer`) in that registry; the bundle's
+   `l0.custom_recognizers` run through the same class, per request. Patterns marked
+   `requires_context` (shapes that collide with ordinary numbers: VKN, BSN, PESEL, DE tax ID,
+   compact SSN, national-format phones, plates, generic AWS secrets) are dropped before
+   validation when none of their context words is in the window. NER recognizers
+   (`HuggingFaceNerRecognizer`) are added only when `l0.ner.enabled` (ADR-0020, Q8).
 3. **Validate**: checksum-bearing entities (IBAN, card, VKN) are dropped when the
    checksum fails; a TCKN-shaped number that fails the checksum is kept unvalidated at a low
    score so that only explicit ID context lifts it over `min_score` (a mistyped or made-up ID
@@ -56,9 +64,11 @@ flowchart LR
    context must lift it; a strong one (TCKN, TR IBAN, ~1 %) raises it. Known non-PII values
    (`11111111111` GİB placeholder, `1234567890`) are dropped.
 4. **Score context** with our Turkish-aware context step (see below), then **resolve
-   overlaps and thresholds**: prefer checksum-validated hits, then the highest score per
-   span (Presidio only de-duplicates same-type containment); drop results below
-   `l0.min_score` (per entity type override allowed).
+   overlaps and thresholds**: prefer validated hits (checksum, or structure for secrets and
+   links), then the higher type priority, then the longer span, then the higher score
+   (Presidio only de-duplicates same-type containment); drop results below `l0.min_score`
+   (per entity type override allowed); drop `UNKNOWN_LINK` hits whose domain is in
+   `l0.allowed_domains`.
 5. **Hash**: `HMAC-SHA256(tenant_key, canonical_value)` truncated to 16 bytes, hex. The
    canonical value strips separators (`TR12 0006 …` → `TR120006…`). Hashes let L1/L2 count
    "the same TCKN appeared in 7 actions this session" without storing the value. Tenant key
@@ -104,11 +114,11 @@ l0:
       action: ALLOW
 ```
 
-## Entity catalogue (v0)
+## Entity catalogue
 
-**Scope:** *core* types are the first deliverable (F1): e-mail, phone, card, IBAN, TCKN. *Extended* types ship disabled until their eval
-passes. Person names, addresses (NER) and tenant-specific identifiers are out of the first
-scope.
+The target and status of every type is in [`l0-entity-catalog.md`](l0-entity-catalog.md)
+(ADR-0017: Lakera parity, Türkiye, Europe, secrets — 27 types, all implemented; `PERSON` via
+a gazetteer until NER, ADR-0020). The table below details the core Turkish types.
 
 | Entity type | Detection | Validation | Default |
 |---|---|---|---|
@@ -119,13 +129,9 @@ scope.
 | `TR_PHONE` | `+90` / `0090` / `90` / `0` / bare 10 digits; mobile, fixed, VoIP, toll-free ranges from libphonenumber | number-type plausibility. A valid **mobile** number scores 0.6 even bare and without context (`5321234567`); bare fixed-line numbers need context (they collide with reference numbers) | on |
 | `CREDIT_CARD` | own patterns incl. **TROY `9792`** and **Mastercard 2-series** (Presidio's regex misses both) | Luhn + IIN or context | on |
 | `EMAIL_ADDRESS` | Presidio built-in | — | on |
-| `IP_ADDRESS` | Presidio built-in | — | off |
-| `SECRET_API_KEY` | vendor prefixes (`sk-`, `AKIA`, `ghp_`, `xox[bp]-`, …) | length / charset | on |
-| `PRIVATE_KEY` | `-----BEGIN … PRIVATE KEY-----` | — | on |
-| `JWT` | three base64url segments, `eyJ` header | header decodes as JSON | on |
-| `TR_PLATE` | case-sensitive regex from the reference doc (Presidio's matches `12 eki 2024` with score 1.0) | province code range | off |
-| `PERSON`, `LOCATION`, `ORGANIZATION` | NER | — | **off** until Turkish NER is evaluated |
-| tenant custom (`CUSTOMER_NO`, …) | `PatternRecognizer` from bundle | optional | per bundle |
+| `TR_PLATE` | case-sensitive regex from the reference doc (Presidio's matches `12 eki 2024` with score 1.0) | province code range; **context required** | per bundle |
+| other catalog types | see [`l0-entity-catalog.md`](l0-entity-catalog.md) | | per bundle |
+| tenant custom (`CUSTOMER_NO`, …) | `l0.custom_recognizers` (policy-bundle 0.5) | optional built-in validator | per bundle |
 
 Algorithms and synthetic test vectors: [`../reference/turkish-identifiers.md`](../reference/turkish-identifiers.md).
 Checksum code is ours (python-stdnum is LGPL).
@@ -159,9 +165,8 @@ Alternative to benchmark in F1: Presidio `slim` engine with a blank Turkish pipe
 lookup lemmatizer (`spacy-lookups-data`), plus the upstream case-folding fix when PR #2208
 lands.
 
-Scope per type: `TR_TCKN`, `TR_IBAN`, `IBAN_CODE`, `TR_PHONE`, `CREDIT_CARD`,
-`EMAIL_ADDRESS` are **core**; `TR_VKN`, `SECRET_API_KEY`, `PRIVATE_KEY`, `JWT`, `TR_PLATE`,
-`IP_ADDRESS` are **extended**; NER types and tenant custom recognizers are **later**.
+A bundle enables exactly the types it lists in `l0.entities`; nothing is on by default
+in code (AGENTS.md rule 8).
 
 ## Performance plan
 
@@ -171,7 +176,7 @@ Scope per type: `TR_TCKN`, `TR_IBAN`, `IBAN_CODE`, `TR_PHONE`, `CREDIT_CARD`,
 | Entity scope | The registry holds only our recognizers; `entities=[...]` alone does **not** skip NLP work. |
 | NLP engine | `no_op` for the pattern path. |
 | NER | Off by default. If enabled: `HuggingFaceNerRecognizer`, ideally run only when patterns or policy require it; budget 30–80 ms (hypothesis). |
-| Pattern-only budget | p95 < 20 ms for a 4 kB input (hypothesis). Presidio latency grows linearly with length (~43 ms p50 at 1.5k chars with a spaCy md pipeline in one benchmark); measure with `no_op` in F1. |
+| Pattern-only budget | p95 < 20 ms for a 4 kB input. Measured 2026-10-17 (dev machine, one thread, all 27 types): business text 4 kB p95 11 ms, 16 kB p95 41 ms; entity-dense text (≈160 entities per 4 kB) 4 kB p95 25 ms. The six core types alone: 4 kB p95 6 ms (business) / 16 ms (dense). Cost drivers were libphonenumber parsing of national-format candidates and per-candidate context scoring — fixed by `requires_context` and cached context windows. |
 | Long inputs | Inputs above `l0.max_chars` are chunked with overlap; offsets are re-based. |
 | Concurrency | `analyze()` is synchronous and CPU-bound, thread-safety undocumented: process pool or one engine per worker thread, never on the event loop. |
 | Regex safety | `REGEX_TIMEOUT_SECONDS=1` (integer only). Tenant regexes are validated at bundle load. |
@@ -186,7 +191,8 @@ l0:
   min_score: 0.5
   min_score_overrides: { TR_PHONE: 0.6 }
   ner: { enabled: false }
-  custom_recognizers: []          # later scope: tenant PatternRecognizers
+  custom_recognizers: []          # customer-defined types (policy-bundle 0.5)
+  allowed_domains: []             # UNKNOWN_LINK: trusted domains of this guardrail
   max_chars: 32000
 ```
 

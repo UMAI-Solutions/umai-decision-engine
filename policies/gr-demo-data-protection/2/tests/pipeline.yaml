@@ -1,0 +1,34 @@
+# Golden cases for what happens when L0 finds nothing, and for configuration failures.
+contract_version: "0.1"
+defaults:
+  destination: { app: chatgpt.com, class: external_llm }
+cases:
+  - id: clean-text-allowed
+    description: No entities and no L1 rules in this bundle → the L1a floor allows
+    input:
+      text: "Toplantı notlarını üç maddede özetler misin?"
+    expect:
+      action: ALLOW
+      decided_by: L1a
+      entities: []
+      errors: []
+      degraded: false
+
+  - id: order-number-not-an-id
+    description: An 11-digit order number without ID context is not a TCKN
+    input:
+      text: "sipariş numarası 10000000147 kargoda"
+    expect:
+      action: ALLOW
+      entities: []
+
+  - id: phase-not-enabled-fails-closed
+    description: MCP_REQUEST is not in this bundle's phases → configuration failure, BLOCK
+    input:
+      phase: MCP_REQUEST
+      text: "list files"
+    expect:
+      action: BLOCK
+      decided_by: pipeline
+      errors: [CONFIG_INVALID]
+      degraded: true

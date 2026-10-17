@@ -1,4 +1,4 @@
-"""Policy bundle (docs/contracts/policy-bundle.md v0.3, decision-questions.md v0.3)."""
+"""Policy bundle (docs/contracts/policy-bundle.md v0.5, decision-questions.md v0.3)."""
 
 from __future__ import annotations
 
@@ -122,6 +122,9 @@ class L0Config(ContractModel):
     ner: NerConfig = Field(default_factory=NerConfig)
     custom_recognizers: list[CustomRecognizer] = Field(default_factory=list)
     max_chars: int = Field(32000, ge=1000, le=1_000_000)
+    # UNKNOWN_LINK: domains this guardrail trusts beyond the engine's popular-domain list
+    # (registrable domain, e.g. "example.com"; subdomains are covered).
+    allowed_domains: list[str] = Field(default_factory=list)
     on_detect: OnDetect = Field(default_factory=OnDetect)
     exceptions: list[L0Exception] = Field(default_factory=list)
 
@@ -318,7 +321,7 @@ class L2Config(ContractModel):
 
 
 class PolicyBundle(ContractModel):
-    contract_version: Literal["0.3", "0.4"]
+    contract_version: Literal["0.3", "0.4", "0.5"]
     id: str = Field(pattern=r"^[a-z0-9][a-z0-9._\-]{0,127}$")
     version: int = Field(ge=1)
     mode: Mode

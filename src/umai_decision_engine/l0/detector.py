@@ -28,7 +28,9 @@ from umai_decision_engine.l0.context import has_context
 from umai_decision_engine.l0.hashing import KeyProvider, value_hash
 from umai_decision_engine.l0.normalize import normalize
 from umai_decision_engine.l0.recognizers.base import META_VALIDATED, SpecRecognizer
-from umai_decision_engine.l0.recognizers.catalog import CORE_SPECS, SPECS_BY_ENTITY
+from umai_decision_engine.l0.recognizers.catalog import ALL_SPECS, SPECS_BY_ENTITY
+from umai_decision_engine.l0.recognizers.custom import custom_recognizers
+from umai_decision_engine.l0.recognizers.network import registrable_domain, url_domain
 from umai_decision_engine.l0.redact import PlaceholderAllocator, apply_redaction
 
 logger = logging.getLogger("umai.de.l0")
@@ -52,7 +54,7 @@ def build_analyzer() -> AnalyzerEngine:
     ).create_engine()
     registry = RecognizerRegistry(supported_languages=list(LANGUAGES))
     for lang in LANGUAGES:
-        for spec in CORE_SPECS:
+        for spec in ALL_SPECS:
             registry.add_recognizer(SpecRecognizer(spec, supported_language=lang))
     return AnalyzerEngine(
         registry=registry,
@@ -124,7 +126,10 @@ class EntityDetector:
         config = L0Config(entities=sorted(SPECS_BY_ENTITY))
         sample = (
             "TC kimlik 10000000146, IBAN TR33 0006 1005 1978 6457 8413 26, DE89370400440532013000, "
-            "cep 0532 123 45 67, kart 4242 4242 4242 4242, test@example.com"
+            "cep 0532 123 45 67, kart 4242 4242 4242 4242, test@example.com, call +1 212 555 0147, "
+            "tel 06 39 98 12 34, IP 85.105.12.34, https://example-unknown.xyz/a, SSN 234-56-7890, "
+            "vergi no 4540536920, plaka 34 ABC 123, DNI 12345678Z, Ahmet Yılmaz, "
+            "Moda Cad. No: 12 Kadıköy/İstanbul, password=Example123"
         )  # touches every recognizer, incl. phonenumbers metadata (lazy-loaded)
         barrier = threading.Barrier(self._threads)
 
@@ -165,19 +170,35 @@ class EntityDetector:
         norm = normalize(text)
         engine = self._engine()
         entities = [e for e in config.entities if e in SPECS_BY_ENTITY]
+        custom = custom_recognizers(config.custom_recognizers, language)
+        specs = {**SPECS_BY_ENTITY, **{c.spec.entity: c.spec for c in custom}}
+        allowed_domains = {registrable_domain(d) for d in config.allowed_domains}
 
         raw: dict[tuple[str, int, int], _Hit] = {}
         for offset, chunk in _chunks(norm.text, config.max_chars):
-            for r in engine.analyze(
-                text=chunk, language=language, entities=entities, score_threshold=0.0
-            ):
-                spec = SPECS_BY_ENTITY[r.entity_type]
+            results = (
+                engine.analyze(
+                    text=chunk, language=language, entities=entities, score_threshold=0.0
+                )
+                if entities
+                else []
+            )
+            for recognizer in custom:
+                results.extend(recognizer.analyze(chunk, [recognizer.spec.entity]))
+            for r in results:
+                spec = specs[r.entity_type]
                 start, end = r.start + offset, r.end + offset
                 score = r.score
                 if has_context(norm.text, start, end, spec.context):
                     score = min(1.0, score + spec.context_boost)
                 if score < config.min_score_overrides.get(r.entity_type, config.min_score):
                     continue
+                if (
+                    r.entity_type == "UNKNOWN_LINK"
+                    and allowed_domains
+                    and url_domain(norm.text[start:end]) in allowed_domains
+                ):
+                    continue  # the guardrail trusts this domain (l0.allowed_domains)
                 hit = _Hit(
                     type=r.entity_type,
                     start=start,
@@ -196,7 +217,7 @@ class EntityDetector:
         allocator = PlaceholderAllocator()
         detected: list[DetectedEntity] = []
         for hit in _resolve_overlaps(list(raw.values())):
-            spec = SPECS_BY_ENTITY[hit.type]
+            spec = specs[hit.type]
             canonical = spec.canonical(norm.text[hit.start : hit.end])
             digest = value_hash(key, hit.type, canonical)
             o_start, o_end = norm.to_original(hit.start, hit.end)

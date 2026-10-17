@@ -15,6 +15,8 @@ Measurements we make ourselves go to `evals/reports/`, not here.
 | [presidio.md](presidio.md) | Microsoft Presidio analyzer/anonymizer APIs, versions, NLP engines, performance | L0 |
 | [turkish-identifiers.md](turkish-identifiers.md) | TCKN, VKN, TR IBAN, phone, plate, Luhn: algorithms and synthetic test vectors | L0 |
 | [turkish-nlp.md](turkish-nlp.md) | Turkish NER options (spaCy, transformers, GLiNER) | L0 (NER) |
+| [eu-identifiers.md](eu-identifiers.md) | US SSN and European national IDs: formats, checksums, canonical examples | L0 validators |
+| [lakera-guard.md](lakera-guard.md) | Lakera Guard / Check Point AI Guardrails: PII detectors, unknown links, policy model, sensitivity levels, plans, self-hosting, residency | L0 coverage target (ADR-0017), guardrail model, editions (ADR-0018) |
 | [onprem-decision-models.md](onprem-decision-models.md) | Open-weight decision models and DIY option scoring for on-prem L1b | L1b (default candidates) |
 | [typesafe-jev.md](typesafe-jev.md) | TypeSafe Jev decision model (hosted) | L1b cloud option |
 | [openai-decisions-api.md](openai-decisions-api.md) | OpenAI Decisions API (GPT-6 Luna) | L1b |

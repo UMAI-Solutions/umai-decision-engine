@@ -4,11 +4,24 @@ Layers are added and tuned on evidence. Every layer has an eval suite, a baselin
 report format. An eval is required before: enabling a layer by default, changing a
 provider default, changing thresholds, adding a dependency for accuracy reasons.
 
+## Status
+
+Implemented (2026-10-17): the harness (`python -m evals.run`), the `l0-pii-tr` suite with
+dataset v2 ([`evals/datasets/l0-pii-tr/`](../../evals/datasets/l0-pii-tr/README.md); every type
+of the [L0 entity catalog](../architecture/l0-entity-catalog.md)) and the `leak` suite. The
+other suites below are planned.
+
+```powershell
+python -m evals.run --suite l0-pii-tr --split dev --tag <label>   # [--bundle policies/<id>/<v>]
+python -m evals.run --suite leak --split dev --tag <label>        # [--bundle-id <id>]
+python -m evals.datasets.generate_l0_pii_tr                       # regenerate dataset v2
+```
+
 ## Suites
 
 | Suite | Layer | Question it answers | Baseline |
 |---|---|---|---|
-| `l0-pii-tr` | L0 | Do we find Turkish/English PII and secrets precisely? | `umai-engine` regex rules |
+| `l0-pii-tr` | L0 | Do we find every catalog type (Lakera parity, Türkiye, Europe) precisely? | Per-type targets (ADR-0017); a naive regex baseline is reported for orientation |
 | `l0-latency` | L0 | p50/p95/p99 by input size, NER on/off | budget in L0 doc |
 | `l1-decisions` | L1 | Correct action for content × context variants? | `umai-engine` context-aware policy (gpt-oss-safeguard) |
 | `l1-providers` | L1b | On-prem candidates (d3-flash, clef-flash, kev-4b, generic scoring) vs hosted Jev / OpenAI Decisions: accuracy (TR/EN), calibration, latency on reference hardware | hosted Jev |
@@ -16,7 +29,7 @@ provider default, changing thresholds, adding a dependency for accuracy reasons.
 | `l2-chains` | L2 | Do reviews of synthetic sessions find multi-step leaks, without fabricating findings? With vs without history? | L2 without history |
 | `pipeline-e2e` | L0 + L1 | Final decision accuracy, runtime latency, review rate | `umai-engine` |
 | `l2-worker` | L2 | Queue age and processing time under load; redelivery idempotency | — |
-| `leak` | all | Does any raw value appear in responses, logs, traces, history, provider payloads? | must be 0 |
+| `leak` | all | Does any raw value appear in responses, logs, traces, history, provider payloads? Also: which values an allowed decision would forward unmasked | must be 0 |
 
 ## Datasets
 
@@ -59,7 +72,8 @@ scenarios (banking, telecom, insurance).
 
 | Metric | Definition |
 |---|---|
-| Entity precision / recall / F1 | per entity type; span match = exact type + overlap ≥ 50 % |
+| Entity precision / recall / F1 | per entity type; span match = exact type + overlap ≥ 50 % of the longer span (`evals/metrics.py`) |
+| False alarms on clean texts | share of cases without entities where L0 detected something |
 | Decision accuracy | final action in `acceptable` set |
 | False block rate | expected allow-family, got `BLOCK`/`STEP_UP_APPROVAL` |
 | Missed block rate | expected `BLOCK`, got allow-family |

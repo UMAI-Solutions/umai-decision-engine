@@ -3,7 +3,10 @@
 Steps (docs/architecture/l0-entity-detection.md, step 1):
 - drop zero-width and bidi control characters (an evasion technique);
 - NFKC per base character + its combining marks, so full-width digits become ASCII and
-  NFD sequences (``s`` + U+0327) compose to ``ş``.
+  NFD sequences (``s`` + U+0327) compose to ``ş``;
+- undo two digit-evasion tricks seen in the l0-pii-tr eval: digits written one by one with a
+  separator (``1 0 0 0 0 0 0 0 1 4 6``) are joined, and the letter ``O`` inside a long digit
+  run (``1OOOO459548``) becomes ``0``.
 
 Every normalized character remembers the original span it came from, so entity offsets
 can be reported against the original text.
@@ -11,6 +14,7 @@ can be reported against the original text.
 
 from __future__ import annotations
 
+import re
 import unicodedata
 from dataclasses import dataclass
 
@@ -31,6 +35,33 @@ class NormalizedText:
         if start >= end:
             raise ValueError("empty span")
         return self._starts[start], self._ends[end - 1]
+
+
+# 7+ single digits, each separated by one space, dot or dash.
+_SPACED_DIGITS = re.compile(r"(?<![0-9])[0-9](?:[ .\-][0-9]){6,}(?![0-9])")
+# A token of digits and O/o with at least 4 digits and 9+ characters.
+_O_FOR_ZERO = re.compile(r"(?<![A-Za-z0-9])(?=(?:[Oo]*[0-9]){4})[0-9Oo]{9,}(?![A-Za-z0-9])")
+
+
+def _undo_digit_evasion(
+    out: list[str], starts: list[int], ends: list[int]
+) -> tuple[list[str], list[int], list[int]]:
+    text = "".join(out)
+    if not any(ch.isdigit() for ch in text):
+        return out, starts, ends
+    drop: set[int] = set()
+    for match in _SPACED_DIGITS.finditer(text):
+        drop.update(range(match.start() + 1, match.end(), 2))  # the separators
+    chars = list(out)
+    for match in _O_FOR_ZERO.finditer(text):
+        if any(ch in "Oo" for ch in match.group()):
+            for k in range(match.start(), match.end()):
+                if chars[k] in "Oo":
+                    chars[k] = "0"
+    if not drop and chars == out:
+        return out, starts, ends
+    keep = [k for k in range(len(chars)) if k not in drop]
+    return [chars[k] for k in keep], [starts[k] for k in keep], [ends[k] for k in keep]
 
 
 def normalize(original: str) -> NormalizedText:
@@ -54,6 +85,7 @@ def normalize(original: str) -> NormalizedText:
             starts.append(i)
             ends.append(j)
         i = j
+    out, starts, ends = _undo_digit_evasion(out, starts, ends)
     return NormalizedText("".join(out), tuple(starts), tuple(ends))
 
 

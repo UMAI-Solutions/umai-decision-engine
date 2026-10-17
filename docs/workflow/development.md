@@ -5,7 +5,8 @@
 - `main` is always green. Work on short-lived branches: `feat/l0-tckn`, `fix/merge-floor`,
   `docs/reference-jev`.
 - Commit messages in English, imperative, scoped: `l0: add VKN recognizer with checksum`.
-  Scopes: `l0`, `l1`, `l2`, `pipeline`, `contracts`, `api`, `session`, `evals`, `docs`, `build`.
+  Scopes: `l0`, `l1`, `l2`, `pipeline`, `contracts`, `api`, `session`, `evals`, `policy`,
+  `docs`, `build`. Policy changes follow [`policy-authoring.md`](policy-authoring.md).
 - One logical change per PR. Contract changes, ADRs and the code implementing them go in
   the same PR.
 
@@ -28,6 +29,8 @@
 ## Before you open a PR
 
 - `python -m pytest -q` and `ruff check . ; ruff format --check .` pass.
+- `python -m umai_decision_engine.policy.cli test policies --require-tests` passes (also run
+  by `pytest` and CI).
 - Docs updated: contracts, architecture, `AGENTS.md` commands, open questions.
 - For accuracy- or latency-relevant changes: eval summary linked in the PR description.
 

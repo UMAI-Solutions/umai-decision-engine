@@ -2,6 +2,7 @@
 
 python -m umai_decision_engine.policy.cli keygen
 python -m umai_decision_engine.policy.cli validate policies/<bundle_id>/<version>
+python -m umai_decision_engine.policy.cli test policies [--require-tests]   # golden tests
 python -m umai_decision_engine.policy.cli sign <bundle_dir> --key-id K --private-key-file F
 python -m umai_decision_engine.policy.cli verify <bundle_dir> --public-key K=BASE64
 """
@@ -9,7 +10,9 @@ python -m umai_decision_engine.policy.cli verify <bundle_dir> --public-key K=BAS
 from __future__ import annotations
 
 import argparse
+import asyncio
 import base64
+import logging
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -45,6 +48,18 @@ def _validate(args: argparse.Namespace) -> int:
     bundle = parse_bundle((Path(args.bundle_dir) / BUNDLE_FILE).read_bytes())
     print(f"ok: {bundle.id} v{bundle.version}")
     return 0
+
+
+def _test(args: argparse.Namespace) -> int:
+    # Imported here: loads Presidio, which keygen/sign/verify do not need.
+    from umai_decision_engine.golden.runner import format_report, run_golden
+
+    logging.getLogger("umai.de").setLevel(logging.ERROR)  # the report already lists problems
+    keys = dict(item.split("=", 1) for item in args.public_key or [])
+    report = asyncio.run(run_golden(Path(args.path), public_keys=keys))
+    for line in format_report(report, require_tests=args.require_tests):
+        print(line)
+    return 0 if report.ok(require_tests=args.require_tests) else 1
 
 
 def _sign(args: argparse.Namespace) -> int:
@@ -85,6 +100,13 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("validate")
     p.add_argument("bundle_dir")
     p.set_defaults(func=_validate)
+    p = sub.add_parser("test", help="validate bundles and run their golden tests (ADR-0015)")
+    p.add_argument("path", help="policies root, a bundle directory or a version directory")
+    p.add_argument(
+        "--require-tests", action="store_true", help="fail when an active version has no tests"
+    )
+    p.add_argument("--public-key", action="append", metavar="KEY_ID=BASE64")
+    p.set_defaults(func=_test)
     p = sub.add_parser("sign")
     p.add_argument("bundle_dir")
     p.add_argument("--key-id", required=True)
@@ -95,6 +117,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--public-key", action="append", required=True, metavar="KEY_ID=BASE64")
     p.set_defaults(func=_verify)
     args = parser.parse_args(argv)
+    if hasattr(sys.stdout, "reconfigure"):  # Turkish text on a cp1252 pipe (Windows CI)
+        sys.stdout.reconfigure(errors="backslashreplace")
     try:
         return args.func(args)
     except Exception as exc:  # CLI: report, don't trace

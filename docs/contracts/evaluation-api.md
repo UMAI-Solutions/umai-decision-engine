@@ -114,6 +114,14 @@ Which content L0 scans is set by `l0.target` in the bundle (`LAST_MESSAGE`,
 
 The response never contains raw content. `reason` is leak-checked.
 
+## Authentication
+
+Every `/v1` route requires `Authorization: Bearer <token>` when `UMAI_DE_API_TOKEN` is set;
+a missing or wrong token is answered with HTTP 401 and `WWW-Authenticate: Bearer`.
+`/healthz` and `/readyz` never require a token. Outside `development` the API refuses to
+start without a token ([ADR-0016](../adr/0016-control-center-separate-repo.md)). The token is
+held by server-side callers only (the console's backend), never by browsers.
+
 ## `GET /v1/bundles`
 
 Loaded versions per bundle id, the active version, signature status and load errors. Used by
@@ -150,11 +158,12 @@ validation problems in `errors[].message`.
 ## Errors
 
 The endpoint returns HTTP 200 with a decision for every evaluable request, including
-failure-policy decisions. HTTP 4xx only for malformed requests (schema violations),
+failure-policy decisions. HTTP 4xx only for malformed requests (schema violations) and authentication (401),
 HTTP 503 only before readiness.
 
 ## Changelog
 
+- 0.4 (2026-10-17): bearer-token authentication on `/v1` routes (ADR-0016); no payload change.
 - 0.4 (2026-10-16): `decided_by: "L0"`; L0 gate reasons; `output_modifications` from the L0
   gate (ADR-0014).
 - 0.3 (2026-10-16): `bundle.version` optional (active pointer); response `bundle.sha256`;

@@ -16,6 +16,7 @@ umai-decision-engine/
 │   │   ├── questions.py           # DecisionQuestion, DecisionRequest, DecisionResult
 │   │   ├── tagged_action.py       # TaggedAction
 │   │   ├── analysis.py            # L2Analysis
+│   │   ├── policy_tests.py        # golden case files (policy-tests contract)
 │   │   └── compat/umai_engine.py  # InternalRequest/InternalResponse adapters (cutover phase)
 │   ├── api/
 │   │   ├── app.py                 # FastAPI app factory, lifespan (bundle load, L0 warm-up, poller)
@@ -68,7 +69,15 @@ umai-decision-engine/
 │   │   ├── manifest.py            # SHA-256 + Ed25519 verification
 │   │   ├── store.py               # validated, compiled bundles; atomic swap; last-known-good
 │   │   ├── validate.py            # semantic validation beyond the schema
-│   │   └── cli.py                 # keygen / sign / verify for hand-made bundles
+│   │   └── cli.py                 # keygen / validate / test / sign / verify
+│   ├── golden/
+│   │   └── runner.py              # ADR-0015: golden cases → BundleStore + Evaluator → report
+│   ├── tenancy/                   # planned (F6, ADR-0019): admission before the pipeline
+│   │   ├── keys.py                # credential → tenant, key id, scopes (hashed keys only)
+│   │   ├── entitlements.py        # signed snapshots / licence file; verify, swap, last-known-good
+│   │   ├── limits.py              # compares a size (measured by l0/size.py, Q19) with the limit
+│   │   └── quota.py               # monthly usage counter (memory; Redis or Postgres, Q23)
+│   ├── export/                    # planned (F6): SIEM exporter, off the request path
 │   └── telemetry/
 │       ├── logging.py             # structured logs, raw-content guard
 │       └── metrics.py             # Prometheus-style counters/histograms
@@ -76,6 +85,8 @@ umai-decision-engine/
 │   └── <bundle_id>/active, <bundle_id>/<version>/bundle.yaml (+ manifest.json)
 ├── evals/
 │   ├── run.py                     # python -m evals.run --suite <name>
+│   ├── metrics.py                 # span matching, per-type and per-category scores
+│   ├── baselines/                 # comparison detectors (naive regex; umai-engine rules)
 │   ├── suites/                    # suite definitions (which dataset, which layers, which metrics)
 │   ├── datasets/                  # synthetic JSONL only
 │   └── reports/                   # generated; only summary.md files are committed
@@ -95,6 +106,9 @@ umai-decision-engine/
 | `l2` | `contracts`, `session`, `events` | `l0`, `l1`, `pipeline`, `api` |
 | `pipeline` | `l0`, `l1`, `events` (emit only), `contracts`, `telemetry` | `l2`, `api` |
 | `api` | `pipeline`, `contracts`, `settings` | layer internals |
+| `golden` | `pipeline`, `policy`, `l0` (detector construction), `contracts`, `settings` | `api`, `l2`; nothing on the request path imports `golden` |
+| `tenancy` (planned) | `contracts`, `policy` (signature verification), `settings` | `l0`, `l1`, `l2`, `pipeline`; it receives a content size, never content (the size is measured in `l0/size.py`) |
+| `export` (planned) | `contracts`, `events` | `l0`, `l1`, `pipeline`, `api` |
 
 Only `l0` receives raw content. Layers communicate through `contracts` models; a raw
 `str` of user content must not appear in any `l1`, `l2`, `session` or `telemetry`

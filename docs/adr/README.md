@@ -23,5 +23,11 @@ listed in [`../open-questions.md`](../open-questions.md) as blocking, and flag d
 | [0012](0012-signed-immutable-policy-bundles.md) | Policies are signed, immutable bundles; the engine only reads them | Accepted |
 | [0013](0013-policy-lifecycle-dashboard.md) | Policies are edited and published live from a dashboard | Accepted (direction; not built) |
 | [0014](0014-l0-detection-is-terminal.md) | An L0 detection is terminal: L0 decides, L1 does not run | Accepted |
+| [0015](0015-policy-golden-tests.md) | Policy changes are gated by golden tests that run through the real pipeline | Accepted |
+| [0016](0016-control-center-separate-repo.md) | The engine's console is a separate repository that calls the API over HTTP with a service token | Accepted |
+| [0017](0017-l0-coverage-lakera-parity-tr-eu.md) | L0 coverage target: Lakera PII parity, extended to Türkiye and Europe | Accepted |
+| [0018](0018-saas-and-self-hosted-editions.md) | UMAI ships as cloud SaaS and self-hosted, in Community and Enterprise editions | Accepted |
+| [0019](0019-editions-as-runtime-entitlements.md) | Editions are runtime entitlements: tenant keys, signed licences, engine-enforced limits | Proposed |
+| [0020](0020-deterministic-baselines-names-addresses.md) | Names and addresses start with deterministic recognizers; NER is added on evidence | Accepted (NER deferred) |
 
 New ADR: copy [`0000-template.md`](0000-template.md), or use skill `write-adr`.
