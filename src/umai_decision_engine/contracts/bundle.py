@@ -1,4 +1,4 @@
-"""Policy bundle (docs/contracts/policy-bundle.md v0.6, decision-questions.md v0.3)."""
+"""Policy bundle (docs/contracts/policy-bundle.md v0.7, decision-questions.md v0.3)."""
 
 from __future__ import annotations
 
@@ -129,6 +129,8 @@ class L0Policy(ContractModel):
     severity: Severity = Severity.HIGH
     roles: list[Role] = Field(default_factory=lambda: list(ALL_ROLES), min_length=1)
     sensitivity: Sensitivity = "L3"
+    # Off: kept in the guardrail with its configuration, but not evaluated (0.7, ADR-0022).
+    enabled: bool = True
 
     def phases(self) -> frozenset[Phase]:
         return frozenset().union(*(ROLE_PHASES[role] for role in self.roles))
@@ -374,7 +376,7 @@ class L2Config(ContractModel):
 
 
 class PolicyBundle(ContractModel):
-    contract_version: Literal["0.3", "0.4", "0.5", "0.6"]
+    contract_version: Literal["0.3", "0.4", "0.5", "0.6", "0.7"]
     id: str = Field(pattern=r"^[a-z0-9][a-z0-9._\-]{0,127}$")
     version: int = Field(ge=1)
     # Guardrail display data (0.6); the id stays the identifier callers use.

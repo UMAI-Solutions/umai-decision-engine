@@ -30,5 +30,6 @@ listed in [`../open-questions.md`](../open-questions.md) as blocking, and flag d
 | [0019](0019-editions-as-runtime-entitlements.md) | Editions are runtime entitlements: tenant keys, signed licences, engine-enforced limits | Proposed |
 | [0020](0020-deterministic-baselines-names-addresses.md) | Names and addresses start with deterministic recognizers; NER is added on evidence | Accepted (NER deferred) |
 | [0021](0021-guardrail-model-policies-pinning-hierarchy.md) | Guardrail model: versioned policies pinned into guardrails; company → project → guardrail | Accepted |
+| [0022](0022-policy-service-control-plane.md) | Policy service: drafts, tests and publishing from the console | Accepted |
 
 New ADR: copy [`0000-template.md`](0000-template.md), or use skill `write-adr`.

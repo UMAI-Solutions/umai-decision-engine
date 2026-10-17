@@ -86,6 +86,7 @@ pip install -e ".[dev]"
 python -m pytest -q                      # unit + integration tests, no network
 ruff check . ; ruff format --check .
 uvicorn umai_decision_engine.api.app:app --reload --port 9100   # reads policies/ and .env
+uvicorn umai_decision_engine.control_plane.app:app --port 9200  # policy service (ADR-0022)
 python -m umai_decision_engine.policy.cli validate policies/<bundle_id>/<version>
 python -m umai_decision_engine.policy.cli test policies --require-tests   # golden tests (ADR-0015)
 python -m umai_decision_engine.policy.cli keygen | sign | verify  # bundle signing (ADR-0012)
@@ -102,7 +103,8 @@ recognizers, allowed domains; evaluation API 0.5: decision provenance) and polic
 entities, the full L0 entity catalog (ADR-0017: Lakera parity, Türkiye, Europe, secrets; 27
 types) and the L0 gate (ADR-0014: a detection is terminal, L1 skipped); shared condition
 evaluator (`rules/`); `/v1/evaluate`, `/v1/detect` (dev), `/v1/bundles`, `/v1/bundles/reload`,
-health; bearer-token auth on `/v1` (ADR-0016); eval harness with the `l0-pii-tr` and `leak`
+health; bearer-token auth on `/v1` (ADR-0016); the policy service (ADR-0022: drafts, golden
+tests with accepted changes, publish, activate, rollback); eval harness with the `l0-pii-tr` and `leak`
 suites; golden-test runner (`cli test`) and CI (`.github/workflows/ci.yml`: ruff, pytest,
 golden tests on Linux and Windows). L1 is not implemented: input without detected entities, evaluated against a bundle
 with L1 rules or policies, is answered with `on_evaluation_failure` and `L1_NOT_IMPLEMENTED`.

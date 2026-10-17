@@ -8,7 +8,7 @@ in the same commit (skill `change-contract`).
 | Contract | Version | Producer → consumer |
 |---|---|---|
 | [evaluation-api](evaluation-api.md) | 0.5 | caller ↔ engine |
-| [policy-bundle](policy-bundle.md) | 0.6 | policy author / loader → engine |
+| [policy-bundle](policy-bundle.md) | 0.7 | policy author / loader → engine |
 | [entity-detection](entity-detection.md) | 0.2 | L0 → L1, pipeline |
 | [decision-questions](decision-questions.md) | 0.3 | bundle → L1b → provider adapters |
 | [tagged-action](tagged-action.md) | 0.2 | L1 → event sink, session history, L2 worker |

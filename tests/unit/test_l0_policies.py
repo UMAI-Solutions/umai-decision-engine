@@ -131,3 +131,16 @@ def test_policies_exclude_entities_and_on_detect_actions() -> None:
         L0Config(entities=["TR_TCKN"], policies=[L0Policy(id="a", entities=["US_SSN"])])
     with pytest.raises(ValidationError, match="needs entities"):
         L0Config()
+
+
+def test_disabled_policy_is_kept_but_not_evaluated() -> None:
+    bundle = _bundle("""
+  policies:
+    - {id: ids, entities: [TR_TCKN]}
+    - {id: contact, entities: [EMAIL_ADDRESS], action: ALLOW_WITH_MODIFICATIONS, enabled: false}
+""")
+    assert validate_bundle(bundle) == []
+    assert bundle.l0.entities == ["TR_TCKN", "EMAIL_ADDRESS"]  # still part of the guardrail
+    rules = type_rules(bundle.l0)
+    assert list(rules) == ["TR_TCKN"]
+    assert phase_config(bundle.l0, rules, Phase.PRE_LLM).entities == ["TR_TCKN"]

@@ -1,6 +1,6 @@
 # Contract: policy bundle
 
-**Version:** 0.6
+**Version:** 0.7
 
 The configuration the engine evaluates against (successor of `umai-engine`'s
 `GuardrailSnapshot`). A bundle is a signed, immutable artifact; the engine only reads it
@@ -176,6 +176,7 @@ l0:
 | `l0.policies[].id`, `version` | Library id and pinned version; ids unique per guardrail |
 | `l0.policies[].entities` | Catalog or custom types; a type belongs to exactly one policy |
 | `l0.policies[].roles` | `user` → `PRE_LLM`, `assistant` → `POST_LLM`, `tool_call` → `TOOL_INPUT` / `MCP_REQUEST`, `tool` → `TOOL_OUTPUT` / `MCP_RESPONSE`, `memory` → `MEMORY_WRITE`; default all; at least one must map to an enabled phase |
+| `l0.policies[].enabled` | `true` (default) or `false`: an off policy stays in the guardrail with its configuration and is not evaluated (0.7, ADR-0022) |
 | `l0.policies[].sensitivity` | Minimum detection score of the policy's types; `min_score_overrides` still wins per type |
 
 ## Validation beyond the schema
@@ -192,6 +193,7 @@ The loader rejects a bundle when:
 
 ## Changelog
 
+- 0.7 (2026-10-17): `l0.policies[].enabled` (on / off, ADR-0022).
 - 0.6 (2026-10-17): `l0.policies` (named, versioned, roles, sensitivity) and guardrail
   `name` / `description` (ADR-0021). Bundles ≤ 0.5 still load.
 - 0.5 (2026-10-17): `l0.allowed_domains`; `l0.custom_recognizers` supported (validators, regex

@@ -1,5 +1,10 @@
 # Changing a policy
 
+**In the console (ADR-0022):** open the guardrail, *Edit*, change policies (on / off, action,
+sensitivity, roles, detectors) or add one, *Test*, accept intended behaviour changes, then
+*Publish & activate* or *Publish only*; roll back from *Versions*. The steps below are the same
+flow done by hand in Git, still useful for reviews and CI.
+
 How the team writes, tests and ships policy bundles until the policy dashboard exists (F5).
 Until then **Git is the control plane**: a policy change is a pull request, CI is the test
 stage, review is the approval, and moving the `active` pointer is the release. The dashboard

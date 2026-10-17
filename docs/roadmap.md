@@ -18,6 +18,7 @@ Each phase ends with a short report in `evals/reports/` or `docs/` and an update
 
 | Date | Done | Notes |
 |---|---|---|
+| 2026-10-17 | Policy service (ADR-0022, first F5 slice): drafts, validation, golden tests with accepted changes, publish (signed when a key is set), activate / rollback, change log; policy on/off (policy-bundle 0.7); console guardrail editor | Verified end to end: switch a policy off → test → accept → publish & activate → engine serves it → rollback. 308 tests |
 | 2026-10-17 | Demo guardrail `gr-demo-data-protection` v4 (policy form, ADR-0021) activated | Pointer change only; v2 and v3 stay loaded for rollback |
 | 2026-10-17 | Guardrail model (ADR-0021): `l0.policies` with roles and sensitivity (policy-bundle 0.6), decision provenance `decision.matched` (evaluation API 0.5), guardrail detail endpoint, demo guardrail v4 (52 golden cases), sensitivity sweep report; console Guardrails pages | 298 tests; 111 golden cases |
 | 2026-10-17 | Name detection parked by the product owner: gazetteer baseline kept, no NER; `PERSON` out of the F1 exit criterion (ADR-0020) | Every-culture names need a multilingual NER model when resumed |

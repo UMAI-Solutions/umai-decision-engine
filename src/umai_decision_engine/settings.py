@@ -37,6 +37,12 @@ class Settings(BaseSettings):
     # Required outside development: the API refuses to start without it.
     api_token: SecretStr | None = None
 
+    # Policy service (control plane, ADR-0022): drafts, publish, activate. Separate process.
+    control_api_token: SecretStr | None = None  # required outside development
+    control_db_path: Path = Path(".data/control.sqlite")
+    signing_key_file: Path | None = None  # Ed25519 private key (base64) for published manifests
+    signing_key_id: str | None = None
+
     # development endpoints
     expose_detect_endpoint: bool | None = None  # None → True only in development
 

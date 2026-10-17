@@ -70,6 +70,11 @@ umai-decision-engine/
 │   │   ├── store.py               # validated, compiled bundles; atomic swap; last-known-good
 │   │   ├── validate.py            # semantic validation beyond the schema
 │   │   └── cli.py                 # keygen / validate / test / sign / verify
+│   ├── control_plane/             # ADR-0022 policy service: drafts, tests, publish, activate
+│   │   ├── app.py                 # FastAPI app (port 9200), bearer token
+│   │   ├── service.py             # draft → validate → golden tests → publish; accepted cases
+│   │   ├── repository.py          # the only writer of the bundle source; atomic; changelog
+│   │   └── drafts.py              # SQLite draft store
 │   ├── golden/
 │   │   └── runner.py              # ADR-0015: golden cases → BundleStore + Evaluator → report
 │   ├── tenancy/                   # planned (F6, ADR-0019): admission before the pipeline
@@ -107,6 +112,7 @@ umai-decision-engine/
 | `pipeline` | `l0`, `l1`, `events` (emit only), `contracts`, `telemetry` | `l2`, `api` |
 | `api` | `pipeline`, `contracts`, `settings` | layer internals |
 | `golden` | `pipeline`, `policy`, `l0` (detector construction), `contracts`, `settings` | `api`, `l2`; nothing on the request path imports `golden` |
+| `control_plane` | `golden`, `policy`, `contracts`, `l0` (detector for tests), `settings` | `api`; the engine never imports it |
 | `tenancy` (planned) | `contracts`, `policy` (signature verification), `settings` | `l0`, `l1`, `l2`, `pipeline`; it receives a content size, never content (the size is measured in `l0/size.py`) |
 | `export` (planned) | `contracts`, `events` | `l0`, `l1`, `pipeline`, `api` |
 

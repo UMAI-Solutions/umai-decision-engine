@@ -1,7 +1,9 @@
 # Policy lifecycle: edit in a dashboard, publish live
 
-**Status:** direction accepted ([ADR-0013](../adr/0013-policy-lifecycle-dashboard.md)); the
-control plane is not built yet. The engine side is designed for it from the start.
+**Status:** direction accepted ([ADR-0013](../adr/0013-policy-lifecycle-dashboard.md)). The first
+control plane is built: the **policy service** ([ADR-0022](../adr/0022-policy-service-control-plane.md),
+`umai_decision_engine.control_plane`) with drafts, tests, publish and activate, used by the
+console's guardrail page. Library, approval and remote propagation are still to come.
 
 ## Flow
 

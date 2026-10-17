@@ -60,6 +60,9 @@ class CaseResult:
     case_id: str
     file: str  # relative to the version directory, e.g. "tests/l0-gate.yaml"
     failures: tuple[str, ...] = ()
+    # What the pipeline decided (decision fields only, never the input text); lets a reviewer
+    # accept a changed behaviour as the new expectation (policy service, ADR-0022).
+    actual: dict | None = None
 
     @property
     def passed(self) -> bool:
@@ -243,6 +246,25 @@ def _fmt(values: Iterable[object]) -> str:
     return "[" + ", ".join(sorted(str(v) for v in values)) + "]"
 
 
+def observed(response: EvaluationResponse) -> dict:
+    """The decision fields a golden case can assert, as plain data."""
+
+    mods = response.output_modifications
+    return {
+        "action": str(response.decision.action),
+        "decided_by": response.decision.decided_by,
+        "severity": str(response.decision.severity),
+        "reason": response.decision.reason,
+        "entities": sorted(e.type for e in response.entities),
+        "masked": sorted(mods.entities) if mods else [],
+        "redacted_text": mods.redacted_text if mods else None,
+        "matched": [m.id for m in response.decision.matched],
+        "errors": sorted(e.type for e in response.errors),
+        "degraded": response.degraded,
+        "would_have": str(response.would_have.action) if response.would_have else None,
+    }
+
+
 def compare(expect: Expectation, response: EvaluationResponse) -> list[str]:
     """Mismatches between ``expect`` and ``response``; empty when the case passes."""
 
@@ -357,13 +379,15 @@ async def run_golden(
         for entry, cases in plans:
             for item in cases:
                 request = build_request(item.case.id, item.input, entry.bundle_id, entry.version)
+                actual = None
                 try:
                     response = await evaluator.evaluate(request)
                 except Exception as exc:  # reported as a failed case, never swallowed
                     failures = [f"evaluation raised {type(exc).__name__}: {str(exc)[:200]}"]
                 else:
                     failures = compare(item.case.expect, response)
-                entry.cases.append(CaseResult(item.case.id, item.file, tuple(failures)))
+                    actual = observed(response)
+                entry.cases.append(CaseResult(item.case.id, item.file, tuple(failures), actual))
     finally:
         if own_detector:
             detector.close()

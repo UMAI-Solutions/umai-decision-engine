@@ -34,6 +34,8 @@ def type_rules(l0: L0Config) -> dict[str, TypeRule]:
     rules: dict[str, TypeRule] = {}
     if l0.policies:
         for policy in l0.policies:
+            if not policy.enabled:
+                continue  # switched off: its types are not detected (ADR-0022)
             phases = policy.phases()
             for entity in policy.entities:
                 rules[entity] = TypeRule(
