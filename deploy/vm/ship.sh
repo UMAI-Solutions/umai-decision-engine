@@ -34,6 +34,6 @@ tar -C "$here/.." -cf - postgres-init.sql vm/docker-compose.yml vm/Caddyfile vm/
   ssh "${ssh_opts[@]}" "$target" \
     "sudo mkdir -p $remote_dir && sudo tar -C $remote_dir -xf - && sudo chmod +x $remote_dir/vm/umai.sh $remote_dir/vm/postgres-init.sh"
 
-ssh "${ssh_opts[@]}" "$target" "test -f /opt/umai/secrets.env -o -n \"\$(grep -s '^UMAI_KEY_VAULT=.' /opt/umai/config.env)\"" &&
+ssh "${ssh_opts[@]}" "$target" "sudo test -f /opt/umai/secrets.env -o -n \"\$(sudo grep -s '^UMAI_KEY_VAULT=.' /opt/umai/config.env)\"" &&
   ssh "${ssh_opts[@]}" "$target" "sudo $remote_dir/vm/umai.sh up" ||
   echo "ship: images and files delivered; finish first-time setup (README §3), then run umai.sh up"
