@@ -34,7 +34,8 @@ digest, and Microsoft recommends verifying locally with the public key. Python
 
 ```python
 from azure.keyvault.keys.crypto import CryptographyClient, SignatureAlgorithm
-digest = hashlib.sha256(manifest_bytes).digest()           # computed client-side
+
+digest = hashlib.sha256(manifest_bytes).digest()  # computed client-side
 result = CryptographyClient(key_id, credential).sign(SignatureAlgorithm.es256, digest)
 # result.signature; wrap_key(KeyWrapAlgorithm, key) / unwrap_key(KeyWrapAlgorithm, encrypted_key)
 ```
