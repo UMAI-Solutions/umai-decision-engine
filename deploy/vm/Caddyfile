@@ -1,7 +1,7 @@
 # One hostname (Azure DNS label or a custom domain): the engine API on /v1, /healthz, /readyz;
 # everything else is the console behind basic auth until console login (ADR-0024) lands.
 {
-	email {$UMAI_ACME_EMAIL}
+	# No ACME account e-mail: Let's Encrypt does not require one (expiry mails are optional).
 	servers {
 		protocols h1 h2 h3
 	}

@@ -103,7 +103,6 @@ services:
     ports: ["80:80", "443:443", "443:443/udp"]
     environment:
       UMAI_HOSTNAME: ${UMAI_HOSTNAME:?set in config.env}
-      UMAI_ACME_EMAIL: ${UMAI_ACME_EMAIL:?set in config.env}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - "${UMAI_RUN_DIR:-/run/umai}/console-auth.caddy:/run/umai/console-auth.caddy:ro"

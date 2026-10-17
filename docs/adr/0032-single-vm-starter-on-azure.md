@@ -21,13 +21,16 @@ containers use about 240 MiB together.
 ## Decision
 
 1. **One Azure VM runs the whole product with Docker Compose** (`deploy/vm/`): Caddy, engine,
-   policy service, console. Size `Standard_B2als_v2` (2 vCPU, 4 GiB) with a 64 GB Standard SSD in
-   an EU region (West Europe by default). Infrastructure as code in `deploy/azure/main.bicep`.
-   List price ≈ $41/month pay-as-you-go (VM $31.5, disk $4.8, IP $3.7, Key Vault and backups ≈ $1);
-   about $30 with a one-year reservation (discount not verified).
+   policy service, console. Size 2 vCPU / 4 GiB with a 64 GB Standard SSD in an EU region (West
+   Europe by default): `Standard_B2als_v2` ($31.5/month) where the subscription has Basv2 quota,
+   otherwise `Standard_B2s` ($35/month; `umai-beta` runs this one). Infrastructure as code in
+   `deploy/azure/main.bicep`. List price ≈ $41–45/month pay-as-you-go (VM, disk $4.8, IP $3.7,
+   backups ≈ $1); less with a one-year reservation (discount not verified).
 2. **Same images as the regional stack.** One engine image serves the API and the policy service
    (`Dockerfile`); the console has its own (`umai-control-center/Dockerfile`, Next.js standalone).
-   Moving to AKS later changes the orchestration, not the artifacts.
+   Moving to AKS later changes the orchestration, not the artifacts. Images are built on the
+   operator workstation and streamed to the VM over SSH (`deploy/vm/ship.sh`): the VM holds no
+   repository credentials (the GitHub organisation also disables deploy keys).
 3. **Only what the code uses is deployed.** No Postgres, Redis or Keycloak until the code that
    needs them lands (AGENTS rule 6). The VM has headroom for them (≈ 3.7 GiB free).
 4. **Ingress:** Caddy terminates TLS (Let's Encrypt, TLS 1.2+, HSTS), caps request bodies at
@@ -36,14 +39,20 @@ containers use about 240 MiB together.
    `/readyz` go to the engine (bearer token, ADR-0016); everything else is the console behind
    **HTTP basic auth** until console login (ADR-0024) exists. The policy service is not exposed.
 5. **Secrets:** Key Vault Standard, read by the VM's managed identity at start into `/run/umai`
-   (tmpfs, mode 0400); nothing secret in Bicep parameters, compose files or on disk. Key Vault and
-   the backup storage account accept only the VM subnet (service endpoints) and the operator's IP.
+   (tmpfs, mode 0400); nothing secret in Bicep parameters or compose files. Key Vault and the
+   backup storage account accept only the VM subnet (service endpoints) and the operator's IP.
+   **Fallback, in use for `umai-beta`:** where the deployer cannot register `Microsoft.KeyVault`
+   or create role assignments (resource-group Contributor only), `useKeyVault=false` keeps the
+   secrets in `/opt/umai/secrets.env` (root, 0600), generated on the VM by `umai.sh init`, and
+   backups use a write-only container SAS (`cw`, one year) stored in the same file. Containers see
+   the same `/run/umai` files in both modes. Switch to Key Vault once the subscription owner
+   registers the provider and grants role-assignment rights on the resource group.
 6. **Signing stays Ed25519 with a file key** fetched from Key Vault, because the Key Vault signer
    (`kms_azure`, ECDSA P-256, ADR-0031 §2) is not implemented. On first start the seed bundles in
    the image are copied to the policy volume and signed with this deployment's key; the engine
    requires signed bundles as in any non-development environment.
 7. **Backups:** nightly tar of the policy volume and a consistent SQLite copy to Blob Storage
-   (managed identity, no shared keys), kept 30 days by a lifecycle rule.
+   (managed identity without shared keys, or the SAS of §5), kept 30 days by a lifecycle rule.
 8. **Scope limit.** The starter VM is for demos and **at most a few pilot tenants under a pilot
    agreement**. It is not the S0 private beta of the launch plan: it has no WAF, no HA, no DR, a
    single shared API token (readiness T1 open: the body `tenant_id` is not bound to the
@@ -65,7 +74,9 @@ containers use about 240 MiB together.
   measured in hours. Acceptable for demos and pilots, not for paid SaaS.
 - The operator patches the OS (unattended upgrades with a 03:30 reboot window) and watches the
   stack; there is no monitoring beyond container health checks and `docker logs`.
-- Pilot tenants each need their own HMAC key in Key Vault (`umai-tenant-hmac-keys`).
+- Pilot tenants each need their own HMAC key (`umai-tenant-hmac-keys` / `UMAI_TENANT_HMAC_KEYS`).
+- The operator's SSH access and the storage firewall are pinned to one IP; a changing home IP
+  means updating the NSG rule (runbook §4).
 - Exit to ADR-0031: when the first paying customer, the second pilot, or any S0 readiness row
   requires WAF, HA or tenant-bound keys. Images, Key Vault secrets and backups carry over.
 
@@ -77,4 +88,8 @@ containers use about 240 MiB together.
   `/docs` and `/openapi.json` 404; 700 kB body 413; HSTS, `nosniff`, `Cache-Control: no-store`
   on API responses; publishing v5 through the policy service signed it and the engine loaded it
   within one poll interval. Memory: engine 101 MiB, policy 97 MiB, console 26 MiB, Caddy 17 MiB.
-- On Azure: the runbook's checks (`deploy/vm/README.md` §5) after the first deployment.
+- On Azure (`umai-beta`, resource group `UMAI`, 2026-10-17): Let's Encrypt certificate issued;
+  `/healthz` 200, `/v1/bundles` 401 without token, `/docs` and `/openapi.json` 404, console 401
+  without and 200 with basic auth, console → engine and console → policy relays 200; `/v1/evaluate`
+  with the token BLOCKs a synthetic TCKN (L0); bundles signed with the deployment key
+  `vm-2026-10`; `umai.sh backup` uploaded an archive to Blob Storage.

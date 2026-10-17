@@ -1,9 +1,7 @@
 // Single-VM starter deployment of UMAI on Azure (ADR-0032).
-// One Linux VM (Docker Compose stack from deploy/vm), a Key Vault for secrets, a storage account
-// for nightly backups. No secrets in parameters: they are set in Key Vault after deployment.
-//
-//   az group create -n rg-umai-beta -l westeurope
-//   az deployment group create -g rg-umai-beta -f deploy/azure/main.bicep -p deploy/azure/main.bicepparam
+// One Linux VM (Docker Compose stack from deploy/vm), optionally a Key Vault for secrets
+// (useKeyVault), a storage account for nightly backups. No secrets in parameters.
+// Runbook: deploy/vm/README.md.
 
 targetScope = 'resourceGroup'
 
@@ -18,7 +16,7 @@ param prefix string = 'umaibeta'
 @description('DNS label: <label>.<region>.cloudapp.azure.com becomes the public hostname.')
 param dnsLabel string
 
-@description('VM size. B2als_v2 = 2 vCPU, 4 GiB (ADR-0032 sizing).')
+@description('VM size, 2 vCPU / 4 GiB (ADR-0032). Standard_B2s where the subscription has no Basv2 quota.')
 param vmSize string = 'Standard_B2als_v2'
 
 param adminUsername string = 'umaiops'
@@ -34,6 +32,9 @@ param operatorObjectId string = ''
 
 @description('Days a backup blob is kept.')
 param backupRetentionDays int = 30
+
+@description('Secrets in Key Vault read by the VM identity (ADR-0032 §5). Needs the Microsoft.KeyVault provider and the right to create role assignments (Owner or User Access Administrator). false: secrets stay in a root-only file on the VM and backups use a SAS token.')
+param useKeyVault bool = false
 
 var suffix = uniqueString(resourceGroup().id)
 var kvName = take('${prefix}-kv-${suffix}', 24)
@@ -184,7 +185,7 @@ resource vm 'Microsoft.Compute/virtualMachines@2024-07-01' = {
   }
 }
 
-resource kv 'Microsoft.KeyVault/vaults@2023-07-01' = {
+resource kv 'Microsoft.KeyVault/vaults@2023-07-01' = if (useKeyVault) {
   name: kvName
   location: location
   properties: {
@@ -214,7 +215,8 @@ resource sa 'Microsoft.Storage/storageAccounts@2023-05-01' = {
     minimumTlsVersion: 'TLS1_2'
     supportsHttpsTrafficOnly: true
     allowBlobPublicAccess: false
-    allowSharedKeyAccess: false
+    // Without role assignments the VM writes backups with a container SAS, which needs shared keys.
+    allowSharedKeyAccess: !useKeyVault
     networkAcls: {
       defaultAction: 'Deny'
       bypass: 'AzureServices'
@@ -256,7 +258,7 @@ resource lifecycle 'Microsoft.Storage/storageAccounts/managementPolicies@2023-05
   }
 }
 
-resource vmReadsSecrets 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+resource vmReadsSecrets 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (useKeyVault) {
   scope: kv
   name: guid(kv.id, vm.id, roleKeyVaultSecretsUser)
   properties: {
@@ -266,7 +268,7 @@ resource vmReadsSecrets 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   }
 }
 
-resource operatorWritesSecrets 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(operatorObjectId)) {
+resource operatorWritesSecrets 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (useKeyVault && !empty(operatorObjectId)) {
   scope: kv
   name: guid(kv.id, operatorObjectId, roleKeyVaultSecretsOfficer)
   properties: {
@@ -275,7 +277,7 @@ resource operatorWritesSecrets 'Microsoft.Authorization/roleAssignments@2022-04-
   }
 }
 
-resource vmWritesBackups 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+resource vmWritesBackups 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (useKeyVault) {
   scope: sa
   name: guid(sa.id, vm.id, roleStorageBlobDataContributor)
   properties: {
@@ -287,6 +289,6 @@ resource vmWritesBackups 'Microsoft.Authorization/roleAssignments@2022-04-01' = 
 
 output hostname string = pip.properties.dnsSettings.fqdn
 output publicIp string = pip.properties.ipAddress
-output keyVaultName string = kv.name
+output keyVaultName string = useKeyVault ? kv.name : ''
 output backupStorageAccount string = sa.name
 output sshCommand string = 'ssh ${adminUsername}@${pip.properties.dnsSettings.fqdn}'

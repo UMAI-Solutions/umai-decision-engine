@@ -1,99 +1,101 @@
 # Single-VM deployment on Azure (runbook)
 
 Decision and limits: [ADR-0032](../../docs/adr/0032-single-vm-starter-on-azure.md). For demos and a
-few pilot tenants, not paid SaaS. About $41/month at list price.
+few pilot tenants, not paid SaaS. About $45/month at list price.
 
 ```text
 Internet ──443──▶ Caddy ──/v1, /healthz, /readyz──▶ engine :9100 ──reads──▶ policies volume
                    │                                                         ▲ signs + writes
                    └──everything else (basic auth)──▶ console :3100 ──▶ policy service :9200
-Key Vault ──(managed identity, at start)──▶ /run/umai (tmpfs)      nightly backup ──▶ Blob
+secrets: Key Vault or /opt/umai/secrets.env ──(umai.sh, at start)──▶ /run/umai (tmpfs)
+nightly backup ──▶ Blob Storage                      images: built on the workstation, ship.sh
 ```
 
-## 1. Create the Azure resources (operator workstation, PowerShell or bash)
+The VM never holds repository credentials: images are built on the operator workstation and
+streamed over SSH (`ship.sh`). Two secret modes, chosen by `UMAI_KEY_VAULT` in `config.env`:
 
-```powershell
+| Mode | When | Secrets | Backups |
+|---|---|---|---|
+| **Key Vault** (`useKeyVault=true`) | `Microsoft.KeyVault` is registered and the deployer may create role assignments | Key Vault, read by the VM's managed identity | managed identity with a blob data role |
+| **Local file** (`useKeyVault=false`; `umai-beta` today) | resource-group Contributor only | `/opt/umai/secrets.env`, root 0600, generated on the VM by `umai.sh init` | write-only container SAS |
+
+## 1. Create the Azure resources (workstation)
+
+```bash
 az login
-az group create -n rg-umai-beta -l westeurope
-# Edit deploy/azure/main.bicepparam: dnsLabel, SSH public key, your IP (/32), your object id
-#   az ad signed-in-user show --query id -o tsv
-az deployment group create -g rg-umai-beta -f deploy/azure/main.bicep -p deploy/azure/main.bicepparam
+ssh-keygen -t ed25519 -f ~/.ssh/umai_beta_ed25519 -N "" -C "umai-beta operator"
+P=(dnsLabel=umai-beta adminSshPublicKey="$(cat ~/.ssh/umai_beta_ed25519.pub)"
+   adminSourceCidr=<your IP>/32 useKeyVault=false vmSize=Standard_B2s)
+az deployment group what-if -g <rg> -f deploy/azure/main.bicep -p "${P[@]}"
+az deployment group create -g <rg> -n umai-beta -f deploy/azure/main.bicep -p "${P[@]}"
 ```
 
-Note the outputs: `hostname`, `keyVaultName`, `backupStorageAccount`, `sshCommand`.
+`vmSize`: pick a family with quota (`az vm list-usage -l westeurope`); `umai-beta` runs
+`Standard_B2s` because the subscription has no Basv2 quota. Outputs: `hostname`,
+`backupStorageAccount`, `keyVaultName` (empty in local-file mode), `publicIp`, `sshCommand`.
 
-## 2. Put the secrets into Key Vault
-
-Generate them locally. The values never go into a file in the repository or into chat.
+## 2. Ship the images and files (workstation)
 
 ```bash
-KV=<keyVaultName>
-az keyvault secret set --vault-name $KV -n umai-api-token     --value "$(openssl rand -hex 32)" -o none
-az keyvault secret set --vault-name $KV -n umai-control-token --value "$(openssl rand -hex 32)" -o none
-# Tenant HMAC keys: one per tenant that will call the API, plus the console's own tenant.
-az keyvault secret set --vault-name $KV -n umai-tenant-hmac-keys -o none --value \
-  "{\"console\":\"$(openssl rand -base64 32)\",\"pilot-1\":\"$(openssl rand -base64 32)\"}"
-# Console basic-auth password hash (bcrypt):
-az keyvault secret set --vault-name $KV -n umai-console-password-hash -o none --value \
-  "$(docker run --rm caddy:2.10-alpine caddy hash-password --plaintext '<console password>')"
+SSH_KEY=~/.ssh/umai_beta_ed25519 deploy/vm/ship.sh umaiops@<hostname> ../umai-control-center
 ```
 
-Bundle signing key (Ed25519, ADR-0032 §6), straight from `keygen` into Key Vault without a file:
+The first run stops after delivering images and files, because no secrets exist yet.
+
+## 3. First-time setup on the VM
 
 ```bash
-docker build -t umai-decision-engine:current .        # in the engine repository
-out="$(docker run --rm umai-decision-engine:current python -m umai_decision_engine.policy.cli keygen)"
-az keyvault secret set --vault-name $KV -n umai-signing-key -o none   --value "$(printf '%s
-' "$out" | awk '/^private/ {print $NF}')"
-printf '%s
-' "$out" | awk '/^public/ {print $NF}'    # public half -> UMAI_BUNDLE_PUBLIC_KEYS (§3)
-unset out
-```
-
-## 3. Install the stack on the VM
-
-```bash
-ssh umaiops@<hostname>
+ssh -i ~/.ssh/umai_beta_ed25519 umaiops@<hostname>
 sudo -i
-cloud-init status --wait                       # docker, compose, swap, unattended upgrades
-cd /opt/umai/src
-# Read-only access: GitHub needs a separate deploy key per repository.
-for r in umai-decision-engine umai-control-center; do
-  ssh-keygen -t ed25519 -f ~/.ssh/$r -N "" -C "umai-vm $r"   # add ~/.ssh/$r.pub to repo $r (read-only)
-  printf 'Host gh-%s
-  HostName github.com
-  User git
-  IdentityFile ~/.ssh/%s
-' $r $r >> ~/.ssh/config
-done
-git clone gh-umai-decision-engine:UMAI-Solutions/umai-decision-engine.git
-git clone gh-umai-control-center:UMAI-Solutions/umai-control-center.git
-
-cp /opt/umai/src/umai-decision-engine/deploy/vm/config.env.example /opt/umai/config.env
-chmod 600 /opt/umai/config.env && vi /opt/umai/config.env   # hostname, vault, account, key id, {"<key id>": "<public>"}
-chmod +x /opt/umai/src/umai-decision-engine/deploy/vm/umai.sh
-cp /opt/umai/src/umai-decision-engine/deploy/vm/umai*.service \
-   /opt/umai/src/umai-decision-engine/deploy/vm/umai-backup.timer /etc/systemd/system/
-systemctl daemon-reload
-systemctl enable --now umai.service umai-backup.timer
+D=/opt/umai/src/umai-decision-engine/deploy/vm
+docker pull caddy:2.10-alpine && docker pull alpine
+install -m 600 $D/config.env.example /opt/umai/config.env
+vi /opt/umai/config.env        # UMAI_HOSTNAME, UMAI_BACKUP_ACCOUNT, UMAI_CONSOLE_USER; vault empty
+$D/umai.sh init                # tokens, tenant HMAC keys, signing key + public key in config.env
+cat /root/console-password.txt # store it in your password manager, then:
+shred -u /root/console-password.txt
+cp $D/umai.service $D/umai-backup.service $D/umai-backup.timer /etc/systemd/system/
+systemctl daemon-reload && systemctl enable --now umai.service umai-backup.timer
 ```
 
-The first start builds both images (a few minutes), seeds and signs the demo bundles, then starts
-the stack. Caddy obtains the certificate on the first HTTPS request.
+Backup SAS (local-file mode), from the workstation. The token goes straight into the VM file;
+it contains `&`, so it is appended rather than substituted with `sed`:
+
+```bash
+SA=<backupStorageAccount>
+key="$(az storage account keys list -g <rg> -n $SA --query [0].value -o tsv)"
+sas="$(az storage container generate-sas --account-name $SA --account-key "$key" -n backups \
+  --permissions cw --expiry "$(date -u -d '+1 year' +%Y-%m-%dT%H:%MZ)" --https-only -o tsv)"
+printf '%s' "$sas" | ssh -i ~/.ssh/umai_beta_ed25519 umaiops@<hostname> "sudo sh -c '
+  v=\$(cat); sed -i /^UMAI_BACKUP_SAS=/d /opt/umai/secrets.env
+  printf \"UMAI_BACKUP_SAS=%s\n\" \"'\''\$v'\''\" >> /opt/umai/secrets.env'"
+unset key sas
+```
+
+The SAS expires after a year; renew it the same way.
+
+In Key Vault mode put the secrets into the vault instead (names: `umai-api-token`,
+`umai-control-token`, `umai-tenant-hmac-keys`, `umai-signing-key`, `umai-console-password-hash`),
+set `UMAI_KEY_VAULT` and `UMAI_SIGNING_KEY_ID` / `UMAI_BUNDLE_PUBLIC_KEYS` by hand; `umai.sh init`
+is not used.
+
+Caddy obtains the TLS certificate on the first HTTPS request.
 
 ## 4. Day-to-day
 
-| Task | Command (as root on the VM) |
-|---|---|
-| Status | `umai.sh status` |
-| Logs | `docker compose -p umai logs -f engine` (no raw content is logged, ADR-0005) |
-| Deploy new code | `umai.sh update` (git pull both repos, rebuild, restart) |
-| Rotate a secret | change it in Key Vault, then `umai.sh up` |
-| Backup now | `umai.sh backup` |
-| Restore | `systemctl stop umai`; `az storage blob download` the archive (workstation) and copy it over; `docker run --rm -v umai_policies:/p -v umai_control:/c -v $PWD:/in alpine sh -c 'cd / && tar -xzf /in/<archive> && mv /c/backup.sqlite /c/control.sqlite'`; `systemctl start umai` |
-| Give a pilot tenant access | add its HMAC key to `umai-tenant-hmac-keys`, `umai.sh up`, hand over the API token over a secure channel |
+| Task | Where | Command |
+|---|---|---|
+| Deploy new code | workstation | `SSH_KEY=~/.ssh/umai_beta_ed25519 deploy/vm/ship.sh umaiops@<hostname>` |
+| Status | VM, root | `$D/umai.sh status` |
+| Logs | VM, root | `docker compose -p umai logs -f engine` (no raw content is logged, ADR-0005) |
+| API token for a pilot client | VM, root | `grep UMAI_API_TOKEN /opt/umai/secrets.env`; hand over on a secure channel |
+| Add a pilot tenant | VM, root | add `"<tenant>":"<openssl rand -base64 32>"` to `UMAI_TENANT_HMAC_KEYS`, then `$D/umai.sh up` |
+| Rotate a secret | VM, root | edit `/opt/umai/secrets.env` (or the vault), then `$D/umai.sh up` |
+| Backup now | VM, root | `$D/umai.sh backup` |
+| Restore | VM, root | `systemctl stop umai`; fetch the archive (`az storage blob download` on the workstation, then `scp`); `docker run --rm -v umai_policies:/p -v umai_control:/c -v $PWD:/in alpine sh -c 'cd / && tar -xzf /in/<archive> && mv /c/backup.sqlite /c/control.sqlite'`; `systemctl start umai` |
+| Your IP changed (SSH times out) | workstation | `az network nsg rule update -g <rg> --nsg-name umaibeta-nsg -n ssh-operator --source-address-prefixes <ip>/32`; storage: `az storage account network-rule add/remove … --ip-address` |
 
-## 5. Checks after the first deployment
+## 5. Checks after a deployment
 
 ```bash
 H=https://<hostname>
@@ -110,5 +112,6 @@ guardrail change: the engine's `/v1/bundles` shows the new version, signed with 
 ## 6. What this deployment does not have
 
 No WAF, no HA, no DR region, one shared API token (body `tenant_id` not bound to the credential,
-readiness T1), console basic auth instead of login, software-protected keys, no central log store.
-Moving on to the ADR-0031 stack is triggered by the conditions in ADR-0032 "Consequences".
+readiness T1), console basic auth instead of login, software-protected keys, no central log store;
+in local-file mode the secrets sit on the VM disk (root only, encrypted at rest by Azure). Moving
+on to the ADR-0031 stack is triggered by the conditions in ADR-0032 "Consequences".

@@ -4,4 +4,5 @@ using './main.bicep'
 param dnsLabel = 'umai-beta'
 param adminSshPublicKey = '<ssh-ed25519 AAAA... operator>'
 param adminSourceCidr = '<your public IP>/32'
-param operatorObjectId = '<az ad signed-in-user show --query id -o tsv>'
+param useKeyVault = false           // true needs Microsoft.KeyVault and role-assignment rights
+param operatorObjectId = ''         // Key Vault mode: az ad signed-in-user show --query id -o tsv

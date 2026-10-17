@@ -40,6 +40,6 @@ listed in [`../open-questions.md`](../open-questions.md) as blocking, and flag d
 | [0029](0029-authorization-roles-and-four-eyes.md) | Authorization: tenant roles enforced in services, four-eyes for production activation | Proposed |
 | [0030](0030-audit-events-and-structured-telemetry.md) | Audit and decision events: append-only per tenant, exportable; telemetry allowlist | Proposed |
 | [0031](0031-umai-cloud-on-azure.md) | UMAI Cloud on Azure: West Europe / North Europe, ECDSA P-256 in Key Vault Premium, Flexible Server, Application Gateway (no Front Door), AKS + Notation, Managed Redis | Proposed |
-| [0032](0032-single-vm-starter-on-azure.md) | Single-VM starter on Azure: Docker Compose (Caddy, engine, policy service, console), Key Vault secrets, ≈ $41/month; demos and pilots only | Accepted |
+| [0032](0032-single-vm-starter-on-azure.md) | Single-VM starter on Azure: Docker Compose (Caddy, engine, policy service, console), Key Vault (or local-file) secrets, images shipped over SSH, ≈ $41–45/month; demos and pilots only | Accepted |
 
 New ADR: copy [`0000-template.md`](0000-template.md), or use skill `write-adr`.
