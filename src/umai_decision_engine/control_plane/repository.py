@@ -89,6 +89,15 @@ class GuardrailRepository:
             raise RepositoryError(f"{bundle_id} v{version} does not exist")
         return parse_bundle(path.read_bytes())
 
+    def manifest(self, bundle_id: str, version: int) -> BundleManifest | None:
+        path = self.version_dir(bundle_id, version) / MANIFEST_FILE
+        if not path.is_file():
+            return None
+        try:
+            return BundleManifest.model_validate_json(path.read_bytes())
+        except ValueError:  # listed as unsigned; the engine's store reports the broken manifest
+            return None
+
     def changelog(self, bundle_id: str) -> list[dict]:
         path = self.root / bundle_id / CHANGELOG
         if not path.is_file():

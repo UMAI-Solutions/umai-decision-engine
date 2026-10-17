@@ -73,7 +73,19 @@ def _policy(draft: dict, policy_id: str) -> dict:
 def test_list_summary_and_catalog(service) -> None:
     client = service()
     assert client.get("/v1/guardrails").json()["guardrails"] == [
-        {"id": "gr-test", "name": None, "active_version": 1, "versions": [1], "has_draft": False}
+        {
+            "id": "gr-test",
+            "name": None,
+            "description": None,
+            "mode": "ENFORCE",
+            "active_version": 1,
+            "versions": [1],
+            "has_draft": False,
+            "policies": 0,
+            "policies_on": 0,
+            "detectors": 6,
+            "last_change": None,
+        }
     ]
     summary = client.get("/v1/guardrails/gr-test").json()
     assert summary["versions"][0]["valid"] and summary["draft"] is None
@@ -137,6 +149,9 @@ def test_switching_a_policy_off_needs_accepted_cases_then_publishes(service) -> 
     ]
     assert actions == ["publish", "activate"]
     assert client.get("/v1/guardrails/gr-test/draft").status_code == 404  # draft consumed
+    v2_summary = client.get("/v1/guardrails/gr-test").json()["versions"][1]
+    assert v2_summary["note"] == "phones no longer masked" and v2_summary["base_version"] == 1
+    assert v2_summary["published_at"] and v2_summary["signed"] is False  # no signing key set
 
     store = BundleStore(DirectorySource(service.root), public_keys={}, require_signed=False)
     store.reload(force=True)
@@ -206,6 +221,7 @@ def test_published_versions_are_signed_with_a_configured_key(service, tmp_path) 
         {"test-key": public},
         require_signature=True,
     )
+    assert client.get("/v1/guardrails/gr-test").json()["versions"][1]["signed"] is True
 
 
 def test_token_required_when_configured(service) -> None:

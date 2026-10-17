@@ -44,6 +44,25 @@ validate + test, the `active` file = activation. Team workflow:
 Policies are versioned in the library and **pinned** into each guardrail version at publish;
 editing a policy never changes a published guardrail (ADR-0021).
 
+## Policy service API (ADR-0022)
+
+Bearer token `UMAI_DE_CONTROL_API_TOKEN` on everything but `/healthz`. The console's guardrail
+pages are built on these answers; field additions are backwards compatible.
+
+| Endpoint | Answer |
+|---|---|
+| `GET /v1/guardrails` | Per guardrail: `id`, `name`, `description`, `mode`, `active_version`, `versions`, `has_draft`, `policies`, `policies_on` (0 for bundles without policies), `detectors`, `last_change` (latest change-log entry) |
+| `GET /v1/guardrails/{id}` | `active_version`, `versions[]` (`version`, `name`, `mode`, `contract_version`, `policies`, `signed`, `published_at`, `base_version`, `note`, `valid`, `error`), open `draft`, `history` (change log, last 50) |
+| `GET /v1/catalog` | Detector types with their tag and group (Türkiye, Europe, Global, Secrets, …) |
+| `POST/GET/PUT/DELETE /v1/guardrails/{id}/draft` | Start (from `base_version`, default active), read, save (saved even when invalid, returns `problems`), discard |
+| `POST /v1/guardrails/{id}/draft/test` | Golden-case report of the draft |
+| `POST /v1/guardrails/{id}/draft/publish` | `{activate, accept[], note}` → new version; 422 with `problems` or `unaccepted` cases |
+| `POST /v1/guardrails/{id}/activate` | `{version, note}` → moves the active pointer (rollback) |
+
+`published_at`, `base_version` and `note` come from the publish entry in `changelog.jsonl`; they
+are empty for versions added through Git. `signed` means the version's manifest carries a
+signature.
+
 ## Engine requirements (keep these true from the first commit)
 
 | Requirement | Status |
@@ -60,7 +79,6 @@ editing a policy never changes a published guardrail (ADR-0021).
 
 ## Open questions
 
-- Where the control plane lives: a separate service in this repository or its own repository.
 - Who signs on-prem: the customer's control plane with its own key (fits "users edit
   policies") or UMAI-signed bundles imported as files.
 - Which safety steps are in the first dashboard version (proposal: playground, golden tests,

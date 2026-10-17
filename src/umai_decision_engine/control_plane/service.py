@@ -166,10 +166,14 @@ class PolicyService:
     # ----------------------------------------------------------- guardrails
 
     def summary(self, bundle_id: str) -> dict:
+        history = self.repository.changelog(bundle_id)
+        published = {e["version"]: e for e in history if e.get("action") == "publish"}
         versions = []
         for version in self.repository.versions(bundle_id):
             try:
                 bundle = self.repository.load(bundle_id, version)
+                manifest = self.repository.manifest(bundle_id, version)
+                entry = published.get(version, {})
                 versions.append(
                     {
                         "version": version,
@@ -177,6 +181,10 @@ class PolicyService:
                         "mode": bundle.mode,
                         "contract_version": bundle.contract_version,
                         "policies": len(bundle.l0.policies),
+                        "signed": bool(manifest and manifest.signature),
+                        "published_at": entry.get("at"),
+                        "base_version": entry.get("base_version"),
+                        "note": entry.get("note"),
                         "valid": True,
                     }
                 )
@@ -190,7 +198,7 @@ class PolicyService:
             "active_version": self.repository.active(bundle_id),
             "versions": versions,
             "draft": self.draft_view(draft) if draft else None,
-            "history": self.repository.changelog(bundle_id)[-50:],
+            "history": history[-50:],
         }
 
     def list(self) -> list[dict]:
@@ -198,19 +206,28 @@ class PolicyService:
         out = []
         for bundle_id in self.repository.ids():
             active = self.repository.active(bundle_id)
-            name = None
+            live = None
             if active:
                 try:
-                    name = self.repository.load(bundle_id, active).name
-                except Exception:  # listed without a name
-                    name = None
+                    live = self.repository.load(bundle_id, active)
+                except Exception:  # listed without details
+                    live = None
+            policies = live.l0.policies if live else []
+            history = self.repository.changelog(bundle_id)
             out.append(
                 {
                     "id": bundle_id,
-                    "name": name,
+                    "name": live.name if live else None,
+                    "description": live.description if live else None,
+                    "mode": live.mode if live else None,
                     "active_version": active,
                     "versions": self.repository.versions(bundle_id),
                     "has_draft": bundle_id in drafts,
+                    # older bundles have no policies: count their detected types instead
+                    "policies": len(policies),
+                    "policies_on": sum(p.enabled for p in policies),
+                    "detectors": len(live.l0.entities) if live else 0,
+                    "last_change": history[-1] if history else None,
                 }
             )
         return out
