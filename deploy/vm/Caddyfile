@@ -1,5 +1,6 @@
 # One hostname (Azure DNS label or a custom domain): the engine API on /v1, /healthz, /readyz;
-# everything else is the console behind basic auth until console login (ADR-0024) lands.
+# /brand/* (public brand files for Auth0's login page and e-mails); everything else is the
+# console behind basic auth until console login (ADR-0024) lands.
 {
 	# No ACME account e-mail: Let's Encrypt does not require one (expiry mails are optional).
 	servers {
@@ -35,6 +36,16 @@
 	handle @engine {
 		header Cache-Control "no-store"
 		reverse_proxy engine:9100
+	}
+
+	# Brand kit files (logos, icons, fonts) without basic auth: Auth0's hosted login page and the
+	# e-mails load them from here in the visitor's browser. Public brand files only; the console's
+	# middleware also serves them without a session. Fonts need CORS for a cross-origin page.
+	@brand path /brand/*
+	handle @brand {
+		header Cache-Control "public, max-age=86400"
+		header /brand/fonts/* Access-Control-Allow-Origin "*"
+		reverse_proxy console:3100
 	}
 
 	handle {

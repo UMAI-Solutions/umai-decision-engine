@@ -102,6 +102,7 @@ H=https://<hostname>
 curl -s -o /dev/null -w '%{http_code}\n' $H/healthz              # 200
 curl -s -o /dev/null -w '%{http_code}\n' $H/v1/bundles           # 401 (no token)
 curl -s -o /dev/null -w '%{http_code}\n' $H/openapi.json         # 404
+curl -s -o /dev/null -w '%{http_code}\n' $H/brand/umai-wordmark.svg  # 200 (public brand files, no basic auth)
 curl -s -o /dev/null -w '%{http_code}\n' $H/                     # 401 (basic auth)
 curl -sI $H/healthz | grep -i strict-transport-security
 ```
