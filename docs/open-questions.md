@@ -37,6 +37,15 @@ to the ADR or report. Mark questions that block a phase.
 | Q33 | Container image signing on Azure: Notation only, or Notation + cosign for self-hosted customers? Defender for Containers despite its EU Data Boundary exclusion? | S0 (launch plan P11) | eng + product | ADR-0031 §6 |
 | Q34 | Pin a new Entra tenant to the EU Data Boundary (irreversible; the US stack would then need its own tenant)? | S0/S1 (launch plan P12) | product + ops | ADR-0031 §11 |
 | Q35 | Auth0 for UMAI Cloud: public cloud EU region (Auth0 describes its public cloud as delivered on AWS) or Auth0 Private Cloud on Azure (Germany, contract pricing, 99.99% SLA)? Does the Azure constraint of ADR-0031 extend to an identity sub-processor? | S0 login (creating the EU Auth0 tenant) | product | ADR-0024 §4; `reference/identity-providers.md` (Auth0 hosting) |
+| Q36 | Product domain for the console and login hosts (`eu.console.<domain>`, `login.<env>.<domain>`), and a real hostname for `umai-beta` (a `cloudapp.azure.com` name cannot carry Auth0's custom domain)? | Slice (a) of the sign-in rework (custom login domain) | product | `architecture/sign-in-and-onboarding.md` §7 |
+| Q37 | Auth0 plan for the development and beta tenants: B2B Essentials (from $150/month, 3 tenants) as recommended, or stay on Free without partials, Pro MFA factors and more than 5 organizations? | Slices (a), (b) | product | `reference/identity-providers.md` (sign-in section) |
+| Q38 | E-mail provider for UMAI Cloud (EU processing, DPA; Azure Communication Services is native in Auth0) and the test capture inbox (Mailpit on `umai-beta` recommended)? | Slice (a) | product + eng | Design §4 S12, §9.3 |
+| Q39 | Community roles: `owner`/`admin` only (ADR-0029 §2) or `owner`/`admin`/`viewer` (launch plan stage 1 item 5)? Domain auto-join and the roles offered in invitations depend on it | Slice (b) | product | ADR-0033 §3.3 |
+| Q40 | May a person own only one Community organization (proposal), or more? | Slice (b) | product | ADR-0033 §4 |
+| Q41 | MFA for the owner before the first API key is shown (proposal), or a grace period after it? | Slice (b) | product | ADR-0024 §3, design S5, S8 |
+| Q42 | Pilot users (real people) in the non-production EU `umai-beta` Auth0 tenant before Q35, or pilots keep basic auth and only synthetic test users sign in there? | Slice (c) | product | Design §7, §11 point 8 |
+| Q43 | Target for time from sign-up to the first successful evaluate call (proposal: median under 10 minutes, nobody over 20)? | Onboarding done-criteria | product | Design §9.7 |
+| Q44 | Hosted sign-up: may it say "account already exists" (Auth0's default) or must it answer neutrally (no account enumeration)? | Slice (a) | product + eng | Design S1 |
 
 ## Answered
 

@@ -98,7 +98,8 @@ accepted; billing provider chosen.
 2. Decision events through the outbox; dashboards and reports in the console; `GET
    /v1/decision-events`, `GET /v1/audit-events` (ADR-0030).
 3. Tenant onboarding as one automated flow: sign-up → tenant record (region chosen) → Auth0
-   organization → first owner → entitlement snapshot (Community) → first API key.
+   organization → first owner → entitlement snapshot (Community) → first API key (ADR-0033;
+   design in `architecture/sign-in-and-onboarding.md`).
 4. Metering ledger, Redis quotas, Stripe adapter, usage page, reconciliation job (ADR-0028);
    quota 429 and size 413 against entitlements rather than defaults.
 5. Roles `owner`/`admin`/`viewer` enforced server-side; members page (ADR-0029, Community set).

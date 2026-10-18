@@ -2,6 +2,7 @@
 
 - **Status:** Proposed (§1–§3 and §5–§8 await product-owner approval; §4 decided by the product owner on 2026-10-18)
 - **Date:** 2026-10-17 · **Amended:** 2026-10-18 (§4: Auth0 for UMAI Cloud, Keycloak for self-hosted; answers Q29, opens Q35)
+- **Amended by:** ADR-0033 (accepted 2026-10-18), which moves the `IdentityBroker` of §5 from the console to the policy service and defines the organization model of §4
 - **Deciders:** engineering proposal; product owner
 - **Builds on:** ADR-0016 (console repository), ADR-0018 (SSO is Enterprise; self-hosted edition), ADR-0023 (two identity planes), ADR-0026 (residency)
 - **Facts:** [`reference/identity-providers.md`](../reference/identity-providers.md) incl. the "Microsoft Entra External ID (Azure)" section (verified 2026-10-17) and Auth0 hosting (verified 2026-10-18); hosting constraint ADR-0031

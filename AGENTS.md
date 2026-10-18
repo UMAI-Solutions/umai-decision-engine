@@ -136,6 +136,7 @@ The engine is still single-tenant. The console has OIDC sign-in (Auth0 developme
 | Work on L1 rules or decision models | [`docs/architecture/l1-policy-decision.md`](docs/architecture/l1-policy-decision.md), skill `add-decision-provider` |
 | Work on L2 | [`docs/architecture/l2-llm-analyst.md`](docs/architecture/l2-llm-analyst.md) |
 | Change a request/response/tag shape | [`docs/contracts/`](docs/contracts/), skill `change-contract` |
+| Sign-in, onboarding, organizations, invitations, login branding | [`docs/architecture/sign-in-and-onboarding.md`](docs/architecture/sign-in-and-onboarding.md), ADR-0033, ADR-0024 |
 | SaaS vs self-hosted, editions, quotas, tenancy | [`docs/architecture/deployment-and-editions.md`](docs/architecture/deployment-and-editions.md), ADR-0018, ADR-0019 |
 | Policy bundles, loading, hot reload | [`docs/contracts/policy-bundle.md`](docs/contracts/policy-bundle.md), [`docs/architecture/policy-lifecycle.md`](docs/architecture/policy-lifecycle.md) |
 | Change a policy, write golden cases | [`docs/workflow/policy-authoring.md`](docs/workflow/policy-authoring.md), [`docs/contracts/policy-tests.md`](docs/contracts/policy-tests.md) |
