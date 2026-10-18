@@ -260,8 +260,10 @@ sent from our domain through our e-mail provider.
 "Ours" means the policy service sends it through the same e-mail provider the identity service
 uses, from the same templates pipeline (§8.4). Auth0's templates need an external provider
 (its built-in sender is test-only: fixed `auth0user.net` address, 10 e-mails per minute); Azure
-Communication Services is one of Auth0's native providers and would serve both senders in the
-Azure regions (choice: §11 point 4).
+Communication Services is one of Auth0's native providers and serves both senders (A13). It is a
+temporary choice: ACS Email retires on 2028-09-30 (`reference/azure-platform.md` §10), so the
+policy service sends through an `EmailSender` interface and Auth0's provider is a Terraform value;
+moving to the long-term provider is configuration plus one adapter.
 
 ## 5. What the console checks at the callback
 
@@ -312,28 +314,32 @@ assertion and the permission matrix of ADR-0029:
 
 | | Local development | `umai-beta` (VM, Caddy, ADR-0032) | UMAI Cloud EU (AKS, ADR-0031) | UMAI Cloud US (later) |
 |---|---|---|---|---|
-| Console origin | `http://localhost:3100` | `https://<beta console host>` (today `umai-beta.westeurope.cloudapp.azure.com`) | `https://eu.console.<domain>` (ADR-0026) | `https://us.console.<domain>` |
-| Callback | `http://localhost:3100/auth/callback` | `https://<beta console host>/auth/callback` | `https://eu.console.<domain>/auth/callback` | same pattern |
+| Console origin | `http://localhost:3100` | `https://beta.umaisolutions.com` (today `umai-beta.westeurope.cloudapp.azure.com`) | `https://eu.console.umaisolutions.com` (ADR-0026) | `https://us.console.umaisolutions.com` |
+| Callback | `http://localhost:3100/auth/callback` | `https://beta.umaisolutions.com/auth/callback` | `https://eu.console.umaisolutions.com/auth/callback` | same pattern |
 | Logout return | `…/auth/signed-out` | `…/auth/signed-out` | `…/auth/signed-out` | same pattern |
-| Application login URI (Auth0 requires one for invitations; HTTPS, never `localhost`) | Set to the `umai-beta` console URL or the tenant's default login route; our own E5 links straight to `http://localhost:3100/auth/invitation`, so invitations work locally (confirmed in the slice (b) spike) | `https://<beta console host>/auth/login` | `https://eu.console.<domain>/auth/login` | same pattern |
+| Application login URI (Auth0 requires one for invitations; HTTPS, never `localhost`) | Set to the `umai-beta` console URL or the tenant's default login route; our own E5 links straight to `http://localhost:3100/auth/invitation`, so invitations work locally (confirmed in the slice (b) spike) | `https://beta.umaisolutions.com/auth/login` | `https://eu.console.umaisolutions.com/auth/login` | same pattern |
 | Identity tenant | Auth0 development tenant (exists: `dev-zqxuqnql6vid3wcf.us.auth0.com`, US region, Free; tag Development) | New Auth0 tenant `umai-beta`, EU region, tag Staging | Auth0 EU production tenant — **blocked by Q35** | Auth0 US tenant — with the US stack, after Q35 |
-| Plan | Free is not enough (5 organizations, no partials, no Pro MFA factors, e-mail workflow not listed): B2B Essentials, which includes 3 tenants, for development and beta (§11 point 3) | same subscription | per Q35 | per Q35 |
-| Login domain | The tenant's default domain; `login.dev.<domain>` once custom-domain features are tested | `login.beta.<domain>` | `login.eu.<domain>` | `login.us.<domain>` |
-| E-mail | Capture inbox (§9.3) | Capture inbox for the suite; real provider only if pilots sign in there (open point 8) | Production provider in the EU, sender `<no-reply>@mail.<domain>` | Production provider in the US |
+| Plan | **Free until the week of 2026-10-25**, then a paid plan (B2B Essentials recommended, 3 tenants) for development and beta (A12). On Free: theme, custom texts in both languages, `enabled_locales` and one custom domain (credit-card verification, not a charge) work; prompt partials, Pro MFA factors, more than 5 organizations and probably the custom e-mail provider wait | same subscription | per Q35 | per Q35 |
+| Login domain | `login.dev.umaisolutions.com` | `login.beta.umaisolutions.com` | `login.eu.umaisolutions.com` | `login.us.umaisolutions.com` |
+| E-mail | Capture inbox (§9.3) | Capture inbox for the suite; real provider only if pilots sign in there (open point 8) | Azure Communication Services, data location Europe (A13), sender `donotreply@notify.umaisolutions.com` (ACS allows other sender names only after a quota increase) | A long-term provider (ACS retires 2028-09-30) |
 | Secrets | `.env.local` (git-ignored) | `/opt/umai/secrets.env` or Key Vault (ADR-0032) | Key Vault through Workload ID (ADR-0031 §9) | same |
 | Configuration as code | Terraform workspace `dev` | `beta` | `eu-prod` | `us-prod` |
 
-`<domain>` is UMAI's product domain, not yet chosen for the console (open point 1). A custom
-login domain needs a domain we control: `cloudapp.azure.com` names cannot carry it, so
-`umai-beta` needs a real hostname under `<domain>` for slice (c).
+The product domain is `umaisolutions.com` (A11). Its DNS is at Cloudflare, so every record
+pointing at Auth0 must be **DNS only (not proxied)**: Auth0 rejects CNAME flattening and proxying.
+The apex receives mail through Microsoft 365, so the product sends from its own subdomain,
+`notify.umaisolutions.com`, and never touches the apex records. Found while checking on
+2026-10-18: the apex SPF record ends in **`+all`**, which lets any server pass SPF as
+`umaisolutions.com`; it should end in `-all` (or `~all` while testing), and the apex has no DMARC
+policy yet. That is company mail, outside this design, and is reported to the product owner.
 
 ### 7.2 DNS per environment
 
 | Record | Purpose |
 |---|---|
-| `login.<env>.<domain>` CNAME → the target Auth0 gives for the custom domain (Auth0-managed certificate: one CNAME, kept permanently, no CNAME flattening or proxying) | Branded login domain; required for the page template, partials, ACUL, branded invitation links and stable passkeys |
+| `login.<env>.umaisolutions.com` CNAME (Cloudflare: DNS only) → the target Auth0 gives for the custom domain (Auth0-managed certificate: one CNAME, kept permanently, no CNAME flattening or proxying) | Branded login domain; required for the page template, partials, ACUL, branded invitation links and stable passkeys |
 | `<console host>` A/CNAME → the ingress (Caddy on the VM, Application Gateway on AKS) | Console |
-| `mail.<domain>`: SPF include, DKIM keys, DMARC policy (`p=quarantine` after a monitoring period), optionally a return-path CNAME | Deliverability and anti-spoofing for every e-mail of S12 |
+| `notify.umaisolutions.com`: the provider's verification TXT, SPF, DKIM CNAMEs, an MX, DMARC (`p=quarantine` after a monitoring period, with `rua`) | Deliverability and anti-spoofing for every e-mail of S12 (ACS record names: `reference/azure-platform.md` §10) |
 | `_umai-verification.<customer domain>` TXT | Customer's proof for verified domains (ADR-0033 §3.3); not ours to create |
 
 ### 7.3 Secrets
@@ -359,8 +365,11 @@ login domain needs a domain we control: `cloudapp.azure.com` names cannot carry 
 
 ### 8.1 Needed from the brand owner
 
-The console today uses provisional values (below) and a raster logo (`public/assets/umailogo*.png`,
-both white). Before slice (a) can finish, the brand owner supplies:
+**Brand kit drafted (2026-10-18), awaiting the brand owner's approval:** `umai-control-center`
+`brand/` (tokens, guide, contact sheet `preview.html`) and `public/brand/` (vector wordmark rebuilt
+from the raster logo with 99.6 % pixel overlap, a new symbol from the wordmark's U, favicon and app
+icons, e-mail PNGs, Geist fonts as WOFF2 and WOFF). It answers points 1–3 below provisionally; the
+brand owner confirms them, and point 4 is still open. Originally requested:
 
 1. **Logo as vector (SVG):** full-colour and one-colour (white) versions, the symbol alone (for
    favicon and small sizes), clear space and minimum size.
@@ -386,7 +395,7 @@ Provisional values are the console's current ones, with measured WCAG contrast:
 | `color.surface.card` | `#FFFFFF` | — | Cards, the login box, e-mail body |
 | `color.border` | `#111111` at 8 % | — | Hairlines (focus and inputs use a stronger border, ≥ 3:1) |
 | `color.danger` | `#DC2626` | 4.8:1 on white, 4.5:1 on page | Errors, always with an icon and text |
-| `color.success`, `color.warning` | from the brand palette | to be measured | Status |
+| `color.success`, `color.warning` | `#047857`, `#B45309` (kit) | 5.5:1, 5.0:1 on white | Status |
 | `font.family.sans` / `font.family.mono` | Geist Sans / Geist Mono (OFL) | — | Text / identifiers |
 | `radius.control` / `radius.card` | 6 px / 10 px | — | Inputs and buttons / cards |
 | `logo.full`, `logo.white`, `logo.symbol` | SVG from the brand owner; PNG at 2× derived for e-mail | — | Headers |
@@ -568,21 +577,17 @@ all five finish without help.
 |---|---|---|
 | (a) Branded hosted login, custom domain, e-mails | Tokens and generator; message catalogue (tr, en); Auth0 Terraform module applied to the development tenant (custom domain, theme, page template, custom texts, `enabled_locales`, e-mail provider and templates); capture inbox; console language switch, `ui_locales`, error and signed-out pages restyled. Needs §11 points 1–4 answered (domain, brand files, plan, e-mail) | J1 up to the first sign-in, and J5, pass on localhost with screenshots and axe in both languages |
 | (b) Organizations, membership, invitations | First a spike in the development tenant (`organization_usage: allow`, silent switch, local invitation flow; ADR-0033 Consequences). Then contract `organizations` 0.1; migrations; policy-service routes; `auth0` broker and reconcile job; console onboarding, switcher, members and invitations pages, Get started; MFA step-up (with the Action if Auth0 does not honour `acr_values`); our e-mails. Depends on the on-behalf-of assertion (ADR-0023 §1), the permission matrix (ADR-0029 §3) and tenant-owned bundles (ADR-0025 §8) | J1–J8 and §9.6 pass on localhost |
-| (c) `umai-beta` | `beta` identity tenant from Terraform; DNS for the console and `login.beta.<domain>`; Caddy without basic auth in front of the console; secrets; deployment | The same suite passes against the `https://` address of `umai-beta` |
+| (c) `umai-beta` | `beta` identity tenant from Terraform; DNS for `beta.umaisolutions.com` and `login.beta.umaisolutions.com`; Caddy without basic auth in front of the console; secrets; deployment | The same suite passes against the `https://` address of `umai-beta` |
 
 ## 11. Open points for review
 
 Question numbers refer to [`open-questions.md`](../open-questions.md).
 
-1. (Q36) **Domains:** UMAI's product domain for the console and login hosts; a real hostname for
-   `umai-beta`.
-2. **Brand source files** (§8.1).
-3. (Q37) **Auth0 plan** for the development and beta tenants. Recommendation: **B2B Essentials**
-   (from $150/month, 3 tenants included). Free lacks what the brief needs: 5 organizations, no
-   sign-up/login partials, no Pro MFA factors, e-mail workflow not listed.
-4. (Q38) **E-mail provider** in the EU for production (Azure Communication Services is native in
-   Auth0 and in Azure; its EU processing and DPA to verify), and the capture inbox for tests
-   (§9.3: Mailpit on `umai-beta` recommended).
+1. ~~Domains~~: answered, `umaisolutions.com` (A11).
+2. **Brand:** the drafted kit (§8.1) needs the brand owner's approval.
+3. ~~Auth0 plan~~: answered, Free until a purchase the week of 2026-10-25 (A12).
+4. ~~E-mail sender~~: answered, Azure Communication Services as a temporary sender until a
+   long-term provider replaces it before 2028-09-30; Mailpit on `umai-beta` for test capture (A13).
 5. (Q39) **Community roles:** ADR-0029 §2 (`owner`, `admin`) or launch-plan stage 1 item 5 (`owner`,
    `admin`, `viewer`); domain `auto` join and the roles offered in invitations depend on it.
 6. (Q40) **One Community organization per person** (ADR-0033 §4).

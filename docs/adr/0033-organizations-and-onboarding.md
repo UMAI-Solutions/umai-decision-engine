@@ -1,6 +1,6 @@
 # ADR-0033 — Organizations and onboarding: the tenant store owns organizations, the identity service mirrors them
 
-- **Status:** Accepted (product owner approved the Pass 1 design, 2026-10-18). Open product points: Q36–Q44; the slice (b) spike may amend §1–§2 (Consequences)
+- **Status:** Accepted (product owner approved the Pass 1 design, 2026-10-18). Open product points: Q39–Q44 (Q36–Q38 answered as A11–A13); the slice (b) spike may amend §1–§2 (Consequences)
 - **Date:** 2026-10-18
 - **Deciders:** engineering proposal; product owner
 - **Builds on:** ADR-0019 (entitlements), ADR-0023 (API keys, on-behalf-of assertion), ADR-0024
