@@ -43,9 +43,11 @@
 	# middleware also serves them without a session. Fonts need CORS for a cross-origin page.
 	@brand path /brand/*
 	handle @brand {
-		header Cache-Control "public, max-age=86400"
 		header /brand/fonts/* Access-Control-Allow-Origin "*"
-		reverse_proxy console:3100
+		reverse_proxy console:3100 {
+			# Replace the console's own Cache-Control (max-age=0) instead of adding a second one.
+			header_down Cache-Control "public, max-age=86400"
+		}
 	}
 
 	handle {

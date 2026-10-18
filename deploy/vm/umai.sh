@@ -25,6 +25,15 @@ UMAI_KEY_VAULT="${UMAI_KEY_VAULT:-}"
 
 compose() { docker compose --project-directory "$HERE" --env-file "$CONFIG" "$@"; }
 
+# ship.sh replaces the Caddyfile by extracting a new file, but Caddy's single-file bind mount keeps
+# the old one open, so a changed Caddyfile only takes effect after a restart (seconds of downtime).
+caddy_follow_config() {
+  if ! compose exec -T caddy cat /etc/caddy/Caddyfile 2>/dev/null | cmp -s - "$HERE/Caddyfile"; then
+    echo "umai: Caddyfile changed, restarting caddy"
+    compose restart caddy >/dev/null
+  fi
+}
+
 imds_token() {  # $1 = resource
   curl -sf -H Metadata:true \
     "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=$1" |
@@ -144,7 +153,7 @@ backup() {
 case "${1:-}" in
   init) init ;;
   secrets) secrets ;;
-  up) secrets; compose up -d --no-build --remove-orphans; docker image prune -f >/dev/null ;;
+  up) secrets; compose up -d --no-build --remove-orphans; caddy_follow_config; docker image prune -f >/dev/null ;;
   backup) backup ;;
   status) compose ps ;;
   *) sed -n '2,9p' "$0"; exit 2 ;;
