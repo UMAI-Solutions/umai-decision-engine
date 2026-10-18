@@ -124,7 +124,8 @@ Compose with Caddy, `deploy/azure/main.bicep`); the console image lives in `umai
 SaaS readiness (2026-10-17): threat model, gap analysis, launch plan and eight proposed ADRs in
 `docs/security/` and `docs/adr/0023`–`0031` (0031: UMAI Cloud runs on Azure); `tests/readiness/`
 measures the open gaps (xfail).
-The engine is still single-tenant and the console has no login.
+The engine is still single-tenant. The console has OIDC sign-in (Auth0 development tenant,
+`umai-control-center`, 2026-10-18); `umai-beta` keeps Caddy basic auth until Auth0 is set up there.
 
 ## Where to look
 

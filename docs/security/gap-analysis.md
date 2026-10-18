@@ -9,6 +9,15 @@ the requirement cannot be met or broken). "Closes with" points at the ADR or lau
 Executable form: `tests/readiness/test_saas_readiness.py` (C = holds, T/L/A = gap, see the
 [verification plan](verification-plan.md)).
 
+**Update 2026-10-18 (console sign-in, `umai-control-center` `docs/sign-in.md`):** every console
+page and API route now needs an OIDC session (Auth0 development tenant, openid-client;
+fails closed when unconfigured). Rows this moves to **partial**: 7.1.1–7.3.2 (60 min inactivity
+and 12 h absolute lifetime enforced; no concurrent-session limit), 7.4.3–7.5.2 (visible logout
+with RP-initiated logout; no admin termination, no re-authentication), 3.5.1 (`SameSite=Lax`
+session cookie; no `Origin` check), CC6.1 (people authenticate; tokens and roles unchanged).
+Still **missing**: 6.3.3 MFA, 7.4.1/7.4.2 (cookie sessions cannot be revoked server-side),
+roles (8.x). Not deployed on `umai-beta` yet: Caddy basic auth stays in front of the console.
+
 ## 1. Where the code stands (facts, not judgements)
 
 | Area | Evidence |
