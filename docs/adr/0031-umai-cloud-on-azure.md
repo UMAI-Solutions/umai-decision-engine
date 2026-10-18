@@ -59,8 +59,8 @@ affected by this ADR.
    Front Door may front content-free global surfaces only (marketing site, status page, the
    sign-in front door if it carries no tenant content). Internal traffic uses private endpoints
    (Key Vault, Redis, Storage) and VNet integration (Postgres).
-6. **Compute and supply chain.** **AKS** (Automatic or Standard) runs the engine, policy service,
-   console and Keycloak per region; Kubernetes NetworkPolicy backs the isolation tests. Images
+6. **Compute and supply chain.** **AKS** (Automatic or Standard) runs the engine, policy service
+   and console per region (identity is Auth0, §10); Kubernetes NetworkPolicy backs the isolation tests. Images
    live in **ACR** and are signed with **Notation** using a Key Vault certificate (admission
    verification on AKS is Notation-only and still preview/audit-only; enforcement needs
    self-managed Ratify + Gatekeeper). cosign signatures are added only if the product owner wants
@@ -81,8 +81,10 @@ affected by this ADR.
    **GitHub OIDC federation** to an Entra application or user-assigned managed identity (limit:
    20 federated credentials per identity). Key Vault and Managed HSM diagnostic logs flow to Log
    Analytics as the evidence of every sign and unwrap.
-10. **Human identity.** ADR-0024 stands: **Keycloak, self-operated on AKS** per region, Auth0 as the
-    fallback (Auth0 Private Cloud on Azure exists in Germany and the USA, contract pricing).
+10. **Human identity.** ADR-0024 §4 (product-owner decision 2026-10-18): **Auth0** for UMAI Cloud,
+    one Auth0 tenant per region; Keycloak only in self-hosted installs. Whether the EU tenant runs
+    in Auth0's public cloud (delivered on AWS) or as Auth0 Private Cloud on Azure (Germany and the
+    USA, contract pricing) is Q35.
     **Microsoft Entra External ID was evaluated and rejected** as the broker: no organization
     object (one shared tenant, or at most 20 external tenants per subscription), no customer
     self-service SSO setup, **no inbound SCIM**, 7-day log retention unless exported, no TOTP.
@@ -103,7 +105,7 @@ affected by this ADR.
 | Managed HSM for everything | ≈ $2.3k per month per region for a single-tenant HSM nobody has asked for; Key Vault Premium EC-HSM keys are already FIPS 140-3 Level 3 |
 | Azure Front Door in front of all hostnames | TLS terminates at global edge points outside the EU Data Boundary — the exact failure ADR-0026 rejects |
 | Azure Cache for Redis | Retiring (Basic/Standard/Premium 2028-09-30, Enterprise 2027-03-31) |
-| Azure Container Apps for everything | Simpler, but no Kubernetes NetworkPolicy for the isolation tests and Keycloak is better served on AKS; may host stateless parts later |
+| Azure Container Apps for everything | Simpler, but no Kubernetes NetworkPolicy for the isolation tests; may host stateless parts later |
 | Entra External ID as the identity broker | No organizations, no self-service SSO, no inbound SCIM; see §10 |
 | Germany West Central or France Central as EU primary | Their pairs are access-restricted; workable only with a support request or read-replica DR |
 

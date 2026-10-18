@@ -33,7 +33,8 @@ region pair confirmed (P2).
 2. Prompt-size limit (413) and per-key rate limit (429); ingress body cap (ADR-0019 §4,
    ADR-0023 §7). Readiness T2 goes green.
 3. Custom validation-error handler: `loc` and `type` only (GAP-L1 goes green).
-4. Console behind OIDC login (Keycloak, e-mail + password + TOTP for beta users), sessions and
+4. Console behind OIDC login (the EU Auth0 tenant, ADR-0024 §4; e-mail + password + TOTP for
+   beta users), sessions and
    headers per ADR-0024 §2; on-behalf-of assertion to the policy service (ADR-0023 §1).
 5. Audit events with actor for every policy-service change and key lifecycle event
    (ADR-0030 §1–2); readiness A1 goes green. JSON logs with the allowlist; `/docs` and
@@ -50,7 +51,7 @@ region pair confirmed (P2).
    the Sweden Central fallback (ADR-0031 §1): AKS; Application Gateway WAF_v2 with
    `AppGwSslPolicy20220101S` and HSTS by rewrite (no Front Door on content hostnames);
    PostgreSQL Flexible Server 17/18 with customer-managed key and geo-redundant backup set at
-   creation (for Keycloak and drafts, already with the RLS pattern); Azure Managed Redis; Key
+   creation (for API keys and drafts, already with the RLS pattern); Azure Managed Redis; Key
    Vault Premium; Blob Storage; private endpoints and VNet integration.
 9. Observability in Azure Monitor / Log Analytics (regional): metrics (request rate, latency per
    layer, errors, 4xx/5xx, quota hits) with tenant id on counters; alerts; on-call rotation;
@@ -58,7 +59,7 @@ region pair confirmed (P2).
    template.
 
 **Scope (company):** beta agreement with data-processing terms (processor obligations, Art. 28
-GDPR), a sub-processor list for the EU stack, security contact and vulnerability disclosure
+GDPR), a sub-processor list for the EU stack (incl. Auth0, ADR-0026 §5), security contact and vulnerability disclosure
 address, support channel for the partners.
 
 **PRR S0:**
@@ -70,7 +71,7 @@ address, support channel for the partners.
 | S0-3 | Size and rate limits with explicit 413/429; ingress body cap | readiness T2, T6; load test report | eng | open |
 | S0-4 | No raw content in responses, logs or errors | readiness C1, L1 green; leak suite 0 | eng | open (L1) |
 | S0-5 | Console requires login; sessions and headers per ADR-0024 §2 | browser tests; header scan (observatory-style) report | eng | open |
-| S0-6 | MFA for owner/admin | Keycloak policy screenshot + test | eng | open |
+| S0-6 | MFA for owner/admin | Auth0 MFA policy screenshot + test | eng | open |
 | S0-7 | Every configuration change has an actor; audit log visible in console | readiness A1; route test E1 | eng | open |
 | S0-8 | Secrets in Key Vault via Workload ID; signing keys in Key Vault Premium (P-256); no private keys on hosts | deployment audit record (ADR-0027 Validation); Key Vault diagnostic log sample | ops | open |
 | S0-9 | TLS 1.2+/1.3 with HSTS at Application Gateway WAF_v2; no Front Door on content hostnames; internal traffic on private endpoints | TLS scan report; IaC policy test; NetworkPolicy test | ops | open |
@@ -96,7 +97,7 @@ accepted; billing provider chosen.
    from SaaS; `http_pull` bundle source for engines (ADR-0025). Isolation tests I1–I3 in CI.
 2. Decision events through the outbox; dashboards and reports in the console; `GET
    /v1/decision-events`, `GET /v1/audit-events` (ADR-0030).
-3. Tenant onboarding as one automated flow: sign-up → tenant record (region chosen) → Keycloak
+3. Tenant onboarding as one automated flow: sign-up → tenant record (region chosen) → Auth0
    organization → first owner → entitlement snapshot (Community) → first API key.
 4. Metering ledger, Redis quotas, Stripe adapter, usage page, reconciliation job (ADR-0028);
    quota 429 and size 413 against entitlements rather than defaults.
@@ -104,7 +105,7 @@ accepted; billing provider chosen.
 6. US region stack (East US 2, DR Central US) from the same IaC module; tenant directory and
    sign-in front door (ADR-0026); provider registry with regions (empty until L1b).
 7. Retention jobs and tenant export/erasure (ADR-0025 §9, ADR-0030 §4).
-8. SOC 2 program start: compliance-automation platform connected to cloud, GitHub, Keycloak;
+8. SOC 2 program start: compliance-automation platform connected to cloud, GitHub, Auth0;
    policies written; control owners named. Pentest #1 scoped to authentication, tenancy,
    console.
 
@@ -129,7 +130,8 @@ correctly; two tenants in one stack pass every isolation test; the US stack exis
 
 ## 4. Stage 2 — Enterprise GA
 
-**Entry:** ADR-0024 §4 decision taken (Keycloak SCIM conformance or Auth0), ADR-0029 four-eyes.
+**Entry:** ADR-0029 four-eyes. (The identity service, formerly an entry condition, was decided on
+2026-10-18: Auth0, ADR-0024 §4.)
 
 **Scope:** SAML/OIDC SSO and SCIM per tenant with self-service setup; `approval_required` with
 four-eyes activation and break-glass; SIEM export (first targets immutable Blob Storage JSON
@@ -174,7 +176,7 @@ even while SQLite is in use, so the Postgres migration is a move, not a redesign
 |---|---|---|---|---|
 | P1 | Cloud provider for UMAI Cloud | — | **Decided: Azure** (product-owner constraint recorded in the [Azure brief](azure-brief.md) and ADR-0031; the earlier AWS recommendation is void) | — |
 | P2 | EU region pair | West Europe + North Europe · Sweden Central + read replica in North Europe | **West Europe primary, North Europe DR**; the Sweden Central fallback only if zone-redundant HA is still blocked at provisioning (ADR-0031 §1); US later East US 2 ↔ Central US; Türkiye stays self-hosted (Q21) | S0 IaC |
-| P3 | SaaS identity service | Operate Keycloak on AKS per region · Auth0 (EU public cloud or Private Cloud on Azure) · Zitadel Cloud EU | **Keycloak** (one adapter, in-region identity, Apache 2.0); Auth0 as the defined fallback (ADR-0024 §4). Entra External ID evaluated and rejected: no organizations, no self-service SSO, no inbound SCIM | S0 login |
+| P3 | SaaS identity service | — | **Decided 2026-10-18: Auth0** for UMAI Cloud, Keycloak for self-hosted (ADR-0024 §4, A10); Auth0 public cloud EU or Private Cloud on Azure is Q35. Entra External ID evaluated and rejected: no organizations, no self-service SSO, no inbound SCIM | S0 login (Q35) |
 | P4 | Billing provider | Stripe · Lago · Metronome | **Stripe** for cloud, none for self-hosted, Lago optional (ADR-0028) | S1 |
 | P5 | Rate-limit and test-key defaults | Community 20 req/s per key; test keys 1,000/month | As proposed (ADR-0023 §7, ADR-0028 §2) | S0 |
 | P6 | Retention defaults | Audit 400 days; decisions 30 days Community, 30–400 Enterprise | As proposed (ADR-0030 §4) | S1 |

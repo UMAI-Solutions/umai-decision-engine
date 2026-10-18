@@ -32,7 +32,7 @@ listed in [`../open-questions.md`](../open-questions.md) as blocking, and flag d
 | [0021](0021-guardrail-model-policies-pinning-hierarchy.md) | Guardrail model: versioned policies pinned into guardrails; company → project → guardrail | Accepted |
 | [0022](0022-policy-service-control-plane.md) | Policy service: drafts, tests and publishing from the console | Accepted |
 | [0023](0023-identity-planes-and-api-keys.md) | Two identity planes: per-tenant API keys for workloads, people through the console | Proposed |
-| [0024](0024-human-identity-oidc-keycloak.md) | Human identity: standard OIDC, Keycloak as default identity service, broker interface | Proposed |
+| [0024](0024-human-identity-oidc-keycloak.md) | Human identity: standard OIDC, Auth0 for UMAI Cloud, Keycloak for self-hosted, broker interface | Proposed (§4 decided 2026-10-18) |
 | [0025](0025-tenant-isolation-postgres-rls.md) | Tenant isolation: Postgres per region with RLS, per-tenant envelope encryption | Accepted (RLS store implemented 2026-10-18) |
 | [0026](0026-region-pinning-and-global-directory.md) | Region pinning: independent regional stacks, content-free global directory | Proposed |
 | [0027](0027-key-custody-kms-and-secrets.md) | Key custody: signing keys in Key Vault behind a Signer interface, secrets out of files | Proposed (amended by 0031) |

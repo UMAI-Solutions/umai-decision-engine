@@ -43,6 +43,8 @@ Ory Network SAML/SCIM are Enterprise-only.
 - Keycloak's SCIM support is three weeks old at verification time; Zitadel's SCIM has no
   groups. Enterprise SCIM provisioning should be verified against Okta and Entra ID test
   tenants before it is sold (verification plan §2).
+- **Decision (ADR-0024 §4, product owner, 2026-10-18):** Auth0 for UMAI Cloud, Keycloak for
+  self-hosted. Public cloud EU or Private Cloud on Azure is Q35.
 
 ## Microsoft Entra External ID (Azure)
 
@@ -79,6 +81,13 @@ Red Hat OpenShift; Red Hat support on AKS *unverified* (knowledge-base article b
 **Auth0 Private Cloud on Azure** — a dedicated single-tenant Auth0 instance operated by Okta
 on Azure, deployable in Australia, Canada, Germany, Switzerland, UK, USA; 99.99% SLA; price
 not published.
+**Auth0 public cloud hosting** (checked 2026-10-18) — Auth0 describes its public cloud as
+delivered on AWS, with regions US, UK, EU, Japan, Australia and Canada (one language version of
+the page omits Canada) and a 99.99% SLA
+([auth0.com/platform/cloud-deployment/aws](https://auth0.com/platform/cloud-deployment/aws));
+Private Cloud is deployable on Azure or AWS. EU location Frankfurt with failover to Dublin comes
+only from a community-forum post (*secondary*). That every public-cloud EU tenant runs on AWS is
+*unverified* (no sub-processor page checked).
 
 ### What this means for us (Azure constraint)
 

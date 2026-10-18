@@ -52,6 +52,10 @@ managed Keycloak on Azure; Red Hat supports its build on Azure Red Hat OpenShift
 price). Add Entra External ID to "Alternatives considered" with the blockers above; it may later
 appear only as one more upstream IdP behind the broker.
 
+**Decision (product owner, 2026-10-18):** Auth0 for UMAI Cloud, Keycloak for self-hosted
+(ADR-0024 §4). Whether the EU tenant runs in Auth0's public cloud (delivered on AWS) or as Auth0
+Private Cloud on Azure is Q35.
+
 ## 4. Documents to revise
 
 | Document | Change |
@@ -74,4 +78,4 @@ appear only as one more upstream IdP behind the broker.
 - Accept West Europe / North Europe (or Sweden Central fallback) as the EU stack.
 - Accept the P-256 switch for SaaS signing (Z2).
 - Container image signing: Notation only, or Notation + cosign for self-hosted customers (Z8).
-- P3–P9 of the launch plan remain open as before.
+- P4–P9 of the launch plan remain open as before (P3 decided 2026-10-18: Auth0, Q35 open).

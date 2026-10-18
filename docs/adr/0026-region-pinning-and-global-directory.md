@@ -18,10 +18,10 @@ arrives at the wrong region fails.
 ## Decision
 
 1. **Everything that touches content is regional.** Per region (EU, US; `tr` possible later by
-   adding a stack): an AKS cluster with the engine fleet, policy service, console and Keycloak,
+   adding a stack): an AKS cluster with the engine fleet, policy service and console,
    PostgreSQL Flexible Server (ADR-0025), Azure Managed Redis for rate limits and quotas, Key
    Vault Premium (ADR-0027), Blob Storage for exports, a Log Analytics workspace, L1b/L2 model
-   serving. **EU: primary West Europe, DR North Europe** (paired, both unrestricted, both inside
+   serving, and the region's Auth0 tenant for console sign-in (ADR-0024 §4). **EU: primary West Europe, DR North Europe** (paired, both unrestricted, both inside
    the EU Data Boundary; fallback Sweden Central with a read replica in North Europe if
    zone-redundant HA is blocked at provisioning). **US later: East US 2 ↔ Central US**
    (ADR-0031 §1). Hostnames are regional: `eu.api.`, `us.api.`, `eu.console.`, `us.console.`.
@@ -42,9 +42,10 @@ arrives at the wrong region fails.
    permitted in the stack's region fails validation at load, not at request time (ADR-0019 §5).
    Hosted vendors are usable only in regions where their processing is in-region and a DPA
    exists; the sub-processor list is per region.
-5. **Identity provider data is account metadata, not content.** If the human plane uses a
-   SaaS identity broker (ADR-0024), names, e-mails and group memberships of console users
-   leave the region to that broker; policy content, prompts and decisions do not. This is
+5. **Identity provider data is account metadata, not content.** The human plane of UMAI Cloud
+   uses a SaaS identity broker (Auth0, one tenant per region, ADR-0024 §4): names, e-mails and
+   group memberships of console users leave UMAI's regional stack to that broker; policy
+   content, prompts and decisions do not. This is
    disclosed in the sub-processor list. Enterprise tenants that require even account metadata
    to stay in region use their own IdP directly or the self-hosted identity option.
 6. **Backups and disaster recovery stay in the jurisdiction.** The DR copy of a regional

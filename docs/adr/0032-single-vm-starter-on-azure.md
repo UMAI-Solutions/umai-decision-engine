@@ -31,8 +31,9 @@ containers use about 240 MiB together.
    Moving to AKS later changes the orchestration, not the artifacts. Images are built on the
    operator workstation and streamed to the VM over SSH (`deploy/vm/ship.sh`): the VM holds no
    repository credentials (the GitHub organisation also disables deploy keys).
-3. **Only what the code uses is deployed.** No Postgres, Redis or Keycloak until the code that
-   needs them lands (AGENTS rule 6). The VM has headroom for them (≈ 3.7 GiB free).
+3. **Only what the code uses is deployed.** No Postgres or Redis until the code that needs them
+   lands (AGENTS rule 6). The VM has headroom for them (≈ 3.7 GiB free). Console login will use
+   Auth0 (ADR-0024 §4), so no identity service runs on the VM.
 4. **Ingress:** Caddy terminates TLS (Let's Encrypt, TLS 1.2+, HSTS), caps request bodies at
    512 KB (ADR-0019 §4, closes readiness gap T2 at the ingress), returns 404 for `/docs`, `/redoc`,
    `/openapi.json`, and logs without query strings or headers. One hostname: `/v1/*`, `/healthz`,
@@ -63,10 +64,10 @@ containers use about 240 MiB together.
 | Option | Why not |
 |---|---|
 | ADR-0031 stack at minimum size (≈ $800/month) | 25× the budget; WAF alone ≈ $360 |
-| Azure Container Apps, scale to zero | Cheaper only if every service sleeps; cold starts on the evaluation path, and Postgres/Keycloak (when they come) must stay on |
+| Azure Container Apps, scale to zero | Cheaper only if every service sleeps; cold starts on the evaluation path, and Postgres (when it comes) must stay on |
 | App Service (Linux) | One plan per app or a shared B-tier plan costs more than the VM for three apps and gives no compose-style shared volume for the policy directory |
 | Azure Front Door for TLS instead of Caddy | Outside the EU Data Boundary (ADR-0031 §4) and a fixed monthly fee |
-| Deploy Postgres, Redis and Keycloak now | Nothing uses them; idle RAM and patching for no function |
+| Deploy Postgres and Redis now | Nothing uses them; idle RAM and patching for no function |
 
 ## Consequences
 

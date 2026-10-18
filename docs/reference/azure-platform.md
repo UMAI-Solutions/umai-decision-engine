@@ -175,7 +175,7 @@ jurisdictions** (ADR-0026); per-region instances only.
 | | AKS | Azure Container Apps |
 |---|---|---|
 | Model | Full Kubernetes API; AKS Standard (you operate) or **AKS Automatic** (Microsoft manages nodes, scaling, security defaults, upgrades; workload identity and OIDC issuer preconfigured) | Serverless containers on Kubernetes + KEDA + Dapr + Envoy; **no Kubernetes API access** |
-| Fit for UMAI | Engine, policy service, console, Keycloak; Kubernetes NetworkPolicy for "regional stacks can't reach each other" (S1-3); Gatekeeper/Ratify admission | Simpler for engine/console; isolation via environments and VNet rather than Kubernetes NetworkPolicy (**details unverified**); Key Vault secret references built in |
+| Fit for UMAI | Engine, policy service, console (identity is Auth0, ADR-0024 §4); Kubernetes NetworkPolicy for "regional stacks can't reach each other" (S1-3); Gatekeeper/Ratify admission | Simpler for engine/console; isolation via environments and VNet rather than Kubernetes NetworkPolicy (**details unverified**); Key Vault secret references built in |
 | Price (West Europe) | Standard tier "Uptime SLA" $0.10/h per cluster; Automatic hosted control plane $0.16/h plus per-vCPU-hour compute surcharges | Not checked (**unverified**) |
 | Identity | **Microsoft Entra Workload ID**: projected service-account token with OIDC federation; `azure-identity` ≥ 1.13.0 (`DefaultAzureCredential`/`WorkloadIdentityCredential`); max **20 federated credentials per managed identity**; pod label `azure.workload.identity/use: "true"` required | System- or user-assigned managed identity |
 

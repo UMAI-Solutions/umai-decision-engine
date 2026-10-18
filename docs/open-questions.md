@@ -31,12 +31,12 @@ to the ADR or report. Mark questions that block a phase.
 | Q13 | Event delivery beyond R&D: what durable mechanism (outbox table, queue), retention, and who owns finding creation? | F4 | eng | |
 | Q14 | Default `review_when` selection and `finding_threshold` | F3 | product + eng | |
 | Q15 | Should L2 results feed a session-risk fact into *later* L1 decisions? | after F3 | product | Not part of ADR-0010 |
-| Q29 | SaaS identity service: UMAI-operated Keycloak on AKS per region, Auth0 (EU public cloud or Private Cloud on Azure), or Zitadel Cloud? Self-hosted stays Keycloak either way | S0 login (launch plan P3) | product | ADR-0024 §4; `reference/identity-providers.md`; Entra External ID evaluated and rejected (ADR-0031 §10); trigger: Keycloak SCIM conformance by S2 |
 | Q30 | Billing provider for UMAI Cloud: Stripe (default), Lago, Metronome at contract time? | S1 (launch plan P4) | product | ADR-0028 §5; `reference/usage-billing-providers.md` |
 | Q31 | Retention defaults: audit events 400 days; decision events 30 days Community, 30–400 Enterprise? | S1 (launch plan P6) | product | ADR-0030 §4 |
 | Q32 | EU region pair: West Europe primary + North Europe DR, or Sweden Central + a read replica in North Europe if zone-redundant HA for new Postgres servers is still blocked at provisioning? | S0 IaC (launch plan P2) | product + ops | ADR-0031 §1; `reference/azure-platform.md` §2–§3 |
 | Q33 | Container image signing on Azure: Notation only, or Notation + cosign for self-hosted customers? Defender for Containers despite its EU Data Boundary exclusion? | S0 (launch plan P11) | eng + product | ADR-0031 §6 |
 | Q34 | Pin a new Entra tenant to the EU Data Boundary (irreversible; the US stack would then need its own tenant)? | S0/S1 (launch plan P12) | product + ops | ADR-0031 §11 |
+| Q35 | Auth0 for UMAI Cloud: public cloud EU region (Auth0 describes its public cloud as delivered on AWS) or Auth0 Private Cloud on Azure (Germany, contract pricing, 99.99% SLA)? Does the Azure constraint of ADR-0031 extend to an identity sub-processor? | S0 login (creating the EU Auth0 tenant) | product | ADR-0024 §4; `reference/identity-providers.md` (Auth0 hosting) |
 
 ## Answered
 
@@ -51,3 +51,4 @@ to the ADR or report. Mark questions that block a phase.
 | A8 | Relationship to `umai-platform` | None for now: completely separate project, nothing read from, written to or linked into it | 2026-10-15 | ADR-0008 |
 | A7 | Does the OpenAI Decisions API return probabilities? | Yes for choice/score/predicate; any question may return `refusal` (→ review) | 2026-10-15 | `reference/openai-decisions-api.md` |
 | A9 | Cloud provider for UMAI Cloud (was Q28) | Azure, by product-owner constraint; EU first (West Europe / North Europe), US later; SaaS signing moves to ECDSA P-256 | 2026-10-17 | ADR-0031 (Proposed), `reference/azure-platform.md`, `security/azure-brief.md` |
+| A10 | SaaS identity service (was Q29) | Auth0 for UMAI Cloud (one Auth0 tenant per region, one organization per UMAI tenant), Keycloak for self-hosted; two adapters behind `IdentityBroker`. Public cloud or Private Cloud on Azure stays open as Q35 | 2026-10-18 | ADR-0024 §4 (product-owner decision), `reference/identity-providers.md` |
