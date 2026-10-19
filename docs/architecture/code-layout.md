@@ -87,13 +87,19 @@ umai-decision-engine/
 │   │   └── quota.py               # monthly usage counter (memory; Redis or Postgres, Q23)
 │   ├── export/                    # planned (F6): SIEM exporter, off the request path
 │   ├── routefiles.py              # gateway route files: allow-list, validation, atomic write
-│   ├── gateway/                   # ADR-0034: OpenAI-compatible secure gateway, own port
-│   │   ├── app.py                 # FastAPI app: /v1/chat/completions, /v1/models, health
-│   │   ├── routes.py              # route resolution (tenant store), upstream allow-list
-│   │   ├── chat_completions.py    # wire format ↔ EvaluationRequest, decisions on the wire
+│   ├── gateway/                   # ADR-0034: OpenAI-compatible secure gateway, own port (9300)
+│   │   ├── app.py                 # FastAPI app factory: chat, responses, embeddings routers; health
+│   │   ├── routing.py             # per-tenant route files, hot reload, last-known-good
+│   │   ├── chat.py                # /v1/chat/completions, /v1/models; admission, fallback, refusals
+│   │   ├── responses.py           # /v1/responses (JSON and typed SSE events)
+│   │   ├── embeddings.py          # /v1/embeddings (input checks only)
+│   │   ├── content.py             # message parts ↔ scanned text segments
+│   │   ├── guard.py               # one check = EvaluationRequest → Evaluator, strictest decision
+│   │   ├── tools.py               # TOOL_OUTPUT / TOOL_INPUT checks, tool-call restoration
 │   │   ├── streaming.py           # SSE parsing, buffer / window / after, tool-call buffering
 │   │   ├── masking.py             # per-call placeholder map, exact-match restoration (memory only)
-│   │   └── upstream.py            # httpx client per upstream kind, explicit timeouts, credentials
+│   │   ├── upstream.py            # httpx client per upstream kind, explicit timeouts, credentials
+│   │   └── errors.py              # OpenAI-shaped errors
 │   └── telemetry/
 │       ├── logging.py             # structured logs, raw-content guard
 │       └── metrics.py             # Prometheus-style counters/histograms

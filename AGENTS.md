@@ -91,7 +91,7 @@ ruff check . ; ruff format --check .
 uvicorn umai_decision_engine.api.app:app --reload --port 9100   # reads policies/ and .env
 uvicorn umai_decision_engine.control_plane.app:app --port 9200  # policy service (ADR-0022)
 uvicorn umai_decision_engine.gateway.app:app --port 9300        # UMAI gateway (ADR-0034); routes: gateway-routes/<tenant>.yaml
-python dev/local_stack.py engine | policy-service | console      # local stack with the console (shared dev settings)
+python dev/local_stack.py engine | policy-service | console | gateway  # local stack (shared dev settings)
 python -m umai_decision_engine.policy.cli validate policies/<bundle_id>/<version>
 python -m umai_decision_engine.policy.cli test policies --require-tests   # golden tests (ADR-0015)
 python -m umai_decision_engine.policy.cli keygen | sign | verify  # bundle signing (ADR-0012)
@@ -144,6 +144,14 @@ with `umai.sh set-secret`; Caddy's basic auth is a switch (`UMAI_CONSOLE_BASIC_A
 SaaS readiness (2026-10-17): threat model, gap analysis, launch plan and eight proposed ADRs in
 `docs/security/` and `docs/adr/0023`–`0031` (0031: UMAI Cloud runs on Azure); `tests/readiness/`
 measures the open gaps (xfail).
+UMAI gateway (2026-10-19/20, ADR-0034 to ADR-0036, contract `gateway-api` 0.7): `gateway/` on port
+9300 speaks OpenAI Chat Completions, the Responses API, embeddings and `/v1/models`; per-tenant
+routes (YAML files, also managed through the policy service's `/v1/gateway/routes`) with
+`pass_through` / `secret` / `none` credentials and fallbacks; input, tool-result, answer and
+tool-call checks through the in-process pipeline, per-call placeholders restored for the caller,
+streaming modes `window` / `buffer` / `after`; Compose profile `gateway` on the single VM
+(`docs/workflow/gateway.md`). Prompt-attack detection (gateway WP4) is paused until L1: groundwork
+in `l1/attacks/` (not wired in) and the `pi-tr` eval suite.
 Tenants are organizations created in the console; API keys, bundles and HMAC keys are per tenant.
 The console signs people in with OIDC (Auth0 development tenant, `umai-control-center`, locally
 since 2026-10-18 and on `umai-beta` since 2026-10-19).

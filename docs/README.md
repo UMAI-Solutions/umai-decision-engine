@@ -40,7 +40,8 @@ docs/
 ├── platform-context/             background: what umai-engine (the engine this may replace) does
 ├── evals/                        eval strategy, datasets, metrics
 └── workflow/                     how to develop, test and ship changes here
-    └── policy-authoring.md       how the team changes, tests and activates a policy
+    ├── policy-authoring.md       how the team changes, tests and activates a policy
+    └── gateway.md                using the UMAI gateway: routes, SDK calls, refusals, errors
 ```
 
 ## Reading order for a newcomer

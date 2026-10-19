@@ -9,7 +9,10 @@ touching anyone's .env files (development only; values already in the environmen
   registry the engine is no longer open in development, so the console calls it as the
   operator, as it does in SaaS.
 
-    python dev/local_stack.py engine | policy-service | console
+    python dev/local_stack.py engine | policy-service | console | gateway
+
+The gateway (port 9300) and the policy service share ``.data/gateway-routes``, so routes saved
+through ``PUT /v1/gateway/routes`` reach the gateway within seconds.
 
 The console is looked for next to this repository; ``UMAI_CONSOLE_DIR`` overrides that.
 """
@@ -43,6 +46,7 @@ def engine_token() -> str:
 def shared_settings() -> None:
     os.environ.setdefault("UMAI_DE_DEFAULT_TENANT_ID", "console")
     os.environ.setdefault("UMAI_DE_KEY_REGISTRY_DIR", str(DATA / "key-registry"))
+    os.environ.setdefault("UMAI_DE_GATEWAY_ROUTES_DIR", str(DATA / "gateway-routes"))
 
 
 def run_engine() -> int:
@@ -51,6 +55,15 @@ def run_engine() -> int:
     shared_settings()
     os.environ.setdefault("UMAI_DE_API_TOKEN", engine_token())
     uvicorn.run("umai_decision_engine.api.app:app", host="127.0.0.1", port=9100)
+    return 0
+
+
+def run_gateway() -> int:
+    import uvicorn
+
+    shared_settings()
+    os.environ.setdefault("UMAI_DE_API_TOKEN", engine_token())
+    uvicorn.run("umai_decision_engine.gateway.app:app", host="127.0.0.1", port=9300)
     return 0
 
 
@@ -82,7 +95,12 @@ def run_console() -> int:
     return subprocess.call([npm, "run", "dev"], cwd=CONSOLE, env=env)
 
 
-SERVICES = {"engine": run_engine, "policy-service": run_policy_service, "console": run_console}
+SERVICES = {
+    "engine": run_engine,
+    "policy-service": run_policy_service,
+    "console": run_console,
+    "gateway": run_gateway,
+}
 
 
 def main(argv: list[str]) -> int:
