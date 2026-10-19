@@ -28,7 +28,7 @@ roles (8.x). Not deployed on `umai-beta` yet: Caddy basic auth stays in front of
 | Storage | Bundles as files (`policy/sources.py`), drafts in SQLite (`control_plane/drafts.py:26`), change log as JSON lines (`control_plane/repository.py`, `_log`), no decision-event store (`pipeline/orchestrator.py`, `review_queued=False`) |
 | Logging | `logging.basicConfig` plain text (`telemetry/logging.py:8-11`); decision log carries ids and numbers only (`orchestrator.py:283-296`); Presidio logger clamped to WARNING |
 | Error handling | Exceptions mapped to error kinds (`orchestrator.py:_l0_error_kind`); 422 bodies carry location and error type only, never the input (`api/errors.py`, evaluation API 0.8; readiness L1 green since 2026-10-19). Before that FastAPI's default handler echoed the offending input |
-| Limits | Regex timeout per pattern (`l0/recognizers/base.py:21`, default 1 s); no body-size, scan-length or rate limit in either service; the console caps playground text at 32 000 characters (`src/lib/engine-request.ts:14`) but the engine does not |
+| Limits | Regex timeout per pattern (`l0/recognizers/base.py:21`, default 1 s); per-credential rate limit at admission (`tenancy/limits.py`, ADR-0023 §7); prompt-size limit with 413 before any scan (`api/routes.py`, evaluation API 0.9, readiness T2 green since 2026-10-19); request bodies capped only at the ingress (Caddy `request_body` on the VM); the console caps playground text at 32 000 characters (`src/lib/engine-request.ts:14`) but the engine does not |
 | Integrity | SHA-256 + Ed25519 manifests, required outside development (`policy/manifest.py:40-70`, `settings.py:27`) |
 | Console | No authentication, no session, no roles (`src/app/(console)/layout.tsx`); engine and control tokens server-side only (`src/lib/upstream.ts:27-37`); `poweredByHeader: false`, no other security headers (`next.config.mjs`) |
 | Supply chain | CI: ruff, pytest, golden tests (`.github/workflows/ci.yml`); no dependency audit, SBOM, image build or signing; no Dockerfile in either repository |
@@ -118,7 +118,7 @@ roles (8.x). Not deployed on `umai-beta` yet: Caddy basic auth stays in front of
 | 15.2.3 | 2 | No test/dev features in production | holds | development gates above | — |
 | 4.1.1 | 1 | Correct `Content-Type` | holds | FastAPI JSON responses | — |
 | 2.2.2 | 1 | Server-side input validation | holds | Pydantic contracts, bundle validation | — |
-| 2.1.3, 2.3.2, 2.4.1 | 2 | Documented and implemented business limits; anti-automation | **missing** | no quota, size or rate limit; readiness T2 red | ADR-0019 §4, ADR-0023 §7, ADR-0028 |
+| 2.1.3, 2.3.2, 2.4.1 | 2 | Documented and implemented business limits; anti-automation | partial | size limit (413, readiness T2 green 2026-10-19) and per-key rate limit (429) hold; no monthly quota yet | ADR-0028 |
 | 15.1.3 / 15.2.2 | 2 | Resource-intensive functions documented and protected | partial | regex timeout exists; scan length unbounded | ADR-0019 §4 |
 
 ASVS tally over the rows above (2026-10-18, after ADR-0023/0025 code): **holds 18 · partial 10 · missing 24 · n/a 10**.
@@ -147,7 +147,7 @@ ASVS tally over the rows above (2026-10-18, after ADR-0023/0025 code): **holds 1
 | API1 Broken object-level authorization | **missing** | any token reads any bundle version or guardrail draft |
 | API2 Broken authentication | **holds** | per-tenant keys, hashed, revocable within one poll interval, rotation by second key |
 | API3 Broken object property-level authorization | holds | `extra="forbid"` contracts; response models exclude internals |
-| API4 Unrestricted resource consumption | **missing** | no body, scan-length or rate limits (readiness T2) |
+| API4 Unrestricted resource consumption | partial | prompt-size limit (readiness T2 green) and per-key rate limit; body cap only at the ingress; no quota |
 | API5 Broken function-level authorization | partial | engine routes behind scopes; policy-service publish/activate still open to the operator token (roles: ADR-0029) |
 | API6 Unrestricted access to sensitive business flows | **missing** | publish → activate without approval or actor |
 | API7 SSRF | holds | no user-supplied URLs are fetched (allowed domains are matched, not fetched) |

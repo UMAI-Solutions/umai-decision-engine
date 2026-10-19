@@ -69,7 +69,7 @@ address, support channel for the partners.
 |---|---|---|---|---|
 | S0-1 | Tenant from credential; cross-tenant evaluate refused | readiness T1, T3 green in CI | eng | **done** (2026-10-18; tenant-owned bundles and per-tenant listing 2026-10-19) |
 | S0-2 | Keys hashed, scoped, revocable; revocation effective ≤ 10 s | readiness T4, T5; revocation latency measurement | eng | open |
-| S0-3 | Size and rate limits with explicit 413/429; ingress body cap | readiness T2, T6; load test report | eng | open |
+| S0-3 | Size and rate limits with explicit 413/429; ingress body cap | readiness T2, T6; load test report | eng | partial (2026-10-19: T2 green, 413 `input_too_large`; per-key 429 since 2026-10-18; ingress cap on the VM only; load test open) |
 | S0-4 | No raw content in responses, logs or errors | readiness C1, L1 green; leak suite 0 | eng | partial (2026-10-19: L1 green, 422 without input; leak suite over error bodies open) |
 | S0-5 | Console requires login; sessions and headers per ADR-0024 §2 | browser tests; header scan (observatory-style) report | eng | partial (2026-10-18: OIDC login and 60 min / 12 h cookie session in `umai-control-center`; server-side session store, security headers, automated browser tests open) |
 | S0-6 | MFA for owner/admin | Auth0 MFA policy screenshot + test | eng | open |

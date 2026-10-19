@@ -60,6 +60,18 @@ def client(write_bundle, detector):
 # ------------------------------------------------------------ controls that hold today
 
 
+def test_t2_oversized_input_is_refused_not_scanned(client, caplog) -> None:
+    """Content above the size limit gets HTTP 413 and nothing is evaluated (gap T2 closed
+    2026-10-19, evaluation API 0.9)."""
+
+    huge = "Toplantı notlarını özetler misin? " * 20_000  # ~700 kB, far above any plan limit
+    with caplog.at_level(logging.INFO):
+        response = client.post("/v1/evaluate", json=_request(huge))
+    assert response.status_code == 413
+    assert response.json()["detail"]["error"] == "input_too_large"
+    assert not [r for r in caplog.records if r.getMessage().startswith("decision ")]
+
+
 def test_l1_validation_errors_do_not_echo_raw_content(client) -> None:
     """A malformed request is rejected without reflecting the content back (rule 1; gap L1
     closed 2026-10-19, evaluation API 0.8)."""
@@ -144,15 +156,3 @@ def test_a1_activation_is_attributed_to_an_actor(write_bundle, detector, tmp_pat
 
 
 # ------------------------------------------------------------ gaps (xfail until closed)
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason="GAP-T2: no prompt-size limit; L0 scans any length (ADR-0019 §4)",
-)
-def test_t2_oversized_input_is_refused_not_scanned(client) -> None:
-    """Content above the tenant's size limit gets HTTP 413 and nothing is evaluated."""
-
-    huge = "Toplantı notlarını özetler misin? " * 20_000  # ~700 kB, far above any plan limit
-    response = client.post("/v1/evaluate", json=_request(huge))
-    assert response.status_code == 413

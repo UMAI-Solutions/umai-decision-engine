@@ -22,7 +22,7 @@ Status: **exists**, **partial**, **missing**, **company** (not code).
 | Capability | Community | Enterprise | Lives in | What has to exist | Status |
 |---|---|---|---|---|---|
 | Requests included | 10 000 / month | Flexible | engine | Per-tenant usage counter, HTTP 429 at the limit, usage endpoint for the console | missing |
-| Maximum prompt size | 8 000 tokens | Configurable | engine | Size measurement over all request content, HTTP 413 above the limit, deployment-wide cap | missing (L0 scans any length) |
+| Maximum prompt size | 32 000 characters | Configurable | engine | Size measurement over all request content, HTTP 413 above the limit, deployment-wide cap | deployment-wide cap done (`UMAI_DE_MAX_INPUT_CHARS`, evaluation API 0.9); per-tenant value from entitlements open |
 | Hosting | SaaS | SaaS or self-hosted | ops + engine | SaaS: multi-tenant engine, regional stacks. Self-hosted: signed release, packaging, licence | partial (single-tenant engine runs on one server with directory bundles) |
 | Support | Community | Enterprise-level | company | Community forum / docs; support process and SLA | company |
 | API | ✓ | ✓ | engine | `POST /v1/evaluate` with per-tenant keys | partial (one shared token, ADR-0016) |
@@ -107,7 +107,7 @@ Every `POST /v1/evaluate` goes through admission before L0. Each step has an exp
 | 1. Authenticate | Credential → tenant, key id, scopes | 401 |
 | 2. Tenant | Body `tenant_id` = credential tenant; tenant region = stack region | 403 `tenant_mismatch` / `wrong_region` |
 | 3. Entitlements | Tenant has a valid entitlement record (licence valid or within grace) | 403 `no_entitlement`, or configured licence behaviour (Q24) |
-| 4. Prompt size | Size of all request content ≤ `max_input_tokens` | 413 `input_too_large` |
+| 4. Prompt size | Characters of all request content ≤ `max_input_chars` (ADR-0019 amendment) | 413 `input_too_large` |
 | 5. Quota | Monthly count < `monthly_requests` (or no limit) | 429 `quota_exceeded`, `Retry-After` |
 | 6. Pipeline | Tenant-owned bundle → L0 → L1 → decision (unchanged) | as today |
 
@@ -125,7 +125,7 @@ deployment: saas              # saas | self_hosted
 region: eu                    # eu | us; empty for self-hosted
 limits:
   monthly_requests: 10000     # empty = metered, never refused
-  max_input_tokens: 8000
+  max_input_chars: 32000
 features: []                  # any of: sso, rbac, siem, version_pinning
 valid_from: 2026-10-17
 valid_until: null             # set on licences

@@ -19,8 +19,8 @@ from umai_decision_engine.contracts.common import (
 )
 from umai_decision_engine.contracts.entities import EntitySummary
 
-CONTRACT_VERSION = "0.8"
-_ACCEPTED_REQUEST_VERSIONS = Literal["0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8"]
+CONTRACT_VERSION = "0.9"
+_ACCEPTED_REQUEST_VERSIONS = Literal["0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9"]
 
 # ------------------------------------------------------------------ request
 
@@ -170,7 +170,9 @@ class ErrorInfo(ContractModel):
 
 
 class EvaluationResponse(ContractModel):
-    contract_version: Literal["0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8"] = CONTRACT_VERSION
+    contract_version: Literal["0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9"] = (
+        CONTRACT_VERSION
+    )
     request_id: str
     tenant_id: str
     bundle: BundleInfo
@@ -233,3 +235,26 @@ class ValidationErrorBody(ContractModel):
     """HTTP 422 body (evaluation API 0.8): the admission error shape plus `problems`."""
 
     detail: ValidationErrorDetail
+
+
+def input_size(content: Content) -> int:
+    """Prompt size (0.9, ADR-0019 §4 and amendment): characters (Unicode code points) over all
+    request content, i.e. every message and every artifact's content."""
+
+    return sum(len(m.content) for m in content.messages) + sum(
+        len(a.content or "") for a in content.artifacts
+    )
+
+
+class InputTooLargeDetail(ContractModel):
+    error: Literal["input_too_large"] = "input_too_large"
+    detail: str
+    limit: int
+    size: int
+    unit: Literal["characters"] = "characters"
+
+
+class InputTooLargeBody(ContractModel):
+    """HTTP 413 body (evaluation API 0.9): nothing was evaluated, nothing was truncated."""
+
+    detail: InputTooLargeDetail

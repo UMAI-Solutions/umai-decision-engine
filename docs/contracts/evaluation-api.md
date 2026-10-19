@@ -1,6 +1,6 @@
 # Contract: evaluation API
 
-**Version:** 0.8 · **Endpoints:** `POST /v1/evaluate`, `GET /v1/bundles`, `POST /v1/bundles/reload`, `POST /v1/detect` (development) · **Health:** `GET /healthz`, `GET /readyz`
+**Version:** 0.9 · **Endpoints:** `POST /v1/evaluate`, `GET /v1/bundles`, `POST /v1/bundles/reload`, `POST /v1/detect` (development) · **Health:** `GET /healthz`, `GET /readyz`
 
 `/readyz` returns 200 only after Presidio analyzers are loaded and warmed up, the policy
 bundles are loaded, and the configured L1b provider answered a probe.
@@ -206,6 +206,26 @@ Pydantic's error type), at most 50 entries. The body never contains the caller's
 positions; any other key (an unknown field, a `metadata` key) is shown as `<key>` (ADR-0005).
 Authentication runs first, so only an admitted caller sees a 422.
 
+**Prompt size** ([ADR-0019](../adr/0019-editions-as-runtime-entitlements.md) §4 and its
+amendment): the characters (Unicode code points) of every `content.messages[].content` and
+every `content.artifacts[].content`, added up. Above the limit (`UMAI_DE_MAX_INPUT_CHARS`,
+default 32 000, until per-tenant entitlements carry `max_input_chars`) `POST /v1/evaluate` and
+`POST /v1/detect` answer **413** in the admission error shape with the limit and the measured
+size. Nothing is evaluated and nothing is truncated: the caller's own failure behaviour
+applies, visibly. The check runs after admission and schema validation.
+
+```json
+{
+  "detail": {
+    "error": "input_too_large",
+    "detail": "the content has 41250 characters; this deployment accepts at most 32000",
+    "limit": 32000,
+    "size": 41250,
+    "unit": "characters"
+  }
+}
+```
+
 ```json
 {
   "detail": {
@@ -221,6 +241,10 @@ Authentication runs first, so only an admitted caller sees a 422.
 
 ## Changelog
 
+- 0.9 (2026-10-19): prompt-size limit: HTTP 413 `input_too_large` with `limit`, `size` and
+  `unit: "characters"` above `UMAI_DE_MAX_INPUT_CHARS` (default 32 000) over all message and
+  artifact content, on `/v1/evaluate` and `/v1/detect` (gap T2; ADR-0019 amendment, Q19).
+  Request shape unchanged; requests 0.2–0.9 accepted.
 - 0.8 (2026-10-19): HTTP 422 body defined: `{"detail": {"error": "invalid_request", "detail",
   "problems": [{"loc", "type"}]}}`, without the caller's input (gap L1); previously FastAPI's
   default body, which echoed the offending value. Request shape unchanged; requests 0.2–0.8

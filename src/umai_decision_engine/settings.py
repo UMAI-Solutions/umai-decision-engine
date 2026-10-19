@@ -49,6 +49,10 @@ class Settings(BaseSettings):
     region: Literal["eu", "us", "sh"] = "sh"  # region stamped into new keys; sh = self-hosted
     rate_limit_rps: float | None = Field(20.0, gt=0)  # per credential (ADR-0023 §7); None = off
     rate_limit_burst: int = Field(40, ge=1)
+    # Prompt size in characters over all request content; above it 413, never a partial scan
+    # (ADR-0019 §4 and amendment, Q19 answered). Deployment-wide until entitlements carry a
+    # per-tenant `max_input_chars` (Community 32 000, about the 8 000 tokens planned).
+    max_input_chars: int = Field(32_000, ge=1_000, le=1_000_000)
 
     # Policy service (control plane, ADR-0022): drafts, publish, activate. Separate process.
     control_api_token: SecretStr | None = None  # required outside development

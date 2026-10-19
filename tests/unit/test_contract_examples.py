@@ -20,6 +20,7 @@ from umai_decision_engine.contracts.entities import EntityDetectionResult
 from umai_decision_engine.contracts.evaluation import (
     EvaluationRequest,
     EvaluationResponse,
+    InputTooLargeBody,
     ValidationErrorBody,
 )
 from umai_decision_engine.contracts.policy_tests import PolicyTestFile
@@ -42,6 +43,8 @@ def test_evaluation_api_examples() -> None:
     EvaluationResponse.model_validate_json(response)
     (error,) = [block for block in blocks if '"invalid_request"' in block]
     ValidationErrorBody.model_validate_json(error)
+    (too_large,) = [block for block in blocks if '"input_too_large"' in block]
+    InputTooLargeBody.model_validate_json(too_large)
 
 
 def test_entity_detection_example() -> None:

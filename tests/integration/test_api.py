@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from tests.conftest import bundle_yaml
 from umai_decision_engine.api.app import create_app
-from umai_decision_engine.contracts.evaluation import ValidationErrorBody
+from umai_decision_engine.contracts.evaluation import InputTooLargeBody, ValidationErrorBody
 from umai_decision_engine.settings import Settings
 
 PII_TEXT = "TC kimlik 10000000146 ve IBAN TR33 0006 1005 1978 6457 8413 26"
@@ -347,6 +347,32 @@ def test_invalid_json_is_422_without_the_body(write_bundle, make_client) -> None
     problems = ValidationErrorBody.model_validate(response.json()).detail.problems
     assert problems[0].type == "json_invalid"
     assert "10000000146" not in response.text
+
+
+def test_input_size_counts_every_message_and_artifact(write_bundle, make_client) -> None:
+    # Evaluation API 0.9 (gap T2): characters over all content; above the limit 413, no decision.
+    write_bundle(bundle_yaml(), active=1)
+    client = make_client(max_input_chars=1000)
+
+    def body(artifact_chars: int) -> dict:
+        request = _request("a" * 400)
+        request["content"]["messages"].append({"role": "assistant", "content": "b" * 200})
+        request["content"]["artifacts"] = [
+            {"artifact_type": "TOOL_OUTPUT", "content": "c" * artifact_chars}
+        ]
+        return request
+
+    assert client.post("/v1/evaluate", json=body(400)).status_code == 200  # exactly 1000
+    for route in ("/v1/evaluate", "/v1/detect"):
+        response = client.post(route, json=body(401))
+        assert response.status_code == 413
+        detail = InputTooLargeBody.model_validate(response.json()).detail
+        assert (detail.error, detail.limit, detail.size, detail.unit) == (
+            "input_too_large",
+            1000,
+            1001,
+            "characters",
+        )
 
 
 def test_tenant_key_required_outside_development(write_bundle, make_client) -> None:

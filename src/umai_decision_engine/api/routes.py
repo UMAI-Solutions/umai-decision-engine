@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -15,12 +16,15 @@ from umai_decision_engine.contracts.evaluation import (
     DetectResponse,
     EvaluationRequest,
     EvaluationResponse,
+    InputTooLargeDetail,
+    input_size,
 )
 from umai_decision_engine.l0.target import extract_target_text
 from umai_decision_engine.policy.validate import BundleValidationError
 from umai_decision_engine.tenancy.admission import Principal, require_scope
 
 router = APIRouter()
+log = logging.getLogger("umai.de.api")
 
 # Admission (ADR-0023): credential → principal (tenant, scopes), rate limit, scope per route.
 _EVALUATE = Depends(require_scope(Scope.EVALUATE))
@@ -43,6 +47,28 @@ def _bundle_tenant(request: Request, principal: Principal) -> str:
             )
         return principal.tenant_id
     return request.headers.get(TENANT_HEADER) or request.app.state.store.default_tenant
+
+
+def _enforce_input_size(request: Request, body: EvaluationRequest) -> None:
+    """Prompt-size admission (ADR-0019 §4, evaluation API 0.9): over the limit nothing is
+    evaluated and nothing is truncated; the caller's failure policy decides what happens next."""
+
+    limit = request.app.state.settings.max_input_chars
+    size = input_size(body.content)
+    if size > limit:
+        log.info(
+            "admission.refused reason=input_too_large request_id=%s tenant=%s size=%d limit=%d",
+            body.request_id,
+            body.tenant_id,
+            size,
+            limit,
+        )
+        detail = InputTooLargeDetail(
+            detail=f"the content has {size} characters; this deployment accepts at most {limit}",
+            limit=limit,
+            size=size,
+        )
+        raise HTTPException(status_code=413, detail=detail.model_dump(mode="json"))
 
 
 @router.get("/healthz")
@@ -75,6 +101,7 @@ async def evaluate(
 ) -> EvaluationResponse:
     _require_ready(request)
     body = body.model_copy(update={"tenant_id": principal.bind_tenant(body.tenant_id)})
+    _enforce_input_size(request, body)
     try:
         return await request.app.state.evaluator.evaluate(body)
     except PermissionError as exc:
@@ -92,6 +119,7 @@ async def detect(
         raise HTTPException(status_code=404)
     _require_ready(request)
     body = body.model_copy(update={"tenant_id": principal.bind_tenant(body.tenant_id)})
+    _enforce_input_size(request, body)
     try:
         loaded, missing = state.evaluator.resolve_bundle(body)
     except PermissionError as exc:
