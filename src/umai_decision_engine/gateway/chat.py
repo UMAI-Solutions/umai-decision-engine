@@ -34,7 +34,12 @@ from umai_decision_engine.gateway.content import (
 from umai_decision_engine.gateway.errors import GatewayHTTPError, from_admission
 from umai_decision_engine.gateway.guard import CallContext, Check, Guard, strictest
 from umai_decision_engine.gateway.masking import MaskSession
-from umai_decision_engine.gateway.tools import check_tool_calls, input_checks, note_output
+from umai_decision_engine.gateway.tools import (
+    chat_tool_action,
+    check_tool_calls,
+    input_checks,
+    note_output,
+)
 from umai_decision_engine.gateway.upstream import UpstreamClient, forwarded_headers
 from umai_decision_engine.settings import Settings
 
@@ -272,7 +277,7 @@ async def chat_completions(request: Request) -> Response:
     upstream_body = copy.deepcopy(body)
     upstream_body["model"] = route.upstream.model
     if segments:
-        results = await input_checks(call, body["messages"], segments)
+        results = await input_checks(call, segments, chat_tool_action(body["messages"]))
         worst = strictest([check for check, _ in results])
         assert worst is not None
         call.input_check = worst

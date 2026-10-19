@@ -1,9 +1,9 @@
 # Contract: gateway API
 
-**Version:** 0.3 · **Status:** implemented for non-streaming and streaming Chat Completions:
-routes, input, tool-result, answer and tool-call checks, masking, restoration and refusals (WP2,
-WP3, WP5; [design](../architecture/ai-gateway.md) §8) · **Endpoints**
-(gateway host, e.g. `eu.gateway.<domain>`): `POST /v1/chat/completions`, `GET /v1/models` ·
+**Version:** 0.4 · **Status:** implemented for Chat Completions and the Responses API,
+non-streaming and streaming: routes, input, tool-result, answer and tool-call checks, masking,
+restoration and refusals (WP2, WP3, WP5; [design](../architecture/ai-gateway.md) §8) · **Endpoints**
+(gateway host, e.g. `eu.gateway.<domain>`): `POST /v1/chat/completions`, `POST /v1/responses`, `GET /v1/models` ·
 **Health:** `GET /healthz`, `GET /readyz` · **Code:** `src/umai_decision_engine/gateway/`,
 models in `contracts/gateway.py` · **Decisions:** [ADR-0034](../adr/0034-umai-secure-gateway.md),
 [ADR-0035](../adr/0035-raw-content-zone-l0-and-gateway.md),
@@ -220,6 +220,48 @@ are dropped. In `window` streams a blocked tool call is never released: the choi
 - A provider error event mid-stream passes through; an upstream that stops answering gets an
   `{"error": {"code": "upstream_timeout", …}}` event before `[DONE]`.
 
+## OpenAI Responses API (`POST /v1/responses`, 0.4)
+
+The same routes, headers, checks, masking, restoration and refusals as Chat Completions, in the
+Responses wire format (shapes recorded live against OpenAI on 2026-10-19). Upstream path:
+`<base_url>/responses` (OpenAI; Azure OpenAI v1 `…/openai/v1/responses`; OpenAI-compatible servers
+that serve Responses).
+
+| Request field | Use |
+|---|---|
+| `instructions` | Scanned as a system message; the echo in the response object is restored |
+| `input` (string) | Scanned as a user message |
+| `input[]` `message` (or `{role, content}`) | `input_text` / `output_text` / `refusal` parts scanned; `input_image`, `input_file`, `input_audio` follow `unscanned_parts` |
+| `input[]` `function_call`, `custom_tool_call` | `arguments` / `input` scanned with the input check |
+| `input[]` `function_call_output`, `custom_tool_call_output` | `output` (string or `input_text` parts) checked as a tool result (`TOOL_OUTPUT` with the tool's name from `call_id`, else part of the input check) |
+| `input[]` `reasoning`, `item_reference`, hosted tool calls (`web_search_call`, `file_search_call`, `code_interpreter_call`, `image_generation_call`, `mcp_list_tools`, compaction) | Provider-side items: passed through, nothing to scan |
+| `input[]` any other item (shell, computer use, apply-patch outputs, MCP calls) | Not scanned: follows `unscanned_parts` |
+| everything else (`tools`, `previous_response_id`, `store`, `reasoning`, `text`, …) | Forwarded unchanged |
+
+Answer: each `output_text` part of a `message` item is checked (`POST_LLM`), masked and restored;
+each `function_call` item's `arguments` are restored, then checked (`TOOL_INPUT`). A refusal with
+`refusal: error` is HTTP 400 as above; with `refusal: message` the response has `status:
+"incomplete"`, `incomplete_details: {"reason": "content_filter"}` and one `message` item carrying
+`refusal_text` (the SDK's `output_text`).
+
+Streaming uses the Responses events (`event: <type>` + `data: {…}`; the stream ends with
+`response.completed` or `response.incomplete`, there is no `[DONE]`):
+
+- `response.output_text.delta` events are held back and released as in `window` / `buffer` /
+  `after`; `response.output_text.done`, `response.content_part.done`, `response.output_item.done`
+  and `response.completed` carry the checked, restored text.
+- `response.function_call_arguments.delta` events are held; at `…arguments.done` the call is
+  restored and checked, then released as one delta plus the done event.
+- A block ends the stream with `response.incomplete` (`incomplete_details.reason:
+  "content_filter"`) and closes the upstream; in `buffer` mode with `refusal: error` the answer is
+  HTTP 400 instead.
+- The gateway re-numbers `sequence_number` (it holds and rewrites events) and drops `obfuscation`
+  padding from the events it rewrites.
+
+Not checked by the gateway: what hosted tools (web search, file search, code interpreter, remote
+MCP) read and return inside the provider, and items stored at the provider and referenced by
+`previous_response_id` or `item_reference` (they were checked when they passed through).
+
 ## Gateway errors
 
 Admission and gateway errors use the OpenAI error shape with `type: "umai_gateway"`:
@@ -251,6 +293,9 @@ latency. No record carries prompt, answer, provider key or mask map (ADR-0035).
 
 ## Changelog
 
+- 0.4 (2026-10-19): OpenAI Responses API (`POST /v1/responses`), non-streaming and
+  streaming, with the same checks; shapes recorded live; refusals as `status: incomplete`
+  with `incomplete_details.reason: content_filter` or HTTP 400.
 - 0.3 (2026-10-19): agents (WP5): tool results checked as `TOOL_OUTPUT` per message with the
   tool's name when the bundle enables it (else part of the input check); tool calls in answers
   checked as `TOOL_INPUT` after restoration, masked in place or refused (`phase: TOOL_INPUT`).

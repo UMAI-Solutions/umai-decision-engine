@@ -17,6 +17,7 @@ from umai_decision_engine import __version__
 from umai_decision_engine.gateway.chat import router
 from umai_decision_engine.gateway.errors import GatewayHTTPError, gateway_error_handler
 from umai_decision_engine.gateway.guard import Guard
+from umai_decision_engine.gateway.responses import router as responses_router
 from umai_decision_engine.gateway.routing import AllowList, RouteTable
 from umai_decision_engine.gateway.upstream import UpstreamClient
 from umai_decision_engine.l0.detector import EntityDetector
@@ -69,6 +70,7 @@ def create_gateway_app(
         return JSONResponse({"ready": ready}, status_code=200 if ready else 503)
 
     app.include_router(router)
+    app.include_router(responses_router)
     return app
 
 

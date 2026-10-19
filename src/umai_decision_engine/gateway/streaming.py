@@ -94,6 +94,7 @@ class ChoiceState:
     index: int
     raw: str = ""  # everything the upstream sent for this choice
     released: int = 0  # raw characters already sent (after masking and restoration)
+    sent: str = ""  # what the caller received for this choice (masked, restored)
     tool_calls: dict[int, ToolCallBuffer] = field(default_factory=dict)
     announced: bool = False  # the first delta (role) went out
     finished: bool = False
@@ -196,6 +197,7 @@ class AnswerStream:
         ]
         st.released = end
         text = self._render(piece, local)
+        st.sent += text
         return [self.chunk(st.index, {"content": text})] if text else []
 
     def finish_chunks(self, st: ChoiceState, finish_reason: str | None) -> list[dict[str, Any]]:

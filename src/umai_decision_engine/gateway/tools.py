@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import OrderedDict
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from umai_decision_engine.contracts.common import ACTION_RANK, Phase
@@ -54,20 +55,33 @@ def tool_names(messages: list[Any]) -> dict[str, str]:
     return names
 
 
-def _tool_action(message: dict[str, Any], names: dict[str, str]) -> AgentAction | None:
-    if message.get("role") == "function":
-        name = message.get("name")
-    else:
-        name = names.get(str(message.get("tool_call_id")))
+def tool_action(name: Any) -> AgentAction | None:
     if not isinstance(name, str) or not name:
         return None
     return AgentAction(name=name[:128], tool_name=name[:128])
 
 
+def chat_tool_action(messages: list[Any]) -> Callable[[int], AgentAction | None]:
+    """For Chat Completions: the tool behind ``messages[i]`` (a ``tool`` / ``function`` message)."""
+
+    names = tool_names(messages)
+
+    def _action(index: int) -> AgentAction | None:
+        message = messages[index]
+        if message.get("role") == "function":
+            return tool_action(message.get("name"))
+        return tool_action(names.get(str(message.get("tool_call_id"))))
+
+    return _action
+
+
 async def input_checks(
-    call: Call, messages: list[Any], segments: list[Segment]
+    call: Call,
+    segments: list[Segment],
+    action_for: Callable[[int], AgentAction | None],
 ) -> list[tuple[Check, list[Segment]]]:
-    """Run the input check and, per tool result, the tool-result checks, concurrently."""
+    """Run the input check and, per tool result, the tool-result checks, concurrently.
+    ``action_for(segment.message)`` names the tool behind a tool result."""
 
     separate = any(s.tool_result for s in segments) and call.guard.enabled(
         call.ctx, Phase.TOOL_OUTPUT
@@ -77,13 +91,12 @@ async def input_checks(
     if general:
         groups.append((Phase.PRE_LLM, general, None))
     if separate:
-        names = tool_names(messages)
         by_message: OrderedDict[int, list[Segment]] = OrderedDict()
         for segment in segments:
             if segment.tool_result:
                 by_message.setdefault(segment.message, []).append(segment)
         for index, parts in by_message.items():
-            groups.append((Phase.TOOL_OUTPUT, parts, _tool_action(messages[index], names)))
+            groups.append((Phase.TOOL_OUTPUT, parts, action_for(index)))
     checks = await asyncio.gather(
         *(
             call.guard.check(call.ctx, phase, [(s.role, s.text) for s in parts], action=action)

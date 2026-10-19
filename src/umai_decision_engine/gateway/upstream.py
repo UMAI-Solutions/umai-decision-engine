@@ -58,7 +58,7 @@ class UpstreamClient:
         await self._client.aclose()
 
     def _request(
-        self, route: Route, key: str | None, body: dict[str, Any], *, stream: bool
+        self, route: Route, key: str | None, body: dict[str, Any], *, stream: bool, path: str
     ) -> httpx.Request:
         timeouts = route.timeouts_ms
         headers = {
@@ -68,7 +68,7 @@ class UpstreamClient:
         }
         return self._client.build_request(
             "POST",
-            upstream_url(route),
+            upstream_url(route, path),
             content=json.dumps(body, ensure_ascii=False).encode("utf-8"),
             headers=headers,
             timeout=httpx.Timeout(
@@ -80,9 +80,15 @@ class UpstreamClient:
         )
 
     async def send(
-        self, route: Route, key: str | None, body: dict[str, Any], *, stream: bool = False
+        self,
+        route: Route,
+        key: str | None,
+        body: dict[str, Any],
+        *,
+        stream: bool = False,
+        path: str = "chat/completions",
     ) -> httpx.Response:
-        request = self._request(route, key, body, stream=stream)
+        request = self._request(route, key, body, stream=stream, path=path)
         try:
             return await self._client.send(request, stream=stream)
         except httpx.TimeoutException as exc:

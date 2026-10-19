@@ -109,9 +109,9 @@ def run(args: argparse.Namespace) -> Path:
 
     original_send = upstream_module.UpstreamClient.send
 
-    async def spy(self, route, provider_key, body, *, stream=False):  # records the masked prompt
+    async def spy(self, route, provider_key, body, **kwargs):  # records the masked prompt
         captured["prompt"] = json.dumps(body["messages"], ensure_ascii=False)
-        response = await original_send(self, route, provider_key, body, stream=stream)
+        response = await original_send(self, route, provider_key, body, **kwargs)
         captured["answer"] = response.text
         return response
 
