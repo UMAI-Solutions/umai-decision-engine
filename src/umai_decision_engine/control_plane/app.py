@@ -17,7 +17,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from umai_decision_engine import __version__
 from umai_decision_engine.contracts.credentials import KeyEnv, Scope
@@ -61,6 +61,12 @@ from umai_decision_engine.db.repositories import (
 from umai_decision_engine.db.session import make_engine, sqlite_url
 from umai_decision_engine.l0.detector import EntityDetector
 from umai_decision_engine.l0.recognizers.catalog import SPECS_BY_ENTITY, TAG_BY_ENTITY
+from umai_decision_engine.routefiles import (
+    AllowList,
+    read_route_file,
+    validate_route_file,
+    write_route_file,
+)
 from umai_decision_engine.settings import Settings, get_settings
 from umai_decision_engine.telemetry.logging import configure_logging
 
@@ -403,6 +409,66 @@ async def _org(request: Request, org_id: str, actor: Actor) -> TenantInfo:
     if tenant is None:
         raise HTTPException(404, {"error": "not_found", "detail": "no such organization"})
     return tenant
+
+
+# ------------------------------------------------------------- gateway routes (gateway-api 0.7)
+
+
+def _route_problem(exc: Exception) -> str:
+    if isinstance(exc, ValidationError):
+        first = exc.errors()[0]
+        location = ".".join(str(p) for p in first.get("loc", ())) or "routes"
+        return f"{location}: {first.get('msg', first.get('type', 'invalid'))}"[:300]
+    return str(exc)[:300]
+
+
+@router.get("/gateway/routes")
+async def gateway_routes(
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.GATEWAY_ROUTE_READ],
+) -> dict[str, Any]:
+    settings: Settings = request.app.state.settings
+    data = await asyncio.to_thread(read_route_file, settings.gateway_routes_dir, tenant.slug)
+    return {"tenant_id": tenant.slug, "routes": data.get("routes") or []}
+
+
+@router.put("/gateway/routes")
+async def put_gateway_routes(
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.GATEWAY_ROUTE_WRITE],
+) -> dict[str, Any]:
+    """Replace the tenant's routes. Validated like the gateway loads them (schema, fallbacks,
+    upstream allow-list) plus: every guardrail exists for this tenant. The gateway picks the file
+    up at its next reload (seconds)."""
+
+    settings: Settings = request.app.state.settings
+    try:
+        body = await request.json()
+        routes = validate_route_file(body, AllowList(settings.gateway_upstream_allowlist))
+    except (ValueError, ValidationError) as exc:
+        raise HTTPException(
+            422, {"error": "invalid_routes", "detail": _route_problem(exc)}
+        ) from None
+    known = set(_service(request).guardrails.for_tenant(tenant.slug).ids())
+    unknown = sorted({r.guardrail for r in routes.routes} - known)
+    if unknown:
+        raise HTTPException(
+            422,
+            {"error": "unknown_guardrail", "detail": f"no guardrail {', '.join(unknown)} here"},
+        )
+    await asyncio.to_thread(write_route_file, settings.gateway_routes_dir, tenant.slug, routes)
+    log.info(
+        "gateway.routes.updated tenant=%s actor=%s routes=%d",
+        tenant.slug,
+        actor.label,
+        len(routes.routes),
+    )
+    return {
+        "tenant_id": tenant.slug,
+        "routes": routes.model_dump(mode="json", exclude_none=True)["routes"],
+    }
 
 
 @router.get("/me/organizations")

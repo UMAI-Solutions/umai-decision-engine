@@ -9,72 +9,21 @@ allow-list (SSRF, contract gateway-api, Routes).
 from __future__ import annotations
 
 import asyncio
-import fnmatch
 import hashlib
-import ipaddress
 import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from urllib.parse import urlsplit
 
 import yaml
 from pydantic import ValidationError
 
-from umai_decision_engine.contracts.gateway import TENANT_FILE, Route, RouteFile
+from umai_decision_engine.contracts.gateway import TENANT_FILE, Route
+from umai_decision_engine.routefiles import AllowList, validate_route_file
 
 log = logging.getLogger("umai.gateway.routes")
 
 _TENANT = re.compile(TENANT_FILE)
-
-
-@dataclass(frozen=True)
-class _Entry:
-    scheme: str
-    host: str
-    port: int | None
-
-
-class AllowList:
-    """Entries ``scheme://host-glob[:port]``; ``https://*.openai.azure.com`` allows any port-less
-    https host under that domain. An IP-literal host is allowed only when an entry names it
-    exactly, so a wildcard never reaches internal addresses by accident."""
-
-    def __init__(self, entries: list[str]) -> None:
-        self._entries: list[_Entry] = []
-        for raw in entries:
-            parts = urlsplit(raw.strip().lower())
-            if parts.scheme not in ("http", "https") or not parts.hostname:
-                raise ValueError(f"invalid gateway upstream allow-list entry: {raw!r}")
-            self._entries.append(_Entry(parts.scheme, parts.hostname, parts.port))
-
-    def permits(self, url: str) -> bool:
-        try:
-            parts = urlsplit(url.strip())
-            host, port, scheme = parts.hostname, parts.port, parts.scheme.lower()
-        except ValueError:
-            return False
-        if not host or scheme not in ("http", "https") or parts.username or parts.password:
-            return False
-        host = host.lower()
-        literal = _is_ip(host)
-        for entry in self._entries:
-            if entry.scheme != scheme or entry.port != port:
-                continue
-            if literal:
-                if host == entry.host:
-                    return True
-            elif fnmatch.fnmatchcase(host, entry.host):
-                return True
-        return False
-
-
-def _is_ip(host: str) -> bool:
-    try:
-        ipaddress.ip_address(host.strip("[]"))
-    except ValueError:
-        return False
-    return True
 
 
 @dataclass
@@ -150,13 +99,8 @@ class RouteTable:
         return True
 
     def _load_file(self, path: Path) -> dict[str, Route]:
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        parsed = RouteFile.model_validate(data)
-        for route in parsed.routes:
-            if not self._allowlist.permits(route.upstream.base_url):
-                raise ValueError(
-                    f"route {route.route_id}: upstream base_url is not on the gateway allow-list"
-                )
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        parsed = validate_route_file(data, self._allowlist)
         return {r.route_id: r for r in parsed.routes}
 
     async def poll(self, interval_s: float) -> None:

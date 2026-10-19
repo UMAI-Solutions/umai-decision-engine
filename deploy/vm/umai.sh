@@ -95,22 +95,23 @@ console_gate() {
   chmod 0444 "$RUN/console-gate.caddy"  # read by the caddy user inside its container
 }
 
-# The gateway's provider keys (credential "secret" routes): a JSON object name -> key, from Key
-# Vault (umai-gateway-provider-keys) or `umai.sh set-secret UMAI_GATEWAY_PROVIDER_KEYS`. The file
-# always exists (Compose needs it); empty while the gateway is off.
+# Gateway files. routes.env (not secret): the upstream allow-list, for the gateway and for the
+# policy service that validates routes. gateway.env: the provider keys of credential "secret"
+# routes, a JSON object name -> key, from Key Vault (umai-gateway-provider-keys) or
+# `umai.sh set-secret UMAI_GATEWAY_PROVIDER_KEYS`; empty while the gateway is off. The routes
+# directory belongs to the app user: the policy service writes it, the gateway reads it.
 gateway_env() {
+  install -d -m 0755 -o "$APP_UID" -g "$APP_UID" "${UMAI_GATEWAY_ROUTES:-/opt/umai/gateway-routes}"
+  if [[ -n "${UMAI_GATEWAY_UPSTREAM_ALLOWLIST:-}" ]]; then
+    printf 'UMAI_DE_GATEWAY_UPSTREAM_ALLOWLIST=%s\n' "$UMAI_GATEWAY_UPSTREAM_ALLOWLIST"
+  fi | put "$RUN/routes.env" 0
   if [[ "$UMAI_GATEWAY" != "true" ]]; then
     : | put "$RUN/gateway.env" 0
     return
   fi
   local keys
   keys="$(secret umai-gateway-provider-keys)"
-  {
-    printf 'UMAI_DE_GATEWAY_PROVIDER_KEYS=%s\n' "$keys"
-    if [[ -n "${UMAI_GATEWAY_UPSTREAM_ALLOWLIST:-}" ]]; then
-      printf 'UMAI_DE_GATEWAY_UPSTREAM_ALLOWLIST=%s\n' "$UMAI_GATEWAY_UPSTREAM_ALLOWLIST"
-    fi
-  } | put "$RUN/gateway.env" 0
+  printf 'UMAI_DE_GATEWAY_PROVIDER_KEYS=%s\n' "$keys" | put "$RUN/gateway.env" 0
   unset keys
 }
 

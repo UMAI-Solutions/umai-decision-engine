@@ -408,7 +408,7 @@ Found while building WP2–WP5; none blocks the first customer's pilot.
 
 | # | Note | Where it belongs |
 |---|---|---|
-| N1 | Routes are YAML files per tenant written by the operator; tenants cannot edit them yet | WP7: tenant store + policy service + console |
+| N1 | Routes are YAML files per tenant; the policy service reads and replaces them (`/v1/gateway/routes`, 2026-10-20), the console page is still to build | WP7: console (`umai-control-center`); tenant store later if files stop scaling |
 | N2 | Decision events are not stored (no event sink yet); `X-Umai-Event-Id` names an evaluation that only the logs record | WP6 (ADR-0030) |
 | N3 | `window` streams run one full pipeline evaluation per release step; each logs a `decision` line. Fine for L0; with injection detection (WP4) on every step, measure cost and consider checking attacks only on the whole answer | WP4c benchmark |
 | N4 | A value masked inside tool-call arguments is stored as JSON source text; restoring it into plain content would show JSON escapes (only matters for values with quotes or backslashes) | gateway masking |

@@ -160,8 +160,10 @@ The gateway answers OpenAI-compatible calls on the same hostname: `/v1/chat/comp
    ```
 
    With Key Vault: secret `umai-gateway-provider-keys`.
-2. Routes: `/opt/umai/gateway-routes/<tenant>.yaml` (the operator token acts as the tenant
-   `UMAI_CONSOLE_TENANT_ID`; API keys need the `gateway` scope). Reloaded within 5 seconds:
+2. Routes: `PUT /v1/gateway/routes` on the policy service (the console, or the control token
+   with `X-Umai-Tenant`), or by hand in `/opt/umai/gateway-routes/<tenant>.yaml` (the
+   operator token acts as the tenant `UMAI_CONSOLE_TENANT_ID`; API keys need the `gateway`
+   scope). Reloaded within 5 seconds:
 
    ```yaml
    routes:

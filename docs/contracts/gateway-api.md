@@ -1,6 +1,6 @@
 # Contract: gateway API
 
-**Version:** 0.6 · **Status:** implemented for Chat Completions and the Responses API,
+**Version:** 0.7 · **Status:** implemented for Chat Completions and the Responses API,
 non-streaming and streaming, and for embeddings (input checks): routes, input, tool-result, answer and tool-call checks, masking,
 restoration and refusals (WP2, WP3, WP5; [design](../architecture/ai-gateway.md) §8) · **Endpoints**
 (gateway host, e.g. `eu.gateway.<domain>`): `POST /v1/chat/completions`, `POST /v1/responses`, `POST /v1/embeddings`,
@@ -55,8 +55,8 @@ that the route is enabled, and replaces `model` with the route's upstream model 
 
 A route is tenant configuration, not policy (ADR-0034 §6). Routes live in one YAML file per tenant,
 `<UMAI_DE_GATEWAY_ROUTES_DIR>/<tenant_id>.yaml` (`routes: [ … ]`), hot-reloaded; a file that fails
-validation keeps the tenant's last good routes and is reported by file name. (Editing routes in the
-console through the tenant store is WP7.) One route:
+validation keeps the tenant's last good routes and is reported by file name. The policy service
+writes these files for the console (below). One route:
 
 ```yaml
 route_id: gpt-eu
@@ -105,6 +105,23 @@ fallback: azure-eu-backup           # optional: another route of this tenant
   ]
 }
 ```
+
+### Managing routes (policy service, 0.7)
+
+The policy service (ADR-0022) reads and replaces a tenant's route file, so the console can edit
+routes; the gateway picks the file up at its next reload. Tenant as for every policy-service
+route (the person's tenant, or `X-Umai-Tenant` with the control token).
+
+| Route | Action (ADR-0029) | Roles |
+|---|---|---|
+| `GET /v1/gateway/routes` → `{"tenant_id", "routes": [...]}` | `gateway.route.read` | owner, admin, policy editor, approver, viewer; operator |
+| `PUT /v1/gateway/routes` with `{"routes": [...]}` → the stored routes | `gateway.route.write` | owner, admin; operator |
+
+`PUT` replaces the whole file atomically after the same validation the gateway applies (schema,
+fallback rules, upstream allow-list) plus: every `guardrail` is a guardrail of this tenant.
+Refusals are HTTP 422 `{"detail": {"error": "invalid_routes" | "unknown_guardrail", "detail":
+"<field: problem>"}}`; nothing is written then. Provider keys are not managed here (`secret`
+names a deployment-held key; tenant-managed keys: Q47).
 
 ## Request fields the gateway reads
 
@@ -305,6 +322,8 @@ latency. No record carries prompt, answer, provider key or mask map (ADR-0035).
 
 ## Changelog
 
+- 0.7 (2026-10-20): route management in the policy service: `GET` / `PUT /v1/gateway/routes`,
+  actions `gateway.route.read` / `gateway.route.write`.
 - 0.6 (2026-10-19): `fallback` routes (one retry on another upstream on 429 / 5xx / unreachable /
   timeout), response header `X-Umai-Fallback`; route-file errors name the problem.
 - 0.5 (2026-10-19): `POST /v1/embeddings` with input checks and masking.

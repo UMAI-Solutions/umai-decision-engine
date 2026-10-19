@@ -19,10 +19,11 @@ from umai_decision_engine.gateway.embeddings import router as embeddings_router
 from umai_decision_engine.gateway.errors import GatewayHTTPError, gateway_error_handler
 from umai_decision_engine.gateway.guard import Guard
 from umai_decision_engine.gateway.responses import router as responses_router
-from umai_decision_engine.gateway.routing import AllowList, RouteTable
+from umai_decision_engine.gateway.routing import RouteTable
 from umai_decision_engine.gateway.upstream import UpstreamClient
 from umai_decision_engine.l0.detector import EntityDetector
 from umai_decision_engine.policy.store import BundleStore
+from umai_decision_engine.routefiles import AllowList
 from umai_decision_engine.runtime import start_runtime
 from umai_decision_engine.settings import Settings, get_settings
 
