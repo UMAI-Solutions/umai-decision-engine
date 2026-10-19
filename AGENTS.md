@@ -97,6 +97,7 @@ python -m umai_decision_engine.policy.cli test policies --require-tests   # gold
 python -m umai_decision_engine.policy.cli keygen | sign | verify  # bundle signing (ADR-0012)
 python -m umai_decision_engine.db.migrate <database url>         # tenant store migrations (ADR-0025)
 python -m evals.run --suite l0-pii-tr --split dev --tag <label>  # L0 accuracy (also: --suite leak)
+python -m evals.run --suite gateway-latency --tag <label>        # gateway cost per call (also: masking-survival, live)
 docker build -t umai-decision-engine .                            # one image: engine API + policy service
 az deployment group create -g <rg> -f deploy/azure/main.bicep -p deploy/azure/main.bicepparam  # starter VM (ADR-0032)
 deploy/vm/ship.sh <user@host>                                    # build locally, ship images to the VM

@@ -3,6 +3,8 @@
 python -m evals.run --suite l0-pii-tr [--split dev|test|all] [--tag NAME] [--bundle DIR]
 python -m evals.run --suite leak      [--split dev|test|all] [--tag NAME] [--bundle-id ID]
                                       [--bundle-version N]
+python -m evals.run --suite gateway-latency [--tag NAME]
+python -m evals.run --suite masking-survival --model gpt-4.1-mini[,other] [--tag NAME]  # live
 
 Writes evals/reports/<date>-<suite>-<tag>/summary.md (committed) and results.jsonl (local).
 Use the dev split while iterating; run the test split once at the end and never tune on it.
@@ -14,9 +16,14 @@ import argparse
 import logging
 import sys
 
-from evals.suites import l0_pii_tr, leak
+from evals.suites import gateway_latency, l0_pii_tr, leak, masking_survival
 
-SUITES = {l0_pii_tr.NAME: l0_pii_tr.run, leak.NAME: leak.run}
+SUITES = {
+    l0_pii_tr.NAME: l0_pii_tr.run,
+    leak.NAME: leak.run,
+    gateway_latency.NAME: gateway_latency.run,
+    masking_survival.NAME: masking_survival.run,
+}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -30,6 +37,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--bundle-id", help="leak: bundle id (default gr-demo-data-protection)")
     parser.add_argument("--bundle-version", type=int, help="leak: version (default: active)")
+    parser.add_argument("--model", help="masking-survival: comma-separated upstream models")
     args = parser.parse_args(argv)
     logging.getLogger("umai.de").setLevel(logging.WARNING)
     if hasattr(sys.stdout, "reconfigure"):

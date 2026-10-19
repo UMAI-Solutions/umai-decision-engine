@@ -206,7 +206,7 @@ A blocked non-streaming answer follows the same `refusal` setting (`phase: POST_
 | `stream_mode` | Behaviour | Guarantee |
 |---|---|---|
 | `buffer` | The whole upstream stream is read and checked before the response starts, then replayed as a stream | Same as non-streaming, including an HTTP 400 refusal |
-| `window` | Per choice the gateway holds back the last `UMAI_DE_GATEWAY_STREAM_HOLDBACK_CHARS` characters (default 128), re-checks the raw tail every `UMAI_DE_GATEWAY_STREAM_STEP_CHARS` (default 48) and releases what is safe; an entity or a placeholder straddling the boundary is held until complete; the whole answer is checked before the last characters go out; on `BLOCK` the choice ends with `finish_reason: "content_filter"` and the upstream is closed | No detected entity leaves unmasked; decision-model policies on the answer act per release step |
+| `window` | Per choice the gateway holds back the last `UMAI_DE_GATEWAY_STREAM_HOLDBACK_CHARS` characters (default 128), re-checks the raw tail every `UMAI_DE_GATEWAY_STREAM_STEP_CHARS` (default 32) and releases what is safe; an entity or a placeholder straddling the boundary is held until complete; the whole answer is checked before the last characters go out; on `BLOCK` the choice ends with `finish_reason: "content_filter"` and the upstream is closed | No detected entity leaves unmasked; decision-model policies on the answer act per release step |
 | `after` | Unchanged stream (placeholders still restored); the whole answer is checked at the end and the decision recorded | Detection only |
 
 - Tool-call deltas are buffered per call and released complete, with restored arguments, when the

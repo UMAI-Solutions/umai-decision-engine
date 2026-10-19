@@ -678,3 +678,18 @@ def test_route_file_example_in_the_contract_parses() -> None:
     )
     (block,) = re.findall(r"```yaml\n(.*?)```", doc, re.S)
     Route.model_validate(yaml.safe_load(textwrap.dedent(block)))
+
+
+def test_stream_never_releases_the_rest_of_an_entity_longer_than_the_hold_back(
+    make_gateway, upstream
+) -> None:
+    # Hold-back 32 < a 44-character address: its local part may go out before the "@" arrives
+    # (a documented limit of the hold-back), but once the address is recognised its rest never does.
+    client = make_gateway(gateway_stream_holdback_chars=32, gateway_stream_step_chars=8)
+    address = "very.long.mailbox.name.for.tests@example.com"
+    text = f"İletişim: {address} teşekkürler, iyi günler dileriz."
+    upstream.stream = text_stream(*[text[i : i + 4] for i in range(0, len(text), 4)])
+    released = streamed_text(stream_events(ask(client, "İletişim?", stream=True)))
+    assert address not in released
+    assert "example.com" not in released
+    assert released.endswith("teşekkürler, iyi günler dileriz.")

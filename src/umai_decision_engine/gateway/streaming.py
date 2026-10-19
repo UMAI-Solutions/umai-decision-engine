@@ -174,6 +174,13 @@ class AnswerStream:
         spans = [(s + scan_from, e + scan_from, t, h) for s, e, t, h in check.spans[0]]
         end = len(st.raw) if final else self._safe_end(st, len(st.raw) - self.holdback)
         for start, stop, _, _ in spans:
+            if start < st.released < stop:
+                # An entity longer than the hold-back whose start already went out: never
+                # release its rest (it is still arriving → hold; complete → drop it).
+                if stop > end:
+                    return []
+                st.released = stop
+        for start, stop, _, _ in spans:
             if start < end < stop:
                 end = start  # an entity straddles the boundary: hold it whole
         return self._emit(st, end, spans)

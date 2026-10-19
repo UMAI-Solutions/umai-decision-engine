@@ -99,7 +99,7 @@ class Settings(BaseSettings):
     # Streaming "window" mode: characters held back so an entity or placeholder split across
     # chunks is never released half-checked (contract gateway-api, Streaming).
     gateway_stream_holdback_chars: int = Field(128, ge=32, le=4096)
-    gateway_stream_step_chars: int = Field(48, ge=1, le=4096)
+    gateway_stream_step_chars: int = Field(32, ge=1, le=4096)
 
     # development endpoints
     expose_detect_endpoint: bool | None = None  # None → True only in development
