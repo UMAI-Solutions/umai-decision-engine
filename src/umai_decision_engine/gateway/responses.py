@@ -37,6 +37,7 @@ from umai_decision_engine.gateway.chat import (
     _route,
     _subject,
     refusal_error,
+    send_upstream,
 )
 from umai_decision_engine.gateway.content import ContentError, Segment, text_size
 from umai_decision_engine.gateway.errors import GatewayHTTPError
@@ -288,6 +289,7 @@ async def create_response(request: Request) -> Response:
         settings=state.settings,
         started=started,
         headers={"X-Umai-Request-Id": request_id},
+        fallback=state.routes.get(tenant, route.fallback) if route.fallback else None,
     )
     if unscanned:
         call.headers["X-Umai-Unscanned-Parts"] = str(unscanned)
@@ -314,9 +316,7 @@ async def create_response(request: Request) -> Response:
         return await _stream(call, upstream_body, client_model=body["model"])
     try:
         async with asyncio.timeout(call.remaining_s()):
-            response = await call.upstream.send(
-                route, provider_key, upstream_body, path="responses"
-            )
+            response = await send_upstream(call, upstream_body, path="responses")
     except TimeoutError:
         raise GatewayHTTPError(
             504, "upstream_timeout", "the upstream did not answer in time"
@@ -569,9 +569,7 @@ class _Numbered:
 
 async def _stream(call: Call, upstream_body: dict[str, Any], *, client_model: str) -> Response:
     route = call.route
-    response = await call.upstream.send(
-        route, call.provider_key, upstream_body, stream=True, path="responses"
-    )
+    response = await send_upstream(call, upstream_body, stream=True, path="responses")
     passthrough = forwarded_headers(response)
     if response.status_code >= 400:
         try:

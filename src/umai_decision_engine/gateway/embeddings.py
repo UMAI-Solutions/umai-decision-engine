@@ -29,6 +29,7 @@ from umai_decision_engine.gateway.chat import (
     _route,
     _subject,
     refusal_error,
+    send_upstream,
 )
 from umai_decision_engine.gateway.errors import GatewayHTTPError
 from umai_decision_engine.gateway.guard import CallContext
@@ -95,6 +96,7 @@ async def create_embeddings(request: Request) -> Response:
         settings=state.settings,
         started=started,
         headers={"X-Umai-Request-Id": request_id},
+        fallback=state.routes.get(tenant, route.fallback) if route.fallback else None,
     )
     if unscanned:
         call.headers["X-Umai-Unscanned-Parts"] = str(unscanned)
@@ -118,9 +120,7 @@ async def create_embeddings(request: Request) -> Response:
                 upstream_body["input"][position] = masked
     try:
         async with asyncio.timeout(call.remaining_s()):
-            response = await call.upstream.send(
-                route, provider_key, upstream_body, path="embeddings"
-            )
+            response = await send_upstream(call, upstream_body, path="embeddings")
     except TimeoutError:
         raise GatewayHTTPError(
             504, "upstream_timeout", "the upstream did not answer in time"

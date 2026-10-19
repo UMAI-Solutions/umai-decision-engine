@@ -56,6 +56,9 @@ class Route(ContractModel):
     unscanned_parts: UnscannedParts = "reject"
     restore_placeholders: bool = True
     timeouts_ms: RouteTimeouts = Field(default_factory=RouteTimeouts)
+    # Another route of the tenant tried once when this upstream is unreachable, times out or
+    # answers 429 / 5xx; same guardrail, credential secret or none (gateway-api 0.6).
+    fallback: str | None = Field(None, pattern=ROUTE_ID)
 
     @model_validator(mode="after")
     def _secret_matches_credential(self) -> Route:
@@ -77,6 +80,22 @@ class RouteFile(ContractModel):
         duplicates = sorted({i for i in ids if ids.count(i) > 1})
         if duplicates:
             raise ValueError(f"duplicate route ids: {', '.join(duplicates)}")
+        by_id = {r.route_id: r for r in self.routes}
+        for route in self.routes:
+            if route.fallback is None:
+                continue
+            target = by_id.get(route.fallback)
+            if target is None or target.route_id == route.route_id:
+                raise ValueError(
+                    f"route {route.route_id}: fallback is not another route of this file"
+                )
+            if target.guardrail != route.guardrail:
+                raise ValueError(f"route {route.route_id}: fallback must use the same guardrail")
+            if target.credential == "pass_through":
+                raise ValueError(
+                    f"route {route.route_id}: a fallback cannot pass the caller's provider key "
+                    "through (it belongs to the first upstream); use credential secret or none"
+                )
         return self
 
 

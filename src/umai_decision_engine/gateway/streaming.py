@@ -34,6 +34,7 @@ from umai_decision_engine.gateway.chat import (
     _decision_headers,
     _log,
     refusal_error,
+    send_upstream,
 )
 from umai_decision_engine.gateway.errors import GatewayHTTPError
 from umai_decision_engine.gateway.guard import Check
@@ -355,7 +356,7 @@ async def stream_completion(
         upstream_body["stream_options"] = {**(options or {}), "include_usage": True}
         added_usage = True
 
-    response = await call.upstream.send(route, call.provider_key, upstream_body, stream=True)
+    response = await send_upstream(call, upstream_body, stream=True)
     passthrough = forwarded_headers(response)
     if response.status_code >= 400:
         try:

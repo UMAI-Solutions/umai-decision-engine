@@ -63,6 +63,8 @@ class Call:
     headers: dict[str, str] = field(default_factory=dict)
     input_check: Check | None = None
     output_action: Action | None = None
+    fallback: Route | None = None  # resolved when the call starts
+    used_fallback: str | None = None
 
     @property
     def route(self) -> Route:
@@ -124,6 +126,57 @@ def _route(request: Request, tenant: str, model: str) -> Route:
     return route
 
 
+FALLBACK_STATUSES = frozenset({429, 500, 502, 503, 504})
+
+
+def _deployment_key(settings: Settings, route: Route) -> str | None:
+    if route.credential != "secret":
+        return None
+    secret = settings.gateway_provider_keys.get(route.secret or "")
+    if secret is None:
+        raise GatewayHTTPError(
+            500, "route_misconfigured", "the route's provider key is not configured"
+        )
+    return secret.get_secret_value()
+
+
+async def send_upstream(
+    call: Call, body: dict[str, Any], *, stream: bool = False, path: str = "chat/completions"
+) -> Any:
+    """Send to the route's upstream; once to its fallback route when the first upstream is
+    unreachable, times out or answers 429 / 5xx (same masked body, same guardrail)."""
+
+    try:
+        response = await call.upstream.send(
+            call.route, call.provider_key, body, stream=stream, path=path
+        )
+        if call.fallback is None or response.status_code not in FALLBACK_STATUSES:
+            return response
+        await response.aclose()
+        reason = str(response.status_code)
+    except GatewayHTTPError as exc:
+        if call.fallback is None or exc.code not in ("upstream_unreachable", "upstream_timeout"):
+            raise
+        reason = exc.code
+    fallback = call.fallback
+    call.used_fallback = fallback.route_id
+    call.headers["X-Umai-Fallback"] = fallback.route_id
+    log.info(
+        "gateway.fallback request_id=%s route=%s fallback=%s reason=%s",
+        call.ctx.request_id,
+        call.route.route_id,
+        fallback.route_id,
+        reason,
+    )
+    return await call.upstream.send(
+        fallback,
+        _deployment_key(call.settings, fallback),
+        {**body, "model": fallback.upstream.model},
+        stream=stream,
+        path=path,
+    )
+
+
 def _provider_key(request: Request, route: Route) -> str | None:
     if route.credential == "none":
         return None
@@ -136,12 +189,7 @@ def _provider_key(request: Request, route: Route) -> str | None:
                 "this route needs the provider key in the X-Umai-Provider-Key header",
             )
         return key
-    secret = request.app.state.settings.gateway_provider_keys.get(route.secret or "")
-    if secret is None:
-        raise GatewayHTTPError(
-            500, "route_misconfigured", "the route's provider key is not configured"
-        )
-    return secret.get_secret_value()
+    return _deployment_key(request.app.state.settings, route)
 
 
 def _subject(request: Request, body: dict[str, Any]) -> Subject:
@@ -269,6 +317,7 @@ async def chat_completions(request: Request) -> Response:
         settings=state.settings,
         started=started,
         headers={"X-Umai-Request-Id": request_id},
+        fallback=state.routes.get(tenant, route.fallback) if route.fallback else None,
     )
     if unscanned:
         call.headers["X-Umai-Unscanned-Parts"] = str(unscanned)
@@ -296,7 +345,7 @@ async def chat_completions(request: Request) -> Response:
         return await stream_completion(call, upstream_body, client_model=body["model"])
     try:
         async with asyncio.timeout(call.remaining_s()):
-            response = await call.upstream.send(route, provider_key, upstream_body)
+            response = await send_upstream(call, upstream_body)
     except TimeoutError:
         raise GatewayHTTPError(
             504, "upstream_timeout", "the upstream did not answer in time"
@@ -421,8 +470,8 @@ def _log(
     usage = usage if isinstance(usage, dict) else {}
     log.info(
         "gateway.call request_id=%s tenant=%s route=%s upstream=%s/%s stream=%s status=%s "
-        "input=%s output=%s refused=%s upstream_error=%s prompt_tokens=%s completion_tokens=%s "
-        "total_ms=%s",
+        "input=%s output=%s refused=%s upstream_error=%s fallback=%s prompt_tokens=%s "
+        "completion_tokens=%s total_ms=%s",
         call.ctx.request_id,
         call.ctx.tenant_id,
         call.route.route_id,
@@ -434,6 +483,7 @@ def _log(
         call.output_action,
         refused,
         upstream_error,
+        call.used_fallback,
         usage.get("prompt_tokens"),
         usage.get("completion_tokens"),
         call.elapsed_ms(),

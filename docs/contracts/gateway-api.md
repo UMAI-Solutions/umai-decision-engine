@@ -1,6 +1,6 @@
 # Contract: gateway API
 
-**Version:** 0.5 · **Status:** implemented for Chat Completions and the Responses API,
+**Version:** 0.6 · **Status:** implemented for Chat Completions and the Responses API,
 non-streaming and streaming, and for embeddings (input checks): routes, input, tool-result, answer and tool-call checks, masking,
 restoration and refusals (WP2, WP3, WP5; [design](../architecture/ai-gateway.md) §8) · **Endpoints**
 (gateway host, e.g. `eu.gateway.<domain>`): `POST /v1/chat/completions`, `POST /v1/responses`, `POST /v1/embeddings`,
@@ -44,6 +44,7 @@ not forwarded.
 | `X-Umai-Output-Decision` | Strictest action of the answer checks; non-streaming answers and `buffer` streams only |
 | `X-Umai-Unscanned-Parts` | Number of content parts forwarded unscanned (`unscanned_parts: pass_unscanned`) |
 | `X-Umai-Upstream-Error` | `true` when the body is a provider error passed through |
+| `X-Umai-Fallback` | The fallback route that answered (below) |
 | `x-request-id`, `openai-processing-ms`, `openai-version`, `retry-after`, `apim-request-id`, `x-ratelimit-*` | Passed on from the upstream |
 
 ## Routes and `model`
@@ -75,6 +76,7 @@ refusal_text: This request was blocked by your organization's AI policy.
 unscanned_parts: reject              # reject | pass_unscanned
 restore_placeholders: true
 timeouts_ms: { connect: 5000, first_byte: 120000, total: 600000 }
+fallback: azure-eu-backup           # optional: another route of this tenant
 ```
 
 | Field | Notes |
@@ -90,7 +92,8 @@ timeouts_ms: { connect: 5000, first_byte: 120000, total: 600000 }
 | `refusal`, `refusal_text` | See [Decisions on the wire](#decisions-on-the-wire). Default `error` (Q48) |
 | `unscanned_parts` | Content parts the guardrail cannot scan (image, audio, file): `reject` (400 `unsupported_content`) or `pass_unscanned` (forwarded, counted in `X-Umai-Unscanned-Parts`) |
 | `restore_placeholders` | `true`: the caller's own masked values are put back into the answer (below) |
-| `timeouts_ms` | `connect`; `first_byte` (longest wait for upstream data, also between stream chunks); `total` (whole call) |
+| `timeouts_ms` | `connect`; `first_byte` (longest wait for upstream data, also between stream chunks); `total` (whole call, fallback included) |
+| `fallback` | Route id tried **once** when this route's upstream is unreachable, times out or answers 429 / 500 / 502 / 503 / 504 before any answer was sent: the same masked body goes to the fallback's upstream with its own model and credential; answer checks are unchanged. The fallback must be another route of the same file with the **same guardrail** and credential `secret` or `none` (the caller's pass-through key belongs to the first upstream). A file breaking these rules does not load |
 
 `GET /v1/models` returns the OpenAI list shape:
 
@@ -302,6 +305,8 @@ latency. No record carries prompt, answer, provider key or mask map (ADR-0035).
 
 ## Changelog
 
+- 0.6 (2026-10-19): `fallback` routes (one retry on another upstream on 429 / 5xx / unreachable /
+  timeout), response header `X-Umai-Fallback`; route-file errors name the problem.
 - 0.5 (2026-10-19): `POST /v1/embeddings` with input checks and masking.
 - 0.4 (2026-10-19): OpenAI Responses API (`POST /v1/responses`), non-streaming and
   streaming, with the same checks; shapes recorded live; refusals as `status: incomplete`

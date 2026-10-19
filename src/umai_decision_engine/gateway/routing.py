@@ -171,6 +171,8 @@ class RouteTable:
 def _problem(exc: Exception) -> str:
     if isinstance(exc, ValidationError):
         first = exc.errors()[0]
-        location = ".".join(str(p) for p in first.get("loc", ()))
-        return f"{location}: {first.get('type', 'invalid')}"[:300]
+        location = ".".join(str(p) for p in first.get("loc", ())) or "routes"
+        # Operator configuration, not caller content: the message helps fix the file.
+        message = str(first.get("msg", first.get("type", "invalid")))
+        return f"{location}: {message}"[:300]
     return str(exc)[:300]

@@ -16,7 +16,7 @@ in the same commit (skill `change-contract`).
 | [tag-taxonomy](tag-taxonomy.md) | 0.1 | all layers |
 | [policy-tests](policy-tests.md) | 0.2 | policy author → golden-test runner, CI (ADR-0015) |
 | [credentials](credentials.md) | 0.4 | control plane → engines (key registry), control plane ↔ console (key records), console → policy service (on-behalf-of assertion) (ADR-0023) |
-| [gateway-api](gateway-api.md) | 0.5 | caller ↔ UMAI gateway: OpenAI Chat Completions surface, routes, refusals, streaming modes (ADR-0034) |
+| [gateway-api](gateway-api.md) | 0.6 | caller ↔ UMAI gateway: OpenAI Chat Completions surface, routes, refusals, streaming modes (ADR-0034) |
 | [organizations](organizations.md) | 0.2 | policy service ↔ console: organizations, memberships, invitations, verified domains (ADR-0033) |
 
 ## Versioning rules
