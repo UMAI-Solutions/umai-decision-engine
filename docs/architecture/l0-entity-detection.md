@@ -11,11 +11,12 @@ context scoring, hashing and redaction. Library facts and pitfalls:
 
 - Detect, validate and score entities in the evaluated content.
 - Produce the redacted view and per-entity HMAC hashes.
-- **Decide when it detects something (the L0 gate).** A detection is terminal: the action
-  comes from `l0.on_detect` per entity type (default `BLOCK`), deterministic exceptions may
-  relax it, and **L1 does not run** — no decision-model call, no tokens
-  ([ADR-0014](../adr/0014-l0-detection-is-terminal.md)). With no detection, the input goes
-  to L1.
+- **Decide when it detects something (the L0 gate).** The action comes from `l0.on_detect`
+  per entity type (default `BLOCK`) and deterministic exceptions may relax it
+  ([ADR-0014](../adr/0014-l0-detection-is-terminal.md)). A `BLOCK` is terminal: **L1 does not
+  run**, no decision-model call, no tokens. A masking or exception outcome is a floor: L1 runs on
+  the masked text and can only make it stricter ([ADR-0036](../adr/0036-checks-continue-after-masking.md);
+  effective once L1 exists). With no detection, the input goes to L1.
 
 L0 is the only layer that holds raw content. Everything it returns is safe to pass on.
 

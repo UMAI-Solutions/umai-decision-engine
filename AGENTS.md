@@ -37,7 +37,10 @@ The contract the engine must eventually honour is recorded in
 1. **Raw PII never leaves L0.** Downstream layers, logs, metrics, traces, exceptions, eval
    reports and provider calls receive redacted text, entity types, spans and salted hashes
    only. If you are about to pass `text` to anything outside `l0/`, stop and use the
-   redacted form. See [ADR-0005](docs/adr/0005-no-raw-pii-beyond-l0.md).
+   redacted form. See [ADR-0005](docs/adr/0005-no-raw-pii-beyond-l0.md). The one other
+   raw-content zone is the gateway forwarder (`gateway/`): it sends raw content only back to
+   the caller and to the route's upstream, after the guardrail allowed it, and keeps it in
+   memory for one call ([ADR-0035](docs/adr/0035-raw-content-zone-l0-and-gateway.md)).
 2. **Synthetic data only.** Never commit real customer data, real personal data or real
    identifiers. Test vectors for Turkish IDs come from
    [`docs/reference/turkish-identifiers.md`](docs/reference/turkish-identifiers.md).
@@ -153,6 +156,7 @@ since 2026-10-18 and on `umai-beta` since 2026-10-19).
 | Work on L2 | [`docs/architecture/l2-llm-analyst.md`](docs/architecture/l2-llm-analyst.md) |
 | Change a request/response/tag shape | [`docs/contracts/`](docs/contracts/), skill `change-contract` |
 | Sign-in, onboarding, organizations, invitations, login branding | [`docs/architecture/sign-in-and-onboarding.md`](docs/architecture/sign-in-and-onboarding.md), ADR-0033, ADR-0024 |
+| UMAI secure gateway, guardrail hooks in other gateways | [`docs/architecture/ai-gateway.md`](docs/architecture/ai-gateway.md), [`docs/contracts/gateway-api.md`](docs/contracts/gateway-api.md), ADR-0034 to ADR-0036, [`docs/reference/ai-gateways.md`](docs/reference/ai-gateways.md) |
 | SaaS vs self-hosted, editions, quotas, tenancy | [`docs/architecture/deployment-and-editions.md`](docs/architecture/deployment-and-editions.md), ADR-0018, ADR-0019 |
 | Policy bundles, loading, hot reload | [`docs/contracts/policy-bundle.md`](docs/contracts/policy-bundle.md), [`docs/architecture/policy-lifecycle.md`](docs/architecture/policy-lifecycle.md) |
 | Change a policy, write golden cases | [`docs/workflow/policy-authoring.md`](docs/workflow/policy-authoring.md), [`docs/contracts/policy-tests.md`](docs/contracts/policy-tests.md) |

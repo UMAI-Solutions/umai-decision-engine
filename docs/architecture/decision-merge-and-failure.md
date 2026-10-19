@@ -27,7 +27,9 @@ the scanned text masked for exactly those types.
 
 ```mermaid
 flowchart TD
-    G{"L0 detected an entity?"} -->|yes| GATE["L0 gate: per-type action<br/>(on_detect, exceptions)<br/>strictest wins — final, L1 skipped"]
+    G{"L0 detected an entity?"} -->|yes| GATE["L0 gate: per-type action<br/>(on_detect, exceptions)<br/>strictest wins"]
+    GATE -->|"BLOCK / STEP_UP"| GFINAL["final, L1 skipped"]
+    GATE -->|"other outcome: floor<br/>(ADR-0036, with L1)"| A
     G -->|no| A
     A["L1a: BLOCK matched?"] -->|yes| BLOCK["BLOCK (final)"]
     A -->|no| B["L1a: final ALLOW matched?"]
@@ -43,7 +45,11 @@ Rules:
 
 0. **L0 gate** ([ADR-0014](../adr/0014-l0-detection-is-terminal.md)): if L0 detected any entity,
    each detected type gets its `on_detect` action unless the first matching exception covering
-   it relaxes it; the strictest action is final, `decided_by: L0`, and L1a/L1b do not run.
+   it relaxes it; the strictest action wins, `decided_by: L0`. A `BLOCK` or `STEP_UP_APPROVAL`
+   is final and L1a/L1b do not run. Any other outcome (`ALLOW_WITH_MODIFICATIONS`,
+   `ALLOW_WITH_WARNINGS`, an exception's `ALLOW`) is a **floor**: L1 runs on the masked text and
+   `final = max(L0 outcome, L1 outcome)` ([ADR-0036](../adr/0036-checks-continue-after-masking.md)).
+   Until L1 is implemented the L0 outcome is final, as before.
    `STEP_UP_APPROVAL` behaves as `BLOCK` in phases without a user interface.
 1. An L1a `BLOCK` is final; L1b does not run.
 2. An L1a `ALLOW` with `final: true` is final unless rule 1 applies.

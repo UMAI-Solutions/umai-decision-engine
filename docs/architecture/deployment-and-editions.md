@@ -35,6 +35,7 @@ Status: **exists**, **partial**, **missing**, **company** (not code).
 | Encryption in transit and at rest | ✓ | ✓ | ops + engine | TLS on every hop; encrypted volumes and KMS-held keys for stores | missing |
 | SOC 2, GDPR compliant | ✓ | ✓ | company + engine | Audit program and processing terms (company); controls and evidence (engine) | partial (controls: no raw PII beyond L0, bundle hash on every decision) |
 | Data residency | EU | EU / US | ops + engine | One stack per region; region check on tenants; provider regions checked at bundle load | missing |
+| AI gateway (ADR-0034) | Entitlement `gateway` | Entitlement `gateway` | engine + console | OpenAI-compatible gateway with guardrails in and out, routes per tenant, usage per route ([gateway-api](../contracts/gateway-api.md)); which editions include it is a product decision | missing (contract 0.1 drafted) |
 
 Policy-bundle version pinning (`bundle.version` in the request) already exists in every
 edition. It is a different feature from the version pinning above, which pins the **engine
@@ -234,6 +235,9 @@ Not yet in [`../contracts/`](../contracts/); each lands with its code (skill `ch
 | evaluation-api → 0.5 | 403 / 413 / 429 error bodies; `GET /v1/usage`, `GET /v1/entitlements`, `GET /v1/version`; per-tenant keys and scopes |
 | policy-bundle | Manifest names the owning tenant |
 | tagged-action | `engine_version` |
+| gateway-api 0.1 (new, drafted) | OpenAI Chat Completions surface, routes, refusals, streaming (ADR-0034) |
+| evaluation-api (gateway WP2) | Per-message masks, scan of every forwarded message, one placeholder namespace per call |
+| credentials (gateway WP2) | `gateway` scope |
 | entitlements 0.1 (new) | Entitlement record and licence file |
 | siem-export 0.1 (new) | Export envelope for decision and audit events |
 | audit-event 0.1 (new) | Configuration and access events |

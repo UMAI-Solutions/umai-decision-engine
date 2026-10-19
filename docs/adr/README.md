@@ -13,7 +13,7 @@ listed in [`../open-questions.md`](../open-questions.md) as blocking, and flag d
 | [0002](0002-l2-synchronous.md) | L2 runs synchronously | Superseded by 0010 |
 | [0003](0003-l2-conditional-escalation.md) | L2 runs only for escalated actions | Superseded by 0010 |
 | [0004](0004-decision-model-provider-abstraction.md) | L1b uses on-prem deployable decision models behind a provider interface | Accepted (default model pending F0) |
-| [0005](0005-no-raw-pii-beyond-l0.md) | Raw PII never leaves L0 | Proposed |
+| [0005](0005-no-raw-pii-beyond-l0.md) | Raw PII never leaves L0 | Proposed (amended by 0035) |
 | [0006](0006-l2-override-rules.md) | What L2 may override | Superseded by 0010 |
 | [0007](0007-presidio-for-l0.md) | Microsoft Presidio for L0 | Accepted |
 | [0008](0008-standalone-rnd-repository.md) | Standalone R&D repository, English documentation | Accepted |
@@ -22,7 +22,7 @@ listed in [`../open-questions.md`](../open-questions.md) as blocking, and flag d
 | [0011](0011-l0-does-not-decide.md) | L0 detects, it does not decide | Superseded by 0014 |
 | [0012](0012-signed-immutable-policy-bundles.md) | Policies are signed, immutable bundles; the engine only reads them | Accepted |
 | [0013](0013-policy-lifecycle-dashboard.md) | Policies are edited and published live from a dashboard | Accepted (direction; not built) |
-| [0014](0014-l0-detection-is-terminal.md) | An L0 detection is terminal: L0 decides, L1 does not run | Accepted |
+| [0014](0014-l0-detection-is-terminal.md) | An L0 detection is terminal: L0 decides, L1 does not run | Accepted (§1, §5 amended by 0036) |
 | [0015](0015-policy-golden-tests.md) | Policy changes are gated by golden tests that run through the real pipeline | Accepted |
 | [0016](0016-control-center-separate-repo.md) | The engine's console is a separate repository that calls the API over HTTP with a service token | Accepted |
 | [0017](0017-l0-coverage-lakera-parity-tr-eu.md) | L0 coverage target: Lakera PII parity, extended to Türkiye and Europe | Accepted |
@@ -42,5 +42,8 @@ listed in [`../open-questions.md`](../open-questions.md) as blocking, and flag d
 | [0031](0031-umai-cloud-on-azure.md) | UMAI Cloud on Azure: West Europe / North Europe, ECDSA P-256 in Key Vault Premium, Flexible Server, Application Gateway (no Front Door), AKS + Notation, Managed Redis | Proposed |
 | [0032](0032-single-vm-starter-on-azure.md) | Single-VM starter on Azure: Docker Compose (Caddy, engine, policy service, console), Key Vault (or local-file) secrets, images shipped over SSH, ≈ $41–45/month; demos and pilots only | Accepted |
 | [0033](0033-organizations-and-onboarding.md) | Organizations and onboarding: the tenant store owns organizations, the identity service mirrors them; invitations, verified domains, last owner, region, first key | Accepted (2026-10-18; amended 2026-10-19: store first; open points Q41–Q44) |
+| [0034](0034-umai-secure-gateway.md) | UMAI secure gateway: OpenAI-compatible pass-through proxy in this repository (FastAPI, httpx, in-process pipeline), guardrails in and out, routes as tenant configuration, pass-through provider keys; no embedded gateway product | Accepted (2026-10-19; not built) |
+| [0035](0035-raw-content-zone-l0-and-gateway.md) | The raw-content zone is L0 and the gateway forwarder; raw content leaves only to the caller and the route's upstream, memory only | Accepted (2026-10-19) |
+| [0036](0036-checks-continue-after-masking.md) | Masking does not end the evaluation: attack and agent-action checks run on the masked text; only L0 `BLOCK` / `STEP_UP_APPROVAL` are terminal | Accepted (2026-10-19; effective with L1) |
 
 New ADR: copy [`0000-template.md`](0000-template.md), or use skill `write-adr`.

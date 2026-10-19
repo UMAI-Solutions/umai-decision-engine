@@ -63,6 +63,7 @@ Trust boundaries:
 | TB4 | Console server ↔ engine, policy service | Relayed calls with the two service tokens | Tokens are server-side env vars (never sent to the browser); nothing says which human acted |
 | TB5 | Policy service ↔ bundle source | New versions, active pointer, change log | Same filesystem the engine reads; the service is the only writer. Entries have no actor |
 | TB6 | Engine ↔ L1b / L2 providers | Redacted text and facts (future) | Not built; constraints in ADR-0019 §5 |
+| TB7 | Gateway ↔ upstream LLM provider (ADR-0034, planned) | Raw content the guardrail allowed (masked where it decided so), the caller's provider key, answers and streams back | Not built. Upstream URLs from a deployment allow-list (SSRF); provider keys passed through, never stored or logged; raw content in memory for one call (ADR-0035) |
 
 ## 2. Assets and their classification
 
@@ -78,6 +79,8 @@ Trust boundaries:
 | A8 | Drafts | Confidential | SQLite, unencrypted file | Same sensitivity as A3, before review |
 | A9 | Entitlements / licences | Integrity | Not built (ADR-0019) | Tampering = free service or wrong region |
 | A10 | Availability of the decision path | — | Single process, no ingress | The guardrail *is* the control: when it is down, customers' AI either stops (fail closed) or runs unprotected (fail open, if they chose it) |
+| A11 | Provider credentials passed through the gateway | Secret (the customer's) | Not built (ADR-0034 §5): request header → upstream only | A leak spends the customer's provider budget and exposes their provider account |
+| A12 | Gateway routes (upstream, model, guardrail binding) | Confidential, integrity | Not built: tenant store (ADR-0034 §6) | A tampered route sends content to another upstream or binds a weaker guardrail |
 
 ## 3. Adversaries
 
@@ -123,6 +126,9 @@ E elevation of privilege. "Today" is what the code does; "Control" is the ADR or
 | Storage (future) | **I** cross-tenant read through a missing `WHERE tenant_id` | Not applicable yet (no store) | ADR-0025: Postgres RLS enforced by the database, tested from the schema |
 | Telemetry | **I** content in error messages / stack traces | Only ids logged; exceptions mapped to kinds | Keep; structured JSON logs with an allowlist (ADR-0030) |
 | Supply chain | **T** compromised dependency or action | Pinned ranges, no audit | pip-audit, Dependabot, SBOM, image signing (launch plan stage 0) |
+| Gateway (TB7, planned) | **I** SSRF: a route pointing at internal addresses | Not built | Upstream allow-list in settings; HTTPS only; private ranges refused unless a self-hosted operator lists a host (gateway-api 0.1) |
+| | **D/E** a stolen UMAI key spends the customer's provider budget; long streams exhaust connections | Not built | Per-key rate limits and quotas at admission (ADR-0023, ADR-0028); route timeouts; abuse signals per key |
+| | **I** raw content or provider keys in logs, errors or events | Not built | ADR-0035; leak suite over gateway outputs before the first customer |
 
 ## 5. Attack trees
 

@@ -14,11 +14,15 @@ Afterwards, review selected decisions in the context of their session and raise 
    caller never waits for L2 and L2 never changes it. ([ADR-0010](../adr/0010-l2-asynchronous-review.md))
 2. **Layers enrich, they don't re-read.** L1 reasons over L0's entities as facts; L2
    reasons over L1's decision events.
-3. **An L0 detection is terminal.** If L0 finds an entity, the L0 gate decides (per-type
-   action, default `BLOCK`, deterministic exceptions) and L1 does not run — no decision-model
-   tokens are spent on input that is already decided. ([ADR-0014](../adr/0014-l0-detection-is-terminal.md))
-4. **Raw PII stays in L0.** Models, logs, events and stores see redacted text and entity
-   metadata. ([ADR-0005](../adr/0005-no-raw-pii-beyond-l0.md))
+3. **An L0 block is terminal; masking is a floor.** If L0 finds an entity, the L0 gate decides
+   per type (default `BLOCK`, deterministic exceptions). A `BLOCK` ends the evaluation — no
+   decision-model tokens on input that is already decided. A masking or exception outcome
+   continues to L1 on the masked text, which can only make it stricter, so attack and
+   agent-action checks cannot be skipped by adding an entity.
+   ([ADR-0014](../adr/0014-l0-detection-is-terminal.md), [ADR-0036](../adr/0036-checks-continue-after-masking.md))
+4. **Raw PII stays in L0** (and in the gateway forwarder, which sends it only to the caller and
+   the route's upstream). Models, logs, events and stores see redacted text and entity
+   metadata. ([ADR-0005](../adr/0005-no-raw-pii-beyond-l0.md), [ADR-0035](../adr/0035-raw-content-zone-l0-and-gateway.md))
 5. **Cheap and certain first.** Deterministic rules run before the decision model; a
    certain answer ends the evaluation early.
 6. **Models classify, code authorizes.** Thresholds, precedence and enforcement are code.
@@ -37,8 +41,9 @@ flowchart LR
 
     subgraph RUNTIME["Runtime (synchronous) — umai-decision-engine API"]
         L0["<b>L0 — Entity detection</b><br/>Presidio + Turkish recognizers<br/>entities · hashes · redacted view"]
-        L0 -->|"entity detected"| GATE["<b>L0 gate</b><br/>on_detect per type (default BLOCK)<br/>+ deterministic exceptions<br/>L1 skipped"]
-        GATE --> DEC
+        L0 -->|"entity detected"| GATE["<b>L0 gate</b><br/>on_detect per type (default BLOCK)<br/>+ deterministic exceptions"]
+        GATE -->|"BLOCK: L1 skipped"| DEC
+        GATE -->|"masked: floor (ADR-0036)"| L1A
         L0 -->|"nothing detected"| L1A["<b>L1a — Deterministic rules</b><br/>facts: role, destination,<br/>phase, agent action"]
         L1A -->|"certain outcome"| DEC
         L1A -->|"needs judgement"| L1B["<b>L1b — Decision model</b><br/>on-prem, Jev-compatible API<br/>policy → typed questions"]

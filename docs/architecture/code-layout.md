@@ -86,6 +86,13 @@ umai-decision-engine/
 │   │   ├── limits.py              # compares a size (measured by l0/size.py, Q19) with the limit
 │   │   └── quota.py               # monthly usage counter (memory; Redis or Postgres, Q23)
 │   ├── export/                    # planned (F6): SIEM exporter, off the request path
+│   ├── gateway/                   # planned (ADR-0034): OpenAI-compatible secure gateway, own port
+│   │   ├── app.py                 # FastAPI app: /v1/chat/completions, /v1/models, health
+│   │   ├── routes.py              # route resolution (tenant store), upstream allow-list
+│   │   ├── chat_completions.py    # wire format ↔ EvaluationRequest, decisions on the wire
+│   │   ├── streaming.py           # SSE parsing, buffer / window / after, tool-call buffering
+│   │   ├── masking.py             # per-call placeholder map, exact-match restoration (memory only)
+│   │   └── upstream.py            # httpx client per upstream kind, explicit timeouts, credentials
 │   └── telemetry/
 │       ├── logging.py             # structured logs, raw-content guard
 │       └── metrics.py             # Prometheus-style counters/histograms
@@ -118,10 +125,12 @@ umai-decision-engine/
 | `control_plane` | `golden`, `policy`, `contracts`, `l0` (detector for tests), `settings` | `api`; the engine never imports it |
 | `tenancy` (planned) | `contracts`, `policy` (signature verification), `settings` | `l0`, `l1`, `l2`, `pipeline`; it receives a content size, never content (the size is measured in `l0/size.py`) |
 | `export` (planned) | `contracts`, `events` | `l0`, `l1`, `pipeline`, `api` |
+| `gateway` (planned, ADR-0034) | `pipeline`, `contracts`, `tenancy`, `settings` | `l1`, `l2`, `api`, `control_plane`; nothing imports `gateway` |
 
-Only `l0` receives raw content. Layers communicate through `contracts` models; a raw
-`str` of user content must not appear in any `l1`, `l2`, `session` or `telemetry`
-function signature.
+Only `l0` and `gateway` receive raw content (ADR-0035): the gateway forwards it only to the
+caller and the route's upstream, after the guardrail allowed it. Layers communicate through
+`contracts` models; a raw `str` of user content must not appear in any `l1`, `l2`, `session` or
+`telemetry` function signature.
 
 ## Settings vs bundle
 
