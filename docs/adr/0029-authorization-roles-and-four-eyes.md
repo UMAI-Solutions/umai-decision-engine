@@ -31,9 +31,10 @@ Enterprise buyers expect role-based access and separation of duties for producti
    | `viewer` | Read guardrails, versions, decisions, usage, audit log; use the playground against non-production guardrails |
    | `billing` | Plan, invoices, usage; nothing else |
 
-   Edition gating (`rbac` entitlement, ADR-0019 §6): **Community** exposes `owner` and
-   `admin` only (every member is an admin, as in Lakera's Community plan); **Enterprise**
-   exposes the full set. Roles are additive; a member may hold several.
+   Edition gating (`rbac` entitlement, ADR-0019 §6): **Community** exposes `owner`, `admin`
+   and `viewer` (product owner, 2026-10-19, Q39 → A14; an admin holds every non-owner
+   permission); **Enterprise** exposes the full set. Roles are additive; a member may hold
+   several. Roles are read from the tenant store by the service (ADR-0033 §1).
 3. **Permission matrix as code.** A single table in `control_plane/authz.py` maps
    `(action, resource type) → required roles`; every mutating endpoint declares its action.
    A test enumerates the routes and fails when an endpoint has no declared action.

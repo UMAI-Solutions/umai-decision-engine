@@ -41,19 +41,23 @@ class TenantInfo:
     region: str
     status: str
     created_at: datetime
+    edition: str = "community"  # names the plan; entitlements are data (ADR-0019)
 
     def public(self) -> dict:
         return {
             "id": self.slug,
             "name": self.name,
             "region": self.region,
+            "edition": self.edition,
             "status": self.status,
             "created_at": self.created_at.isoformat(),
         }
 
 
 def _tenant_info(row: Tenant) -> TenantInfo:
-    return TenantInfo(row.id, row.slug, row.name, row.region, row.status, row.created_at)
+    return TenantInfo(
+        row.id, row.slug, row.name, row.region, row.status, row.created_at, row.edition
+    )
 
 
 class TenantRepository:
@@ -62,9 +66,24 @@ class TenantRepository:
     def __init__(self, engine: AsyncEngine) -> None:
         self.engine = engine
 
-    async def create(self, slug: str, name: str, region: str) -> TenantInfo:
+    async def create(
+        self,
+        slug: str,
+        name: str,
+        region: str,
+        *,
+        edition: str = "community",
+        created_by: uuid.UUID | None = None,
+    ) -> TenantInfo:
         async with global_session(self.engine) as session:
-            row = Tenant(slug=slug, name=name, region=region, status="active")
+            row = Tenant(
+                slug=slug,
+                name=name,
+                region=region,
+                status="active",
+                edition=edition,
+                created_by=created_by,
+            )
             session.add(row)
             try:
                 await session.flush()
@@ -96,6 +115,14 @@ class TenantRepository:
         async with global_session(self.engine) as session:
             rows = await session.scalars(select(Tenant).order_by(Tenant.slug))
             return [_tenant_info(r) for r in rows]
+
+    async def rename(self, tenant: TenantInfo, name: str) -> TenantInfo:
+        async with global_session(self.engine) as session:
+            row = await session.scalar(select(Tenant).where(Tenant.id == tenant.id))
+            if row is None:
+                raise NotFound(f"tenant {tenant.slug} does not exist")
+            row.name = name
+            return _tenant_info(row)
 
 
 def _record(row: ApiKey, slug: str) -> ApiKeyRecord:

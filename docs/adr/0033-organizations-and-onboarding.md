@@ -1,6 +1,6 @@
 # ADR-0033 — Organizations and onboarding: the tenant store owns organizations, the identity service mirrors them
 
-- **Status:** Accepted (product owner approved the Pass 1 design, 2026-10-18). Open product points: Q39–Q44 (Q36–Q38 answered as A11–A13); the slice (b) spike may amend §1–§2 (Consequences)
+- **Status:** Accepted (product owner approved the Pass 1 design, 2026-10-18; amended 2026-10-19: store first). Implemented in the policy service 2026-10-19. Open product points: Q41–Q44 (Q36–Q40 answered as A11–A15); the slice (b) spike may amend §1–§2 (Consequences)
 - **Date:** 2026-10-18
 - **Deciders:** engineering proposal; product owner
 - **Builds on:** ADR-0019 (entitlements), ADR-0023 (API keys, on-behalf-of assertion), ADR-0024
@@ -190,6 +190,26 @@ named above. Where the reference says *unverified*, this ADR does not depend on 
     that import skips existing realms, updates go through keycloak-config-cli or the admin API
     (choice at the first self-hosted release, when its support for the shipped Keycloak version
     is checked).
+
+## Amendment (product owner, 2026-10-19): store first
+
+The first build keeps everything in the tenant store and defers the identity-service mirror:
+
+- **Invitations** are our own single-use links: the policy service stores the SHA-256 of a
+  random secret and returns the secret once; the link is
+  `<console>/invitation?organization=<id>&token=<secret>`. Acceptance checks the same rules as
+  §3.2 (pending, unexpired, unrevoked, verified e-mail equal to the invited one). Until an e-mail
+  sender exists, the console shows the link to copy.
+- **The active organization** is chosen in the console (our switcher) and named in the
+  on-behalf-of assertion; sign-in is not organization-bound yet. Roles always come from our
+  store, never from the assertion (§1 holds without the `org_id` claim).
+- **The `IdentityBroker` mirror** (Auth0 Organizations, Keycloak organizations) follows once the
+  paid Auth0 plan exists (Free allows 5 organizations) and the spike of the Consequences has run;
+  it then mirrors existing organizations from the store, which stays the source of truth.
+- **Community roles** are `owner`, `admin` and `viewer` (Q39 → A14); a person may own **one**
+  Community organization (Q40 → A15, a setting). Only an owner grants, removes or invites an owner.
+- New organizations get the deployment's starter guardrail (§7) copied and signed for them. The
+  Community entitlement snapshot waits for entitlements in the control plane (ADR-0019).
 
 ## Alternatives considered
 

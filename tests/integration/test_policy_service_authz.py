@@ -17,16 +17,39 @@ from umai_decision_engine.settings import Settings
 
 CONTROL = "control-token"
 KEY = ec.generate_private_key(ec.SECP256R1())
+_CURRENT: dict[str, TestClient] = {}
+
+
+def _seed(client: TestClient, sub: str, tenant_slug: str, roles: tuple[str, ...]) -> None:
+    """Roles live in the tenant store (ADR-0033 §1): give the person a membership there."""
+
+    state = client.app.state
+
+    async def go() -> None:
+        tenant = await state.tenants.get(tenant_slug)
+        orgs = state.organizations
+        user = await orgs.users.upsert(sub, f"{sub.split('|')[-1]}@example.com", True, None)
+        if tenant is not None and roles and not await orgs.memberships.roles(tenant, user):
+            await orgs.memberships.add(tenant, user, list(roles))
+
+    client.portal.call(go)
 
 
 def _assertion(tenant: str | None = "default", roles=("policy_editor",), sub="auth0|ada") -> str:
+    """A signed assertion for a person whose membership (with ``roles``) is in the store. The
+    claim's own ``roles`` are deliberately different: the service must not believe them."""
+
+    if tenant is not None:
+        _seed(_CURRENT["client"], sub, tenant, tuple(roles))
     now = int(time.time())
     claims = ActorAssertion(
         iss="umai-console",
         aud="umai-policy-service",
         sub=sub,
+        email=f"{sub.split('|')[-1]}@example.com",
+        email_verified=True,
         tenant_id=tenant,
-        roles=list(roles) if tenant else [],
+        roles=["owner"] if tenant else [],  # ignored since credentials 0.3
         session_id="s-1",
         iat=now,
         exp=now + 120,
@@ -49,6 +72,7 @@ def client(write_bundle, detector, tmp_path):
     )
     with TestClient(create_app(settings, detector=detector)) as c:
         c.headers["Authorization"] = f"Bearer {CONTROL}"
+        _CURRENT["client"] = c
         yield c
 
 
@@ -149,3 +173,22 @@ def test_assertion_never_replaces_the_service_credential(client) -> None:
         "/v1/guardrails", headers={"Authorization": "Bearer wrong", **_as(_assertion())}
     )
     assert response.status_code == 401
+
+
+def test_claimed_roles_are_not_believed(client) -> None:
+    """A person without a membership gets nothing, whatever roles the assertion claims."""
+
+    now = int(time.time())
+    claims = ActorAssertion(
+        iss="umai-console",
+        aud="umai-policy-service",
+        sub="auth0|mallory",
+        tenant_id="default",
+        roles=["owner"],
+        session_id="s-9",
+        iat=now,
+        exp=now + 60,
+        jti="j-m",
+    )
+    token = sign_actor_assertion(claims, KEY, "console-1")
+    assert client.get("/v1/guardrails", headers=_as(token)).status_code == 403

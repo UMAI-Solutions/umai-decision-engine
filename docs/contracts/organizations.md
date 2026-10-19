@@ -1,6 +1,6 @@
 # Contract: organizations
 
-**Version:** 0.1 · **Producer → consumer:** policy service ↔ console (organizations, memberships,
+**Version:** 0.2 · **Producer → consumer:** policy service ↔ console (organizations, memberships,
 invitations, verified domains) · **Decisions:** [ADR-0033](../adr/0033-organizations-and-onboarding.md),
 [ADR-0029](../adr/0029-authorization-roles-and-four-eyes.md) · **Design:**
 [`architecture/sign-in-and-onboarding.md`](../architecture/sign-in-and-onboarding.md)
@@ -9,17 +9,20 @@ An **organization** is the sign-in face of a tenant, one to one (ADR-0033 §1). 
 service owns these records in the tenant store; the identity service (Auth0, Keycloak) holds a
 mirror. Every route is called by the console with the service credential and an on-behalf-of
 assertion naming the person ([`credentials.md`](credentials.md)); roles are checked by the
-permission matrix (ADR-0029 §3). Models: `src/umai_decision_engine/contracts/organizations.py`.
-Routes are planned for slice (b) of the sign-in rework; this version fixes the shapes.
+permission matrix (ADR-0029 §3), with the person's roles read from the tenant store (never from
+the assertion). Models: `src/umai_decision_engine/contracts/organizations.py`; routes:
+`control_plane/app.py`, rules: `control_plane/organizations.py`.
 
-Identity-service identifiers (Auth0 organization id, invitation ticket) are not part of these
-shapes, except where the console must hand them back (`InvitationAccept`).
+**Store first (0.2, ADR-0033 amendment of 2026-10-19).** Until the identity-service mirror exists,
+invitations are our own single-use links and the console chooses the active organization; no
+identity-service identifiers appear in these shapes.
 
 ## Roles
 
 `owner`, `admin`, `policy_editor`, `approver`, `viewer`, `billing` (ADR-0029 §2). A membership
-holds one or more. Without the `rbac` entitlement, `admin` carries every permission except the
-owner-only ones (ADR-0029 §2, "every member is an admin").
+holds one or more. Without the `rbac` entitlement (Community) the roles that can be given are
+`owner`, `admin` and `viewer` (Q39, answered A14), and `admin` carries every permission except the
+owner-only ones. Only an owner grants, removes or invites an owner.
 
 ## Organization — `Organization`
 
@@ -121,29 +124,42 @@ check; the mode falls back to `off`). `mode`: `off`, `request`, `auto`; `auto` n
 { "name": "Acme Security", "id": "acme-security", "region": "eu", "accept_terms": true, "terms_version": "2026-10" }
 ```
 
-`accept_terms` must be `true`. `InvitationCreate` (`POST /v1/organizations/{id}/invitations`):
+`accept_terms` must be `true`; `region` must be the stack's region (one option per console).
+The response is `{"organization": Organization, "starter_guardrail": {"id", "version"} | null}`:
+the deployment's starter guardrail (`UMAI_DE_STARTER_GUARDRAIL`) is copied into the new
+organization as its version 1, signed for it. `InvitationCreate`
+(`POST /v1/organizations/{id}/invitations`):
 
 ```json
 { "email": "grace@example.com", "roles": ["viewer"], "ttl_days": 7 }
 ```
 
-`MembershipUpdate` `{ "roles": [...] }`; `DomainCreate` `{ "domain": "acme.example" }`;
-`DomainUpdate` `{ "mode": "request", "default_role": "viewer" }`; `InvitationAccept`
-`{ "invitation": "<identity-service ticket>", "organization": "<identity-service organization id>" }`.
+The response is `{"invitation": Invitation, "token": "<secret>"}`: the link's secret, shown
+once and stored as a SHA-256 hash only. The console builds the link
+`<console>/invitation?organization=<id>&token=<secret>` (and, once an e-mail sender exists, sends
+it); resending revokes the old link and returns a new token.
 
-## Routes (slice (b))
+`MembershipUpdate` `{ "roles": [...] }`; `OrganizationUpdate` `{ "name": "…" }`; `DomainCreate`
+`{ "domain": "acme.example" }`; `DomainUpdate` `{ "mode": "request", "default_role": "viewer" }`;
+`InvitationAccept` `{ "organization": "<organization id>", "token": "<link secret>" }`.
+
+## Routes
+
+Implemented 2026-10-19 except the domain routes (stage 1).
 
 | Route | Action (permission matrix) | Does |
 |---|---|---|
-| `GET /v1/me/organizations` | the person's own memberships | Switcher |
-| `POST /v1/organizations` | a person with a verified e-mail | Create (tenant, owner, entitlement, mirror) |
+| `GET /v1/me/organizations` | `me.organizations` (self-service) | Switcher |
+| `POST /v1/organizations` | `organization.create` (self-service, verified e-mail) | Create: tenant, owner membership, starter guardrail |
 | `GET /v1/organizations/{id}` | `organization.read` | Status, name, region, edition |
 | `PATCH /v1/organizations/{id}` | `organization.update` | Display name |
 | `GET /v1/organizations/{id}/members` | `member.read` | List |
 | `PATCH /v1/organizations/{id}/members/{user}` | `member.update` | Roles |
-| `DELETE /v1/organizations/{id}/members/{user}` | `member.remove` (or the member leaving) | Remove |
+| `DELETE /v1/organizations/{id}/members/{user}` | `member.remove` | Remove |
+| `POST /v1/organizations/{id}/leave` | `member.leave` (self-service) | Leave |
 | `POST/GET /v1/organizations/{id}/invitations`, `DELETE …/{inv}`, `POST …/{inv}/resend` | `invitation.manage` | Invite, list, revoke, resend |
-| `POST /v1/invitations/accept` | the invited person | Accept |
+| `POST /v1/invitations/accept` | `invitation.accept` (self-service) | Accept |
+| `POST /v1/tenants/{id}/keys` (credentials) | `key.create` | The organization's API keys, including the first |
 | `POST/GET /v1/organizations/{id}/domains`, `POST …/{d}/verify`, `PATCH …/{d}` | `domain.manage` | Verified domains |
 
 ## Errors
@@ -152,7 +168,8 @@ Bodies are `{ "error": "<code>", "detail": "<sentence>" }`.
 
 | HTTP | `error` | When |
 |---|---|---|
-| 403 | `forbidden` | the person's roles do not allow the action (ADR-0029 §6) |
+| 403 | `actor_required` | a self-service action without a person (the control token alone) |
+| 403 | `forbidden` | the person's roles do not allow the action (ADR-0029 §6), or a non-owner touches ownership |
 | 403 | `email_unverified` | the person's e-mail is not verified (ADR-0033 §4) |
 | 403 | `community_limit_reached` | the person already owns a Community organization |
 | 403 | `invitation_email_mismatch` | the accepting identity's verified e-mail differs from the invited one |
@@ -161,11 +178,19 @@ Bodies are `{ "error": "<code>", "detail": "<sentence>" }`.
 | 409 | `last_owner` | the change would leave the organization without an active owner |
 | 409 | `invitation_used` | the invitation was already accepted |
 | 409 | `domain_taken` | another organization in the region holds the domain |
+| 409 | `invitation_limit_reached` | the tenant has its maximum of pending invitations (default 20) |
 | 410 | `invitation_expired`, `invitation_revoked` | the invitation can no longer be accepted |
 | 422 | `disposable_email_domain` | creating an organization from a disposable address |
 | 422 | `personal_domain` | verifying a personal-mail domain |
+| 422 | `region_unavailable` | `region` is not this stack's region |
+| 422 | `role_unavailable` | a role the tenant's edition does not offer |
+| 422 | `email_required` | the assertion carries no e-mail |
 
 ## Changelog
 
+- 0.2 (2026-10-19): store first: invitations are our own single-use links
+  (`InvitationAccept` = organization + token; invite response carries the token once);
+  create response with the starter guardrail; `OrganizationUpdate`; leave route; Community
+  roles owner/admin/viewer; new errors. Routes implemented except domains.
 - 0.1 (2026-10-19): initial: organization, my organizations, membership, invitation, verified
   domain, requests, planned routes, errors (ADR-0033).

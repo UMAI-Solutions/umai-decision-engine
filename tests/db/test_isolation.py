@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import os
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 import pytest_asyncio
@@ -20,15 +21,28 @@ from sqlalchemy import insert, select, text
 from sqlalchemy.exc import DBAPIError, ProgrammingError
 
 from umai_decision_engine.db.migrate import upgrade
-from umai_decision_engine.db.models import Base
+from umai_decision_engine.db.models import Base, Membership, User
+from umai_decision_engine.db.organizations import MembershipRepository, UserRepository
 from umai_decision_engine.db.repositories import (
     ApiKeyRepository,
     DraftRepository,
     NotFound,
     TenantRepository,
 )
-from umai_decision_engine.db.rls import GLOBAL_TABLES, POLICY_NAME, TENANT_TABLES
-from umai_decision_engine.db.session import global_session, make_engine, sqlite_url, tenant_session
+from umai_decision_engine.db.rls import (
+    GLOBAL_TABLES,
+    POLICY_NAME,
+    SELF_POLICY_NAME,
+    SELF_READ_TABLES,
+    TENANT_TABLES,
+)
+from umai_decision_engine.db.session import (
+    global_session,
+    make_engine,
+    sqlite_url,
+    tenant_session,
+    user_session,
+)
 
 ADMIN_URL = os.environ.get("UMAI_DE_TEST_POSTGRES_ADMIN_URL")
 APP_URL = os.environ.get("UMAI_DE_TEST_POSTGRES_APP_URL")
@@ -71,10 +85,37 @@ async def two_tenants(pg):
     return a, b
 
 
-def _row(table: str, tenant_id: uuid.UUID) -> dict:
+async def _user(engine) -> uuid.UUID:
+    """A synthetic person in the global users table (memberships reference one)."""
+
+    user_id = uuid.uuid4()
+    async with global_session(engine) as session:
+        await session.execute(
+            insert(User).values(
+                id=user_id,
+                subject=f"auth0|{user_id.hex[:12]}",
+                email=f"{user_id.hex[:8]}@example.com",
+                email_verified=True,
+            )
+        )
+    return user_id
+
+
+def _row(table: str, tenant_id: uuid.UUID, user_id: uuid.UUID | None = None) -> dict:
     """A minimal valid row for each tenant table (synthetic values)."""
 
     base = {"id": uuid.uuid4(), "tenant_id": tenant_id}
+    if table == "memberships":
+        return {**base, "user_id": user_id, "roles": ["owner"], "state": "active"}
+    if table == "invitations":
+        return {
+            **base,
+            "email": "grace@example.com",
+            "roles": ["viewer"],
+            "token_sha256": uuid.uuid4().hex * 2,
+            "invited_by": uuid.uuid4(),
+            "expires_at": datetime(2099, 1, 1, tzinfo=UTC),
+        }
     if table == "api_keys":
         return {
             **base,
@@ -130,8 +171,9 @@ async def test_every_table_is_tenant_scoped_with_rls_or_allowlisted(pg) -> None:
 async def test_write_as_a_read_as_b_returns_nothing(pg, two_tenants, table) -> None:
     a, b = two_tenants
     model = TENANT_MODELS[table]
+    user = await _user(pg)
     async with tenant_session(pg, a.id) as session:
-        await session.execute(insert(model).values(**_row(table, a.id)))
+        await session.execute(insert(model).values(**_row(table, a.id, user)))
     async with tenant_session(pg, b.id) as session:
         rows = (await session.execute(select(model))).all()  # no WHERE on purpose
     assert rows == []
@@ -155,9 +197,49 @@ async def test_no_tenant_context_is_an_error_not_an_empty_page(pg, table) -> Non
 async def test_with_check_rejects_foreign_tenant_inserts(pg, two_tenants, table) -> None:
     a, b = two_tenants
     model = TENANT_MODELS[table]
+    user = await _user(pg)
     with pytest.raises(ProgrammingError):
         async with tenant_session(pg, b.id) as session:
-            await session.execute(insert(model).values(**_row(table, a.id)))
+            await session.execute(insert(model).values(**_row(table, a.id, user)))
+
+
+# ------------------------------------------------------------ member_self (ADR-0033 §2)
+
+
+@postgres
+@pytest.mark.asyncio
+async def test_member_self_reads_only_the_persons_own_rows_and_never_writes(
+    pg, two_tenants
+) -> None:
+    a, b = two_tenants
+    ada, grace = await _user(pg), await _user(pg)
+    for tenant, user in ((a, ada), (b, ada), (a, grace)):
+        async with tenant_session(pg, tenant.id) as session:
+            await session.execute(insert(Membership).values(**_row("memberships", tenant.id, user)))
+    async with user_session(pg, ada) as session:
+        rows = (await session.execute(select(Membership))).scalars().all()  # no WHERE
+    assert sorted(r.tenant_id for r in rows) == sorted([a.id, b.id])
+    assert {r.user_id for r in rows} == {ada}
+    with pytest.raises(ProgrammingError):  # read-only: the tenant policy refuses the write
+        async with user_session(pg, ada) as session:
+            await session.execute(insert(Membership).values(**_row("memberships", a.id, ada)))
+
+
+@postgres
+@pytest.mark.asyncio
+async def test_only_the_allowlisted_tables_have_the_self_policy(pg) -> None:
+    async with pg.connect() as conn:
+        rows = (
+            await conn.execute(
+                text(
+                    "SELECT c.relname, p.polcmd::text FROM pg_policy p JOIN pg_class c"
+                    " ON c.oid = p.polrelid WHERE p.polname = :name"
+                ),
+                {"name": SELF_POLICY_NAME},
+            )
+        ).all()
+    assert sorted(r[0] for r in rows) == sorted(SELF_READ_TABLES)
+    assert {r[1] for r in rows} == {"r"}  # SELECT only
 
 
 # ------------------------------------------------------------ role test (I3)
@@ -215,5 +297,14 @@ async def test_repositories_filter_by_tenant_on_sqlite(tmp_path) -> None:
             await keys.revoke(b, record.key_id)
         assert (await keys.snapshot(b)).keys == []
         assert (await keys.snapshot(a)).keys[0].key_id == record.key_id
+
+        users, members = UserRepository(engine), MembershipRepository(engine)
+        ada = await users.upsert("auth0|ada", "ada@example.com", True, None)
+        grace = await users.upsert("auth0|grace", "grace@example.com", True, None)
+        await members.add(a, ada, ["owner"])
+        await members.add(b, grace, ["owner"])
+        assert [m.slug for m in await members.mine(ada)] == ["tenant-a"]
+        assert [m.user.email for m in await members.list(b)] == ["grace@example.com"]
+        assert await members.roles(b, ada) == frozenset()
     finally:
         await engine.dispose()

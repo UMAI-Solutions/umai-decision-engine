@@ -204,7 +204,7 @@ failure-policy decisions. HTTP 4xx only for malformed requests (schema violation
 - 0.7 (2026-10-19): bundles are tenant-owned: evaluation resolves only the request tenant's
   bundles; `/v1/bundles` and `/v1/bundles/{id}/versions/{version}` read one tenant (the key's,
   or `X-Umai-Tenant` / the default tenant for the operator token) and carry `tenant_id`; load
-  errors only for the operator token. Request shape unchanged.
+  errors only for the operator token. Request shape unchanged; requests 0.2–0.7 accepted.
 - 0.6 (2026-10-18): per-tenant API keys and scopes at admission (ADR-0023): `tenant_id` optional
   and derived from the credential; 403 `tenant_mismatch` / `insufficient_scope`, 429
   `rate_limited`, 400 `tenant_required`; error bodies carry an `error` code. Requests 0.2–0.6 accepted.

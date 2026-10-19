@@ -74,6 +74,7 @@ umai-decision-engine/
 │   │   ├── app.py                 # FastAPI app (port 9200), bearer token; every route authorized
 │   │   ├── authz.py               # ADR-0029 permission matrix, actor, tenant binding
 │   │   ├── actors.py              # ADR-0023 §1 on-behalf-of assertion (ES256) verification
+│   │   ├── organizations.py       # ADR-0033 organizations, members, invitations (rules)
 │   │   ├── service.py             # draft → validate → golden tests → publish; accepted cases
 │   │   ├── repository.py          # the only writer of the bundle source, per tenant; changelog
 │   │   └── drafts.py              # SQLite draft store

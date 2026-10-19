@@ -62,6 +62,11 @@ class Settings(BaseSettings):
     actor_public_keys: dict[str, str] = Field(default_factory=dict)  # kid → base64 P-256 SPKI
     actor_issuer: str = "umai-console"
     actor_audience: str = "umai-policy-service"
+    # Organizations (ADR-0033). Limits are settings until entitlements reach the control plane.
+    max_owned_community_organizations: int = Field(1, ge=0)  # §4, Q40 answered (A15)
+    max_pending_invitations: int = Field(20, ge=1)  # per tenant, §5
+    starter_guardrail: str | None = "gr-demo-data-protection"  # copied into new organizations
+    disposable_email_domains: list[str] = Field(default_factory=list)  # added to the built-in list
 
     # development endpoints
     expose_detect_endpoint: bool | None = None  # None → True only in development

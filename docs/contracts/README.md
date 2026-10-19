@@ -15,8 +15,8 @@ in the same commit (skill `change-contract`).
 | [l2-analysis](l2-analysis.md) | 0.1 | L2 model → worker → findings |
 | [tag-taxonomy](tag-taxonomy.md) | 0.1 | all layers |
 | [policy-tests](policy-tests.md) | 0.2 | policy author → golden-test runner, CI (ADR-0015) |
-| [credentials](credentials.md) | 0.2 | control plane → engines (key registry), control plane ↔ console (key records), console → policy service (on-behalf-of assertion) (ADR-0023) |
-| [organizations](organizations.md) | 0.1 | policy service ↔ console: organizations, memberships, invitations, verified domains (ADR-0033) |
+| [credentials](credentials.md) | 0.3 | control plane → engines (key registry), control plane ↔ console (key records), console → policy service (on-behalf-of assertion) (ADR-0023) |
+| [organizations](organizations.md) | 0.2 | policy service ↔ console: organizations, memberships, invitations, verified domains (ADR-0033) |
 
 ## Versioning rules
 

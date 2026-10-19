@@ -13,7 +13,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-CONTRACT_VERSION = "0.1"
+CONTRACT_VERSION = "0.2"
 
 # Organization id = tenant slug = the identity organization's name (Auth0 allows 1-50 of
 # a-z 0-9 _ -); ours is stricter: 3-40, letters, digits and inner hyphens.
@@ -190,11 +190,22 @@ class DomainUpdate(_Model):
 
 
 class InvitationAccept(_Model):
-    invitation: str = Field(min_length=1, max_length=512)  # identity-service ticket
-    organization: str = Field(min_length=1, max_length=128)  # identity-service organization id
+    """From the invitation link (0.2): our organization id and the link's single-use secret."""
+
+    organization: str = Field(min_length=1, max_length=128)
+    token: str = Field(min_length=20, max_length=200)
+
+
+class OrganizationUpdate(_Model):
+    name: str = Field(min_length=2, max_length=100)
 
 
 ErrorCode = Literal[
+    "actor_required",
+    "email_required",
+    "region_unavailable",
+    "role_unavailable",
+    "invitation_limit_reached",
     "forbidden",
     "email_unverified",
     "community_limit_reached",

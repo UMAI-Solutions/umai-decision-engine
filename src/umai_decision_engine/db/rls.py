@@ -7,11 +7,17 @@ from __future__ import annotations
 POLICY_NAME = "tenant_isolation"
 TENANT_SETTING = "app.tenant_id"
 
-# Tenant tables: tenant_id uuid NOT NULL, ENABLE + FORCE ROW LEVEL SECURITY, one policy.
-TENANT_TABLES: tuple[str, ...] = ("api_keys", "drafts")
+USER_SETTING = "app.user_id"
+SELF_POLICY_NAME = "member_self"
 
-# Global tables: the explicit allowlist (ADR-0025 §2).
-GLOBAL_TABLES: tuple[str, ...] = ("tenants", "alembic_version")
+# Tenant tables: tenant_id uuid NOT NULL, ENABLE + FORCE ROW LEVEL SECURITY, one policy.
+TENANT_TABLES: tuple[str, ...] = ("api_keys", "drafts", "memberships", "invitations")
+
+# Global tables: the explicit allowlist (ADR-0025 §2; users: ADR-0033 §2).
+GLOBAL_TABLES: tuple[str, ...] = ("tenants", "users", "alembic_version")
+
+# Tables with a second, read-only policy for the person's own rows (ADR-0033 §2). The only one.
+SELF_READ_TABLES: tuple[str, ...] = ("memberships",)
 
 
 def enable_rls_sql(table: str) -> list[str]:
@@ -21,6 +27,16 @@ def enable_rls_sql(table: str) -> list[str]:
         f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY",
         f"CREATE POLICY {POLICY_NAME} ON {table} USING ({predicate}) WITH CHECK ({predicate})",
     ]
+
+
+def self_read_sql(table: str) -> str:
+    """``member_self``: a person reads their own memberships across tenants (the switcher),
+    before any tenant is chosen. ``missing_ok`` here on purpose: in an ordinary tenant session
+    no user is set and this policy must match nothing, while ``tenant_isolation`` stays strict
+    (ADR-0025 §1). SELECT only: writes always need the tenant policy."""
+
+    predicate = f"user_id = NULLIF(current_setting('{USER_SETTING}', true), '')::uuid"
+    return f"CREATE POLICY {SELF_POLICY_NAME} ON {table} FOR SELECT USING ({predicate})"
 
 
 def grant_app_role_sql(table: str, role: str) -> str:
