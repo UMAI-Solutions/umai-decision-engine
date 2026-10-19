@@ -33,6 +33,7 @@ python -m evals.run --suite masking-survival --model gpt-4.1-mini --tag <label> 
 | `pipeline-e2e` | L0 + L1 | Final decision accuracy, runtime latency, review rate | `umai-engine` |
 | `l2-worker` | L2 | Queue age and processing time under load; redelivery idempotency | — |
 | `gateway-latency` | gateway | What the gateway adds per call (admission, input check over every message, masking, answer check, restoration, streaming modes) and when `window` streams release their first text | budget: well under the upstream's own latency |
+| `pi-tr` | L1 (paused) | Prompt-attack detectors on Turkish-first attacks, paraphrases and look-alike benign text; `holdout` split written after the heuristic was frozen. Groundwork for L1 | — |
 | `masking-survival` | gateway | Do models write the gateway's placeholders back intact, so restoration works (kept, altered, dropped, restored per type and task)? Live | — |
 | `leak` | all | Does any raw value appear in responses, logs, traces, history, provider payloads? Also: which values an allowed decision would forward unmasked | must be 0 |
 
