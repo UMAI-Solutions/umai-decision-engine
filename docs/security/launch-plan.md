@@ -66,13 +66,13 @@ address, support channel for the partners.
 
 | # | Control | Evidence | Owner | Status |
 |---|---|---|---|---|
-| S0-1 | Tenant from credential; cross-tenant evaluate refused | readiness T1, T3 green in CI | eng | **done** (2026-10-18; bundle listing per tenant pending) |
+| S0-1 | Tenant from credential; cross-tenant evaluate refused | readiness T1, T3 green in CI | eng | **done** (2026-10-18; tenant-owned bundles and per-tenant listing 2026-10-19) |
 | S0-2 | Keys hashed, scoped, revocable; revocation effective ≤ 10 s | readiness T4, T5; revocation latency measurement | eng | open |
 | S0-3 | Size and rate limits with explicit 413/429; ingress body cap | readiness T2, T6; load test report | eng | open |
 | S0-4 | No raw content in responses, logs or errors | readiness C1, L1 green; leak suite 0 | eng | open (L1) |
 | S0-5 | Console requires login; sessions and headers per ADR-0024 §2 | browser tests; header scan (observatory-style) report | eng | partial (2026-10-18: OIDC login and 60 min / 12 h cookie session in `umai-control-center`; server-side session store, security headers, automated browser tests open) |
 | S0-6 | MFA for owner/admin | Auth0 MFA policy screenshot + test | eng | open |
-| S0-7 | Every configuration change has an actor; audit log visible in console | readiness A1; route test E1 | eng | open |
+| S0-7 | Every configuration change has an actor; audit log visible in console | readiness A1; route test E1 | eng | partial (2026-10-19: A1 green, change log names the actor from the on-behalf-of assertion; console signing and the audit log view open) |
 | S0-8 | Secrets in Key Vault via Workload ID; signing keys in Key Vault Premium (P-256); no private keys on hosts | deployment audit record (ADR-0027 Validation); Key Vault diagnostic log sample | ops | open |
 | S0-9 | TLS 1.2+/1.3 with HSTS at Application Gateway WAF_v2; no Front Door on content hostnames; internal traffic on private endpoints | TLS scan report; IaC policy test; NetworkPolicy test | ops | open |
 | S0-10 | Notation-signed images in ACR, SBOM, dependency and image scanning in CI; branch protection | CI job links; GitHub settings export | eng | open |

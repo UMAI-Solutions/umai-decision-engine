@@ -7,15 +7,16 @@ in the same commit (skill `change-contract`).
 
 | Contract | Version | Producer → consumer |
 |---|---|---|
-| [evaluation-api](evaluation-api.md) | 0.6 | caller ↔ engine |
-| [policy-bundle](policy-bundle.md) | 0.7 | policy author / loader → engine |
+| [evaluation-api](evaluation-api.md) | 0.7 | caller ↔ engine |
+| [policy-bundle](policy-bundle.md) | 0.8 | policy author / loader → engine |
 | [entity-detection](entity-detection.md) | 0.2 | L0 → L1, pipeline |
 | [decision-questions](decision-questions.md) | 0.3 | bundle → L1b → provider adapters |
 | [tagged-action](tagged-action.md) | 0.2 | L1 → event sink, session history, L2 worker |
 | [l2-analysis](l2-analysis.md) | 0.1 | L2 model → worker → findings |
 | [tag-taxonomy](tag-taxonomy.md) | 0.1 | all layers |
 | [policy-tests](policy-tests.md) | 0.2 | policy author → golden-test runner, CI (ADR-0015) |
-| [credentials](credentials.md) | 0.1 | control plane → engines (key registry), control plane ↔ console (key records) (ADR-0023) |
+| [credentials](credentials.md) | 0.2 | control plane → engines (key registry), control plane ↔ console (key records), console → policy service (on-behalf-of assertion) (ADR-0023) |
+| [organizations](organizations.md) | 0.1 | policy service ↔ console: organizations, memberships, invitations, verified domains (ADR-0033) |
 
 ## Versioning rules
 

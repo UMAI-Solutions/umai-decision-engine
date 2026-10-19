@@ -53,6 +53,15 @@ class Settings(BaseSettings):
     default_tenant_id: str = "default"  # control-plane requests without X-Umai-Tenant
     signing_key_file: Path | None = None  # Ed25519 private key (base64) for published manifests
     signing_key_id: str | None = None
+    # On-behalf-of assertions from the console (ADR-0023 §1, contract credentials 0.2).
+    # required: tenant actions need an assertion naming the person; the control token alone may
+    # only run operator actions (tenants, keys). optional: without an assertion the control token
+    # acts as the operator for every action (single-operator installs, development). None →
+    # required in production, optional elsewhere.
+    actor_assertion: Literal["required", "optional"] | None = None
+    actor_public_keys: dict[str, str] = Field(default_factory=dict)  # kid → base64 P-256 SPKI
+    actor_issuer: str = "umai-console"
+    actor_audience: str = "umai-policy-service"
 
     # development endpoints
     expose_detect_endpoint: bool | None = None  # None → True only in development
@@ -66,6 +75,8 @@ class Settings(BaseSettings):
             self.allow_inline_bundles = dev
         if self.expose_detect_endpoint is None:
             self.expose_detect_endpoint = dev
+        if self.actor_assertion is None:
+            self.actor_assertion = "required" if self.env == "production" else "optional"
         return self
 
     def tenant_key(self, tenant_id: str) -> bytes:

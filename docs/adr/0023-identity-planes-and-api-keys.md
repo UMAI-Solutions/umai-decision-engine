@@ -1,6 +1,6 @@
 # ADR-0023 — Two identity planes: per-tenant API keys for workloads, people through the console
 
-- **Status:** Accepted (product owner, 2026-10-18: platform foundation first). Implemented: `tenancy/`, `control_plane/keys.py`, contract `credentials` 0.1, evaluation API 0.6. Follow with ADR-0024 / the regional stack: §1 on-behalf-of assertion, §7 Redis buckets, `last_used_at`, `test`-key refusal on production bundles
+- **Status:** Accepted (product owner, 2026-10-18: platform foundation first). Implemented: `tenancy/`, `control_plane/keys.py`, contract `credentials` 0.1, evaluation API 0.6. §1 on-behalf-of assertion verified by the policy service since 2026-10-19 (`control_plane/actors.py`, credentials 0.2; console signing follows). Follow with the regional stack: §7 Redis buckets, `last_used_at`, `test`-key refusal on production bundles
 - **Date:** 2026-10-17
 - **Deciders:** engineering proposal; product owner
 - **Builds on:** ADR-0016 (bearer token), ADR-0019 §1 (tenant from the credential), ADR-0021 (company → project → guardrail)

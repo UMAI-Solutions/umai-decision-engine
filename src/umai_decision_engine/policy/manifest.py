@@ -21,6 +21,9 @@ class ManifestError(ValueError):
 class BundleManifest(ContractModel):
     bundle_id: str
     version: int = Field(ge=1)
+    # Owning tenant (policy-bundle 0.8, ADR-0019 §2). Signed with the rest; absent on bundles of
+    # the deployment's default tenant written before 0.8 (exclude_none keeps their signatures).
+    tenant_id: str | None = Field(None, min_length=1, max_length=128)
     contract_version: str
     engine: str | None = None
     created_at: datetime | None = None

@@ -24,8 +24,25 @@ router = APIRouter()
 
 # Admission (ADR-0023): credential → principal (tenant, scopes), rate limit, scope per route.
 _EVALUATE = Depends(require_scope(Scope.EVALUATE))
-_BUNDLES_READ = [Depends(require_scope(Scope.BUNDLES_READ))]
+_BUNDLES_READ = Depends(require_scope(Scope.BUNDLES_READ))
 _BUNDLES_RELOAD = [Depends(require_scope(Scope.BUNDLES_RELOAD))]
+
+TENANT_HEADER = "X-Umai-Tenant"
+
+
+def _bundle_tenant(request: Request, principal: Principal) -> str:
+    """Whose bundles a read shows: the key's tenant; for the shared operator token the
+    ``X-Umai-Tenant`` header, else the deployment's default tenant (evaluation API 0.7)."""
+
+    if principal.tenant_id is not None:
+        header = request.headers.get(TENANT_HEADER)
+        if header is not None and header != principal.tenant_id:
+            raise HTTPException(
+                403,
+                {"error": "tenant_mismatch", "detail": "the credential belongs to another tenant"},
+            )
+        return principal.tenant_id
+    return request.headers.get(TENANT_HEADER) or request.app.state.store.default_tenant
 
 
 @router.get("/healthz")
@@ -114,17 +131,25 @@ async def detect(
     )
 
 
-@router.get("/v1/bundles", dependencies=_BUNDLES_READ)
-async def bundles(request: Request) -> dict[str, Any]:
-    """Loaded and active bundle versions and load errors (for operators and the dashboard)."""
+@router.get("/v1/bundles")
+async def bundles(request: Request, principal: Principal = _BUNDLES_READ) -> dict[str, Any]:
+    """One tenant's loaded and active bundle versions (ADR-0019 §2). Load errors name
+    locations, not content, and are shown only to the operator token."""
 
     store = request.app.state.store
     state = store.state
+    tenant = _bundle_tenant(request, principal)
     by_id: dict[str, dict[str, Any]] = {}
-    for (bundle_id, version), loaded in sorted(state.bundles.items()):
+    for (owner, bundle_id, version), loaded in sorted(state.bundles.items()):
+        if owner != tenant:
+            continue
         entry = by_id.setdefault(
             bundle_id,
-            {"id": bundle_id, "active_version": state.active.get(bundle_id), "versions": []},
+            {
+                "id": bundle_id,
+                "active_version": state.active.get((tenant, bundle_id)),
+                "versions": [],
+            },
         )
         entry["versions"].append(
             {
@@ -137,29 +162,38 @@ async def bundles(request: Request) -> dict[str, Any]:
                 "loaded_at": loaded.loaded_at.isoformat(),
             }
         )
+    errors = (
+        [{"location": e.location, "error": e.error, "at": e.at.isoformat()} for e in state.errors]
+        if principal.tenant_id is None
+        else []
+    )
     return {
         "source": store.source_name,
+        "tenant_id": tenant,
         "reloaded_at": state.reloaded_at.isoformat() if state.reloaded_at else None,
         "bundles": list(by_id.values()),
-        "errors": [
-            {"location": e.location, "error": e.error, "at": e.at.isoformat()} for e in state.errors
-        ],
+        "errors": errors,
     }
 
 
-@router.get("/v1/bundles/{bundle_id}/versions/{version}", dependencies=_BUNDLES_READ)
-async def bundle_version(bundle_id: str, version: int, request: Request) -> dict[str, Any]:
-    """One loaded bundle (guardrail) version with its content, for the console's guardrail view.
-    Bundles never contain secrets (ADR-0012); content is policy data only."""
+@router.get("/v1/bundles/{bundle_id}/versions/{version}")
+async def bundle_version(
+    bundle_id: str, version: int, request: Request, principal: Principal = _BUNDLES_READ
+) -> dict[str, Any]:
+    """One loaded bundle (guardrail) version of the caller's tenant with its content, for the
+    console's guardrail view. Bundles never contain secrets (ADR-0012); content is policy data
+    only. Another tenant's bundle is reported as not loaded (404), never shown."""
 
     store = request.app.state.store
-    loaded = store.get(bundle_id, version)
+    tenant = _bundle_tenant(request, principal)
+    loaded = store.get(bundle_id, version, tenant_id=tenant)
     if loaded is None:
         raise HTTPException(status_code=404, detail=f"bundle {bundle_id} v{version} is not loaded")
     return {
         "id": bundle_id,
         "version": version,
-        "active": store.state.active.get(bundle_id) == version,
+        "tenant_id": tenant,
+        "active": store.state.active.get((tenant, bundle_id)) == version,
         "sha256": loaded.sha256,
         "signed": loaded.signed,
         "key_id": loaded.key_id,

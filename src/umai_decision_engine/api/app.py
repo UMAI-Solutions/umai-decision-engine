@@ -46,6 +46,7 @@ def create_app(
             DirectorySource(cfg.policy_dir),
             public_keys=cfg.bundle_public_keys,
             require_signed=bool(cfg.require_signed_bundles),
+            default_tenant=cfg.default_tenant_id,
         )
         await asyncio.to_thread(state.store.reload, force=True)
         state.detector = detector or EntityDetector(cfg.tenant_key, threads=cfg.l0_threads)

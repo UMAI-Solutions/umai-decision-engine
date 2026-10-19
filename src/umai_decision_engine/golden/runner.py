@@ -39,6 +39,7 @@ from umai_decision_engine.l0.detector import EntityDetector
 from umai_decision_engine.pipeline.orchestrator import Evaluator
 from umai_decision_engine.policy.sources import (
     BUNDLE_FILE,
+    TENANTS_DIR,
     DirectorySource,
     SnapshotSource,
     SourceSnapshot,
@@ -135,11 +136,15 @@ def _selected(
         return version is None or ver is None or ver == version
 
     return SourceSnapshot(
-        artifacts=[a for a in snapshot.artifacts if wanted(a.bundle_id, a.version)],
+        artifacts=[
+            a
+            for a in snapshot.artifacts
+            if wanted(a.bundle_id, a.version) and _within(a.location, scope)
+        ],
         # a single version is tested on its own; its bundle's pointer is not in scope
         active={}
         if version is not None
-        else {b: v for b, v in snapshot.active.items() if wanted(b)},
+        else {key: v for key, v in snapshot.active.items() if wanted(key[1])},
         errors=[(loc, msg) for loc, msg in snapshot.errors if _within(loc, scope)],
     )
 
@@ -212,7 +217,13 @@ def load_cases(version_dir: Path, bundle: PolicyBundle) -> tuple[list[_Planned],
     return planned, errors, bool(files)
 
 
-def build_request(case_id: str, data: CaseInput, bundle_id: str, version: int) -> EvaluationRequest:
+def build_request(
+    case_id: str,
+    data: CaseInput,
+    bundle_id: str,
+    version: int,
+    tenant_id: str = TENANT_ID,
+) -> EvaluationRequest:
     focus = data.focus or "LAST_USER_MESSAGE"
     if data.messages is not None:
         messages = data.messages
@@ -228,7 +239,7 @@ def build_request(case_id: str, data: CaseInput, bundle_id: str, version: int) -
         contract_version=CONTRACT_VERSION,
         request_id=f"golden:{case_id}"[:128],
         timestamp=_TIMESTAMP,
-        tenant_id=TENANT_ID,
+        tenant_id=tenant_id,
         bundle=BundleRef(id=bundle_id, version=version),
         phase=data.phase or Phase.PRE_LLM,
         content=Content(
@@ -341,8 +352,14 @@ async def run_golden(
         report.errors.append(f"{path}: no bundle versions found")
         return report
 
+    # Scanning inside policies/tenants/<tenant>/ sees that tenant's bundles as unowned; their
+    # manifests name the tenant, so it becomes the store's default owner for this run.
+    owner = root.name if root.parent.name == TENANTS_DIR else "default"
     store = BundleStore(
-        SnapshotSource(selected), public_keys=public_keys or {}, require_signed=False
+        SnapshotSource(selected),
+        public_keys=public_keys or {},
+        require_signed=False,
+        default_tenant=owner,
     )
     store.reload(force=True)
     state = store.state
@@ -351,23 +368,30 @@ async def run_golden(
         f"{e.location}: {e.error}" for e in state.errors if e.location not in locations
     )
 
-    plans: list[tuple[VersionReport, list[_Planned]]] = []
-    for artifact in sorted(selected.artifacts, key=lambda a: (a.bundle_id, a.version)):
+    # (report entry, cases, owning tenant, bundle id): cases run as the bundle's owner, the only
+    # tenant that can resolve it (ADR-0019 §2)
+    plans: list[tuple[VersionReport, list[_Planned], str, str]] = []
+    for artifact in sorted(
+        selected.artifacts, key=lambda a: (a.tenant_id or "", a.bundle_id, a.version)
+    ):
         entry = VersionReport(
-            bundle_id=artifact.bundle_id,
+            bundle_id=artifact.bundle_id
+            if artifact.tenant_id is None
+            else f"{artifact.tenant_id}/{artifact.bundle_id}",
             version=artifact.version,
-            active=snapshot.active.get(artifact.bundle_id) == artifact.version,
+            active=snapshot.active.get((artifact.tenant_id, artifact.bundle_id))
+            == artifact.version,
         )
         report.versions.append(entry)
         entry.errors.extend(e.error for e in state.errors if e.location == artifact.location)
-        loaded = state.bundles.get((artifact.bundle_id, artifact.version))
+        loaded = state.bundles.get((store.owner(artifact), artifact.bundle_id, artifact.version))
         if loaded is None:
             continue
         cases, errors, entry.has_tests = load_cases(Path(artifact.location), loaded.bundle)
         entry.errors.extend(errors)
-        plans.append((entry, cases))
+        plans.append((entry, cases, store.owner(artifact), artifact.bundle_id))
 
-    if not any(cases for _, cases in plans):
+    if not any(cases for _, cases, _, _ in plans):
         return report
 
     own_detector = detector is None
@@ -376,9 +400,11 @@ async def run_golden(
         await asyncio.to_thread(detector.warm_up)
     evaluator = Evaluator(store, detector, _settings())
     try:
-        for entry, cases in plans:
+        for entry, cases, owner, bundle_id in plans:
             for item in cases:
-                request = build_request(item.case.id, item.input, entry.bundle_id, entry.version)
+                request = build_request(
+                    item.case.id, item.input, bundle_id, entry.version, tenant_id=owner
+                )
                 actual = None
                 try:
                     response = await evaluator.evaluate(request)
