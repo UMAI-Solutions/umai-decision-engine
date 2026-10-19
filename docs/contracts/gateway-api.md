@@ -1,9 +1,10 @@
 # Contract: gateway API
 
-**Version:** 0.4 · **Status:** implemented for Chat Completions and the Responses API,
-non-streaming and streaming: routes, input, tool-result, answer and tool-call checks, masking,
+**Version:** 0.5 · **Status:** implemented for Chat Completions and the Responses API,
+non-streaming and streaming, and for embeddings (input checks): routes, input, tool-result, answer and tool-call checks, masking,
 restoration and refusals (WP2, WP3, WP5; [design](../architecture/ai-gateway.md) §8) · **Endpoints**
-(gateway host, e.g. `eu.gateway.<domain>`): `POST /v1/chat/completions`, `POST /v1/responses`, `GET /v1/models` ·
+(gateway host, e.g. `eu.gateway.<domain>`): `POST /v1/chat/completions`, `POST /v1/responses`, `POST /v1/embeddings`,
+`GET /v1/models` ·
 **Health:** `GET /healthz`, `GET /readyz` · **Code:** `src/umai_decision_engine/gateway/`,
 models in `contracts/gateway.py` · **Decisions:** [ADR-0034](../adr/0034-umai-secure-gateway.md),
 [ADR-0035](../adr/0035-raw-content-zone-l0-and-gateway.md),
@@ -262,6 +263,14 @@ Not checked by the gateway: what hosted tools (web search, file search, code int
 MCP) read and return inside the provider, and items stored at the provider and referenced by
 `previous_response_id` or `item_reference` (they were checked when they passed through).
 
+## Embeddings (`POST /v1/embeddings`, 0.5)
+
+Input checks only: each string of `input` (a string or an array of strings) is checked as
+`PRE_LLM` and masked before it is embedded, so a retrieval index never stores vectors of the
+masked values. Token arrays cannot be scanned and follow `unscanned_parts`. A refusal is always
+HTTP 400 `umai_blocked` (there is no text answer to carry a message). The response passes
+through unchanged; upstream path `<base_url>/embeddings`.
+
 ## Gateway errors
 
 Admission and gateway errors use the OpenAI error shape with `type: "umai_gateway"`:
@@ -293,6 +302,7 @@ latency. No record carries prompt, answer, provider key or mask map (ADR-0035).
 
 ## Changelog
 
+- 0.5 (2026-10-19): `POST /v1/embeddings` with input checks and masking.
 - 0.4 (2026-10-19): OpenAI Responses API (`POST /v1/responses`), non-streaming and
   streaming, with the same checks; shapes recorded live; refusals as `status: incomplete`
   with `incomplete_details.reason: content_filter` or HTTP 400.

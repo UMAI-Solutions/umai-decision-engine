@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 
 from umai_decision_engine import __version__
 from umai_decision_engine.gateway.chat import router
+from umai_decision_engine.gateway.embeddings import router as embeddings_router
 from umai_decision_engine.gateway.errors import GatewayHTTPError, gateway_error_handler
 from umai_decision_engine.gateway.guard import Guard
 from umai_decision_engine.gateway.responses import router as responses_router
@@ -71,6 +72,7 @@ def create_gateway_app(
 
     app.include_router(router)
     app.include_router(responses_router)
+    app.include_router(embeddings_router)
     return app
 
 
