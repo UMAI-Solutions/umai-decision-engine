@@ -33,12 +33,12 @@ from umai_decision_engine.gateway.chat import (
     Call,
     _decision_headers,
     _log,
-    _note_output,
     refusal_error,
 )
 from umai_decision_engine.gateway.errors import GatewayHTTPError
 from umai_decision_engine.gateway.guard import Check
 from umai_decision_engine.gateway.masking import MaskSession, Span
+from umai_decision_engine.gateway.tools import check_tool_calls, note_output
 from umai_decision_engine.gateway.upstream import forwarded_headers
 
 log = logging.getLogger("umai.gateway.stream")
@@ -132,7 +132,7 @@ class AnswerStream:
 
     async def _check(self, text: str) -> Check:
         check = await self.call.guard.check(self.call.ctx, Phase.POST_LLM, [("assistant", text)])
-        _note_output(self.call, check)
+        note_output(self.call, check)
         return check
 
     def _render(self, raw_piece: str, spans: list[Span]) -> str:
@@ -203,12 +203,7 @@ class AnswerStream:
             return [self.chunk(st.index, {}, "content_filter")]
         chunks: list[dict[str, Any]] = []
         if st.tool_calls:
-            deltas = []
-            for k in sorted(st.tool_calls):
-                buffer = st.tool_calls[k]
-                if self.call.route.restore_placeholders:
-                    buffer.arguments = self.session.restore(buffer.arguments, json_string=True)
-                deltas.append(buffer.as_delta(k))
+            deltas = [st.tool_calls[k].as_delta(k) for k in sorted(st.tool_calls)]
             chunks.append(self.chunk(st.index, {"tool_calls": deltas}))
         chunks.append(self.chunk(st.index, {}, finish_reason or "stop"))
         return chunks
@@ -255,9 +250,28 @@ class AnswerStream:
         out = await self.release(st, final=True)
         if self.mode == "after" and self.output_enabled and st.raw and not st.blocked:
             await self._check(st.raw)
+        if st.tool_calls and not st.blocked:
+            await self._check_tool_calls(st)
         out.extend(self.finish_chunks(st, finish_reason))
         st.finished = True
         return out
+
+    async def _check_tool_calls(self, st: ChoiceState) -> None:
+        """Restore the caller's values in each complete call, then check it (TOOL_INPUT)."""
+
+        buffers = [st.tool_calls[k] for k in sorted(st.tool_calls)]
+        functions = []
+        for buffer in buffers:
+            if self.call.route.restore_placeholders:
+                buffer.arguments = self.session.restore(buffer.arguments, json_string=True)
+            functions.append({"name": buffer.name, "arguments": buffer.arguments})
+        blocking = await check_tool_calls(self.call, functions)
+        if blocking is not None:
+            st.blocked = True
+            st.block_check = blocking
+            return
+        for buffer, function in zip(buffers, functions, strict=True):
+            buffer.arguments = function["arguments"]
 
     async def close_unfinished(self) -> list[dict[str, Any]]:
         """Choices the upstream ended without a finish reason get the same final check."""

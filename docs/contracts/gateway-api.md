@@ -1,8 +1,8 @@
 # Contract: gateway API
 
-**Version:** 0.2 · **Status:** implemented for non-streaming and streaming Chat Completions,
-routes, input and answer checks, masking, restoration and refusals (WP2, WP3); tool-call and
-tool-result checks arrive with WP5 ([design](../architecture/ai-gateway.md) §8) · **Endpoints**
+**Version:** 0.3 · **Status:** implemented for non-streaming and streaming Chat Completions:
+routes, input, tool-result, answer and tool-call checks, masking, restoration and refusals (WP2,
+WP3, WP5; [design](../architecture/ai-gateway.md) §8) · **Endpoints**
 (gateway host, e.g. `eu.gateway.<domain>`): `POST /v1/chat/completions`, `GET /v1/models` ·
 **Health:** `GET /healthz`, `GET /readyz` · **Code:** `src/umai_decision_engine/gateway/`,
 models in `contracts/gateway.py` · **Decisions:** [ADR-0034](../adr/0034-umai-secure-gateway.md),
@@ -123,15 +123,16 @@ scanned text at most `UMAI_DE_MAX_INPUT_CHARS` characters (413 `input_too_large`
 
 | Check | Phase | Content | When |
 |---|---|---|---|
-| Input | `PRE_LLM` | Every message the gateway forwards: system, developer, user, assistant (with tool-call arguments) and tool results, history included | Before forwarding |
-| Tool results | `TOOL_OUTPUT` | Each `tool` message, `action.tool_name` from the matching call | Before forwarding, when the bundle enables `TOOL_OUTPUT` (WP5) |
+| Input | `PRE_LLM` | Every message the gateway forwards: system, developer, user, assistant (with tool-call arguments), history included; tool results too when the bundle does not enable `TOOL_OUTPUT` | Before forwarding |
+| Tool results | `TOOL_OUTPUT` | Each `tool` / `function` message on its own, `action.name` = `action.tool_name` = the tool's name (from the matching `tool_call_id`), so policies with the `tool` role and exceptions on the tool name apply | Before forwarding, concurrently with the input check, when the bundle enables `TOOL_OUTPUT` |
 | Answer | `POST_LLM` | Each choice's `message.content` (streams: per release step and on the whole answer) | After the upstream answers |
-| Tool calls | `TOOL_INPUT` | Each complete tool call in the answer, after restoration: `action.name` = `action.tool_name` = `function.name`, content = `function.arguments` | When the bundle enables `TOOL_INPUT` (WP5) |
+| Tool calls | `TOOL_INPUT` | Each complete tool call in the answer, after restoration: `action.name` = `action.tool_name` = `function.name`, content = `function.arguments` (policies with the `tool_call` role) | When the bundle enables `TOOL_INPUT`; masked arguments keep their placeholders |
 
 - The gateway scans **every message it forwards**, whatever the bundle's `l0.target` says (a
   widening only): a value masked in an earlier turn is re-sent by the caller in the history and
   must be masked again.
-- The request is forwarded only if every input check allows it; the strictest action applies.
+- The request is forwarded only if every input and tool-result check allows it; the strictest
+  action applies and names the phase that refused (`umai.phase`).
   After masking, attack and agent-action checks still run on the masked text (ADR-0036).
 - **One placeholder namespace per call.** All checks of a call share placeholder numbering: the
   same value (same type and tenant HMAC) gets the same placeholder everywhere in the call,
@@ -198,8 +199,10 @@ that cannot show errors:
 }
 ```
 
-A blocked non-streaming answer follows the same `refusal` setting (`phase: POST_LLM`); with
-`message`, only the blocked choice is replaced.
+A blocked non-streaming answer or tool call follows the same `refusal` setting (`phase:
+POST_LLM` or `TOOL_INPUT`); with `message`, only the blocked choice is replaced and its tool calls
+are dropped. In `window` streams a blocked tool call is never released: the choice ends with
+`finish_reason: "content_filter"`.
 
 ## Streaming
 
@@ -209,8 +212,8 @@ A blocked non-streaming answer follows the same `refusal` setting (`phase: POST_
 | `window` | Per choice the gateway holds back the last `UMAI_DE_GATEWAY_STREAM_HOLDBACK_CHARS` characters (default 128), re-checks the raw tail every `UMAI_DE_GATEWAY_STREAM_STEP_CHARS` (default 32) and releases what is safe; an entity or a placeholder straddling the boundary is held until complete; the whole answer is checked before the last characters go out; on `BLOCK` the choice ends with `finish_reason: "content_filter"` and the upstream is closed | No detected entity leaves unmasked; decision-model policies on the answer act per release step |
 | `after` | Unchanged stream (placeholders still restored); the whole answer is checked at the end and the decision recorded | Detection only |
 
-- Tool-call deltas are buffered per call and released complete, with restored arguments, when the
-  choice finishes.
+- Tool-call deltas are buffered per call; when the choice finishes each call is restored, checked
+  (`TOOL_INPUT`) and released complete, or the choice ends with `content_filter`.
 - Chunks keep the provider's shape (`chat.completion.chunk`, upstream `id`, `model`, `created`);
   the gateway writes only `delta.content`, `delta.tool_calls` and `finish_reason`; other delta
   fields (role, model refusal text) pass through. The stream ends with `data: [DONE]`.
@@ -248,6 +251,9 @@ latency. No record carries prompt, answer, provider key or mask map (ADR-0035).
 
 ## Changelog
 
+- 0.3 (2026-10-19): agents (WP5): tool results checked as `TOOL_OUTPUT` per message with the
+  tool's name when the bundle enables it (else part of the input check); tool calls in answers
+  checked as `TOOL_INPUT` after restoration, masked in place or refused (`phase: TOOL_INPUT`).
 - 0.2 (2026-10-19): implemented (WP2, WP3). Routes as one YAML file per tenant, hot-reloaded;
   `credential: secret` (deployment-held provider keys, `secret` names the key) and
   `restore_placeholders`; tool results are part of the input check until WP5 adds `TOOL_OUTPUT`;

@@ -55,6 +55,50 @@ l0:
 """
 
 
+# Agents may send national ids to their own tools (no tool_call role on identity); e-mail
+# addresses in results of the CRM tool are trusted (an exception on the tool's name).
+AGENT_GUARDRAIL = """\
+contract_version: "0.6"
+id: gr-gw
+version: 1
+mode: ENFORCE
+phases: [PRE_LLM, POST_LLM, TOOL_INPUT, TOOL_OUTPUT]
+on_evaluation_failure: fail_closed
+l0:
+  policies:
+    - id: identity
+      entities: [TR_TCKN]
+      action: ALLOW_WITH_MODIFICATIONS
+      roles: [user, assistant, tool]
+    - id: contact
+      entities: [EMAIL_ADDRESS]
+      action: ALLOW_WITH_MODIFICATIONS
+    - id: payment
+      entities: [CREDIT_CARD]
+      action: BLOCK
+  exceptions:
+    - id: ex-crm-tool
+      when: { all: [ { field: action.tool_name, operator: EQUALS, value: crm_lookup } ] }
+      entities: [EMAIL_ADDRESS]
+      action: ALLOW
+"""
+
+# No tool phases: tool results fall back to the input check.
+CHAT_ONLY_GUARDRAIL = """\
+contract_version: "0.6"
+id: gr-gw
+version: 1
+mode: ENFORCE
+phases: [PRE_LLM, POST_LLM]
+on_evaluation_failure: fail_closed
+l0:
+  policies:
+    - id: contact
+      entities: [EMAIL_ADDRESS]
+      action: ALLOW_WITH_MODIFICATIONS
+"""
+
+
 def route_yaml(**overrides: Any) -> str:
     route = {
         "route_id": "gpt-eu",
@@ -162,8 +206,14 @@ def upstream() -> FakeUpstream:
 def make_gateway(write_bundle, detector, tmp_path, upstream):
     clients: list[TestClient] = []
 
-    def _make(*, mode: str = "ENFORCE", routes: str | None = None, **settings: Any) -> TestClient:
-        write_bundle(GUARDRAIL.format(mode=mode), bundle_id="gr-gw", active=1)
+    def _make(
+        *,
+        mode: str = "ENFORCE",
+        routes: str | None = None,
+        guardrail: str | None = None,
+        **settings: Any,
+    ) -> TestClient:
+        write_bundle(guardrail or GUARDRAIL.format(mode=mode), bundle_id="gr-gw", active=1)
         routes_dir = tmp_path / "routes"
         routes_dir.mkdir(exist_ok=True)
         (routes_dir / "tenant-a.yaml").write_text(routes or route_yaml(), encoding="utf-8")
@@ -499,7 +549,7 @@ def test_blocked_answer_is_refused(make_gateway, upstream) -> None:
 
 
 def test_tool_call_arguments_get_the_callers_value_back(make_gateway, upstream) -> None:
-    client = make_gateway()
+    client = make_gateway(guardrail=AGENT_GUARDRAIL)
     tool_calls = [
         {
             "id": "call_9",
@@ -597,7 +647,7 @@ def test_stream_keeps_usage_when_the_caller_asks(make_gateway, upstream) -> None
 
 
 def test_stream_tool_calls_are_released_whole(make_gateway, upstream) -> None:
-    client = make_gateway()
+    client = make_gateway(guardrail=AGENT_GUARDRAIL)
     first = {
         "index": 0,
         "id": "call_1",
@@ -693,3 +743,112 @@ def test_stream_never_releases_the_rest_of_an_entity_longer_than_the_hold_back(
     assert address not in released
     assert "example.com" not in released
     assert released.endswith("teşekkürler, iyi günler dileriz.")
+
+
+# ------------------------------------------------------------------ agents (WP5)
+
+
+def _tool_call(name: str, arguments: dict[str, Any], call_id: str = "call_1") -> dict[str, Any]:
+    return {
+        "id": call_id,
+        "type": "function",
+        "function": {"name": name, "arguments": json.dumps(arguments)},
+    }
+
+
+def _agent_turn(tool_name: str, result: str) -> dict[str, Any]:
+    return {
+        "model": "gpt-eu",
+        "messages": [
+            {"role": "user", "content": "Müşteriyi bul ve özetle"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [_tool_call(tool_name, {"q": "x"})],
+            },
+            {"role": "tool", "tool_call_id": "call_1", "content": result},
+        ],
+    }
+
+
+def test_tool_call_arguments_follow_tool_call_policies(make_gateway, upstream) -> None:
+    client = make_gateway()  # identity has every role, tool_call included: the value stays masked
+    upstream.reply = lambda body: completion(
+        None, tool_calls=[_tool_call("find_customer", {"tckn": "<TR_TCKN_1>"})]
+    )
+    response = ask(client, f"TC kimlik {TCKN} olan müşteriyi bul")
+    arguments = response.json()["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"]
+    assert json.loads(arguments) == {"tckn": "<TR_TCKN_1>"}
+    assert response.headers["X-Umai-Output-Decision"] == "ALLOW_WITH_MODIFICATIONS"
+
+
+def test_tool_call_with_a_blocked_value_is_refused(make_gateway, upstream) -> None:
+    upstream.reply = lambda body: completion(None, tool_calls=[_tool_call("pay", {"card": CARD})])
+    client = make_gateway()
+    response = ask(client, "Ödemeyi yap")
+    assert response.status_code == 400
+    assert response.json()["error"]["umai"]["phase"] == "TOOL_INPUT"
+    assert CARD not in response.text
+
+    client = make_gateway(routes=route_yaml(refusal="message"))
+    choice = ask(client, "Ödemeyi yap").json()["choices"][0]
+    assert choice["finish_reason"] == "content_filter"
+    assert "tool_calls" not in choice["message"]
+
+
+def test_stream_tool_call_with_a_blocked_value_ends_with_content_filter(
+    make_gateway, upstream
+) -> None:
+    client = make_gateway()
+    call = {
+        "index": 0,
+        "id": "call_1",
+        "type": "function",
+        "function": {"name": "pay", "arguments": json.dumps({"card": CARD})},
+    }
+    upstream.stream = sse(
+        chunk({"role": "assistant", "content": None}),
+        chunk({"tool_calls": [call]}),
+        chunk({}, "tool_calls"),
+        "[DONE]",
+    )
+    response = ask(client, "Ödemeyi yap", stream=True)
+    events = stream_events(response)
+    assert finish_reasons(events) == ["content_filter"]
+    assert "4242" not in response.text
+
+
+def test_tool_results_are_checked_with_the_tools_name(make_gateway, upstream) -> None:
+    client = make_gateway(guardrail=AGENT_GUARDRAIL)
+    assert (
+        client.post(
+            "/v1/chat/completions", json=_agent_turn("crm_lookup", f"E-posta: {EMAIL}")
+        ).status_code
+        == 200
+    )
+    assert upstream.last_body["messages"][2]["content"] == f"E-posta: {EMAIL}"  # trusted tool
+
+    assert (
+        client.post(
+            "/v1/chat/completions", json=_agent_turn("web_search", f"E-posta: {EMAIL}")
+        ).status_code
+        == 200
+    )
+    assert upstream.last_body["messages"][2]["content"] == "E-posta: <EMAIL_ADDRESS_1>"
+
+
+def test_tool_result_with_a_blocked_value_is_refused(make_gateway, upstream) -> None:
+    client = make_gateway(guardrail=AGENT_GUARDRAIL)
+    response = client.post("/v1/chat/completions", json=_agent_turn("billing", f"Kart {CARD}"))
+    assert response.status_code == 400
+    assert response.json()["error"]["umai"]["phase"] == "TOOL_OUTPUT"
+    assert upstream.requests == []
+
+
+def test_tool_results_fall_back_to_the_input_check(make_gateway, upstream) -> None:
+    client = make_gateway(guardrail=CHAT_ONLY_GUARDRAIL)
+    response = client.post(
+        "/v1/chat/completions", json=_agent_turn("crm_lookup", f"E-posta: {EMAIL}")
+    )
+    assert response.status_code == 200
+    assert upstream.last_body["messages"][2]["content"] == "E-posta: <EMAIL_ADDRESS_1>"

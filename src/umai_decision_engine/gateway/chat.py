@@ -20,7 +20,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 
-from umai_decision_engine.contracts.common import ACTION_RANK, Action, Phase
+from umai_decision_engine.contracts.common import Action, Phase
 from umai_decision_engine.contracts.credentials import Scope
 from umai_decision_engine.contracts.evaluation import Subject
 from umai_decision_engine.contracts.gateway import Route, UmaiDecisionInfo
@@ -32,8 +32,9 @@ from umai_decision_engine.gateway.content import (
     text_size,
 )
 from umai_decision_engine.gateway.errors import GatewayHTTPError, from_admission
-from umai_decision_engine.gateway.guard import CallContext, Check, Guard
+from umai_decision_engine.gateway.guard import CallContext, Check, Guard, strictest
 from umai_decision_engine.gateway.masking import MaskSession
+from umai_decision_engine.gateway.tools import check_tool_calls, input_checks, note_output
 from umai_decision_engine.gateway.upstream import UpstreamClient, forwarded_headers
 from umai_decision_engine.settings import Settings
 
@@ -271,17 +272,18 @@ async def chat_completions(request: Request) -> Response:
     upstream_body = copy.deepcopy(body)
     upstream_body["model"] = route.upstream.model
     if segments:
-        check = await call.guard.check(
-            call.ctx, Phase.PRE_LLM, [(s.role, s.text) for s in segments]
-        )
-        call.input_check = check
-        call.headers["X-Umai-Event-Id"] = check.response.event_id
-        call.headers["X-Umai-Input-Decision"] = str(check.decision.action)
-        if not check.allowed:
+        results = await input_checks(call, body["messages"], segments)
+        worst = strictest([check for check, _ in results])
+        assert worst is not None
+        call.input_check = worst
+        call.headers["X-Umai-Event-Id"] = results[0][0].response.event_id
+        call.headers["X-Umai-Input-Decision"] = str(worst.decision.action)
+        if not worst.allowed:
             _log(call, status=400 if route.refusal == "error" else 200, refused="input")
-            return _refuse(call, check, model=body["model"], stream=stream)
-        if check.masks:
-            _apply_input_masks(call, upstream_body["messages"], segments, check)
+            return _refuse(call, worst, model=body["model"], stream=stream)
+        for check, parts in results:
+            if check.masks:
+                _apply_input_masks(call, upstream_body["messages"], parts, check)
 
     if stream:
         from umai_decision_engine.gateway.streaming import stream_completion
@@ -356,7 +358,7 @@ async def check_answer(call: Call, choices: list[Any]) -> None:
         content = message.get("content")
         if output_enabled and isinstance(content, str) and content:
             check = await call.guard.check(call.ctx, Phase.POST_LLM, [("assistant", content)])
-            _note_output(call, check)
+            note_output(call, check)
             if not check.allowed:
                 if route.refusal == "error":
                     raise refusal_error(call, check)
@@ -372,6 +374,24 @@ async def check_answer(call: Call, choices: list[Any]) -> None:
             message["content"] = content
         if route.restore_placeholders:
             restore_tool_calls(call, message)
+        blocking = await check_tool_calls(call, _functions(message))
+        if blocking is not None:
+            if route.refusal == "error":
+                raise refusal_error(call, blocking)
+            message["content"] = route.refusal_text
+            message.pop("tool_calls", None)
+            choice["finish_reason"] = "content_filter"
+
+
+def _functions(message: dict[str, Any]) -> list[dict[str, Any]]:
+    """The ``function`` objects of a message's tool calls (mutable, for in-place masking)."""
+
+    out = []
+    for tool_call in message.get("tool_calls") or []:
+        function = tool_call.get("function") if isinstance(tool_call, dict) else None
+        if isinstance(function, dict):
+            out.append(function)
+    return out
 
 
 def restore_tool_calls(call: Call, message: dict[str, Any]) -> None:
@@ -382,12 +402,6 @@ def restore_tool_calls(call: Call, message: dict[str, Any]) -> None:
         function = tool_call.get("function") if isinstance(tool_call, dict) else None
         if isinstance(function, dict) and isinstance(function.get("arguments"), str):
             function["arguments"] = call.session.restore(function["arguments"], json_string=True)
-
-
-def _note_output(call: Call, check: Check) -> None:
-    action = check.decision.action
-    if call.output_action is None or ACTION_RANK[action] > ACTION_RANK[call.output_action]:
-        call.output_action = action
 
 
 def _log(
