@@ -13,13 +13,16 @@
 		protocols tls1.2 tls1.3
 	}
 
-	header {
-		Strict-Transport-Security "max-age=31536000"
-		X-Content-Type-Options "nosniff"
-		Referrer-Policy "no-referrer"
-		Content-Security-Policy "frame-ancestors 'none'"
-		-Server
-	}
+	# Defaults for responses that bring none ("?": only when the upstream did not set the
+	# header): the engine API gets these; the console sends its own, with a per-request CSP
+	# nonce (umai-control-center src/lib/security-headers.ts, ADR-0024 §2), and keeps them.
+	# One directive per field: "?" fields in one block share one condition (all absent), so a
+	# single header from the upstream would cancel every default.
+	header ?Strict-Transport-Security "max-age=31536000"
+	header ?X-Content-Type-Options "nosniff"
+	header ?Referrer-Policy "no-referrer"
+	header ?Content-Security-Policy "frame-ancestors 'none'"
+	header -Server
 
 	# Ingress body cap (ADR-0019 §4) until the engine enforces its own prompt-size limit.
 	request_body {
