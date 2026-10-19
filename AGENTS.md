@@ -151,7 +151,8 @@ routes (YAML files, also managed through the policy service's `/v1/gateway/route
 tool-call checks through the in-process pipeline, per-call placeholders restored for the caller,
 streaming modes `window` / `buffer` / `after`; Compose profile `gateway` on the single VM
 (`docs/workflow/gateway.md`). Prompt-attack detection (gateway WP4) is paused until L1: groundwork
-in `l1/attacks/` (not wired in) and the `pi-tr` eval suite.
+in `l1/attacks/` (not wired in) and the `pi-tr` eval suite. `umai-beta` runs the gateway since
+2026-10-20 (enforcing; OpenAI routes with the caller's provider key).
 Tenants are organizations created in the console; API keys, bundles and HMAC keys are per tenant.
 The console signs people in with OIDC (Auth0 development tenant, `umai-control-center`, locally
 since 2026-10-18 and on `umai-beta` since 2026-10-19).
