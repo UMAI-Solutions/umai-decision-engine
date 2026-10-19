@@ -60,6 +60,17 @@ def client(write_bundle, detector):
 # ------------------------------------------------------------ controls that hold today
 
 
+def test_l1_validation_errors_do_not_echo_raw_content(client) -> None:
+    """A malformed request is rejected without reflecting the content back (rule 1; gap L1
+    closed 2026-10-19, evaluation API 0.8)."""
+
+    bad = _request()
+    del bad["timestamp"]  # a missing field: pydantic reports the whole object as `input`
+    response = client.post("/v1/evaluate", json=bad)
+    assert response.status_code == 422
+    assert TCKN not in response.text
+
+
 def test_c1_raw_content_never_reaches_logs_or_response_metadata(client, caplog) -> None:
     """ADR-0005: logs and every response field except the masked text carry no raw value."""
 
@@ -145,17 +156,3 @@ def test_t2_oversized_input_is_refused_not_scanned(client) -> None:
     huge = "Toplantı notlarını özetler misin? " * 20_000  # ~700 kB, far above any plan limit
     response = client.post("/v1/evaluate", json=_request(huge))
     assert response.status_code == 413
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason="GAP-L1: FastAPI 422 bodies echo the offending input, which may be raw content",
-)
-def test_l1_validation_errors_do_not_echo_raw_content(client) -> None:
-    """A malformed request is rejected without reflecting the content back (rule 1)."""
-
-    bad = _request()
-    del bad["timestamp"]  # a missing field: pydantic reports the whole object as `input`
-    response = client.post("/v1/evaluate", json=bad)
-    assert response.status_code == 422
-    assert TCKN not in response.text

@@ -17,7 +17,11 @@ from umai_decision_engine.contracts.bundle import (
     PolicyBundle,
 )
 from umai_decision_engine.contracts.entities import EntityDetectionResult
-from umai_decision_engine.contracts.evaluation import EvaluationRequest, EvaluationResponse
+from umai_decision_engine.contracts.evaluation import (
+    EvaluationRequest,
+    EvaluationResponse,
+    ValidationErrorBody,
+)
 from umai_decision_engine.contracts.policy_tests import PolicyTestFile
 from umai_decision_engine.policy.manifest import BundleManifest
 from umai_decision_engine.policy.validate import validate_bundle
@@ -32,9 +36,12 @@ def _blocks(relative: str, kind: str) -> list[str]:
 
 
 def test_evaluation_api_examples() -> None:
-    request, response, *_ = _blocks("contracts/evaluation-api.md", "json")
+    blocks = _blocks("contracts/evaluation-api.md", "json")
+    request, response, *_ = blocks
     EvaluationRequest.model_validate_json(request)
     EvaluationResponse.model_validate_json(response)
+    (error,) = [block for block in blocks if '"invalid_request"' in block]
+    ValidationErrorBody.model_validate_json(error)
 
 
 def test_entity_detection_example() -> None:

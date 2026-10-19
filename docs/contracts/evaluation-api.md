@@ -1,6 +1,6 @@
 # Contract: evaluation API
 
-**Version:** 0.7 · **Endpoints:** `POST /v1/evaluate`, `GET /v1/bundles`, `POST /v1/bundles/reload`, `POST /v1/detect` (development) · **Health:** `GET /healthz`, `GET /readyz`
+**Version:** 0.8 · **Endpoints:** `POST /v1/evaluate`, `GET /v1/bundles`, `POST /v1/bundles/reload`, `POST /v1/detect` (development) · **Health:** `GET /healthz`, `GET /readyz`
 
 `/readyz` returns 200 only after Presidio analyzers are loaded and warmed up, the policy
 bundles are loaded, and the configured L1b provider answered a probe.
@@ -199,8 +199,32 @@ The endpoint returns HTTP 200 with a decision for every evaluable request, inclu
 failure-policy decisions. HTTP 4xx only for malformed requests (schema violations) and admission
 (401, 403, 429; see above), HTTP 503 only before readiness.
 
+A malformed request (invalid JSON, a missing or unknown field, a wrong type) gets **422** in the
+admission error shape plus `problems`: where the request is malformed (`loc`) and how (`type`,
+Pydantic's error type), at most 50 entries. The body never contains the caller's input: no
+`input`, `ctx`, `msg` or `url`, and a location keeps only the contract's field names and list
+positions; any other key (an unknown field, a `metadata` key) is shown as `<key>` (ADR-0005).
+Authentication runs first, so only an admitted caller sees a 422.
+
+```json
+{
+  "detail": {
+    "error": "invalid_request",
+    "detail": "the request does not match the evaluation API contract",
+    "problems": [
+      { "loc": ["body", "timestamp"], "type": "missing" },
+      { "loc": ["body", "content", "<key>"], "type": "extra_forbidden" }
+    ]
+  }
+}
+```
+
 ## Changelog
 
+- 0.8 (2026-10-19): HTTP 422 body defined: `{"detail": {"error": "invalid_request", "detail",
+  "problems": [{"loc", "type"}]}}`, without the caller's input (gap L1); previously FastAPI's
+  default body, which echoed the offending value. Request shape unchanged; requests 0.2–0.8
+  accepted.
 - 0.7 (2026-10-19): bundles are tenant-owned: evaluation resolves only the request tenant's
   bundles; `/v1/bundles` and `/v1/bundles/{id}/versions/{version}` read one tenant (the key's,
   or `X-Umai-Tenant` / the default tenant for the operator token) and carry `tenant_id`; load
