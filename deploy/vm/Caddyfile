@@ -35,6 +35,17 @@
 		respond 404
 	}
 
+	# UMAI gateway (ADR-0034; Compose profile "gateway"): the OpenAI-compatible paths. Before
+	# @engine, which owns the rest of /v1. Streams are flushed as they arrive. Without the profile
+	# these paths answer 502.
+	@gateway path /v1/chat/completions /v1/responses /v1/embeddings /v1/models
+	handle @gateway {
+		header Cache-Control "no-store"
+		reverse_proxy gateway:9300 {
+			flush_interval -1
+		}
+	}
+
 	@engine path /v1/* /healthz /readyz
 	handle @engine {
 		header Cache-Control "no-store"

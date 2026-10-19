@@ -417,7 +417,7 @@ Found while building WP2–WP5; none blocks the first customer's pilot.
 | N7 | The upstream allow-list checks host names, not what they resolve to (DNS pointing an allowed name at a private address) | before tenant-edited routes (WP7) |
 | N8 | Every turn re-scans the whole history; long agent conversations cost L0 time per turn. A per-message decision cache keyed by HMAC (no content) is possible if measurements ask for it | gateway benchmark |
 | N9 | Engine and gateway processes keep separate per-key rate-limit buckets | Redis buckets (ADR-0023 §7) |
-| N10 | Docker image and Compose: the gateway needs its own service, port 9300 and a Caddy hostname | WP8 |
+| N10 | Done 2026-10-19: Compose profile `gateway` (port 9300), Caddy routes the OpenAI paths on the same hostname with streaming flush, provider keys through `umai.sh` (deploy/vm/README §7). Caddy's 512 KB body cap applies to gateway calls (images) | WP8 |
 | N11 | Anthropic Messages surface (OpenAI Responses done in gateway-api 0.4) | when a customer needs it |
 | N13 | `window` streams show the first words after about hold-back + step = 160 upstream characters (≈ 0.4 s at 100 tokens/s, ≈ 1 s at 40 tokens/s; [report](../../evals/reports/2026-10-19-gateway-latency-wp3/summary.md)). A smaller hold-back halves that but lets entities longer than it (long URLs, API keys) be released in part before they are recognised; the rest is then never released. 128 stays the default until a customer asks | route or deployment setting |
 | N12 | The OpenAI key used for live tests sits in the tracked file `.env.example` of the main checkout (not committed by this work): move it to `.env` (ignored) and rotate it if it was ever pushed | product owner |
