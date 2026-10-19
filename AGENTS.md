@@ -130,11 +130,17 @@ invitations; migration 0002), policy-service routes `/v1/organizations`, `/v1/me
 move into the tenant store with `http_pull` later (ADR-0025 §8).
 Deployment (2026-10-17): single-VM starter on Azure (ADR-0032: `Dockerfile`, `deploy/vm/` Docker
 Compose with Caddy, `deploy/azure/main.bicep`); the console image lives in `umai-control-center`.
+Slice (c) (2026-10-19): `umai-beta` runs organizations with Auth0 sign-in (the console's
+application is Terraform in `umai-control-center/identity/auth0`); `umai.sh` generates the
+session secret, the console's assertion key and the tenant HMAC master key (ADR-0032 amendment:
+keys for runtime-created tenants are derived on single-VM installs) and takes external secrets
+with `umai.sh set-secret`; Caddy's basic auth is a switch (`UMAI_CONSOLE_BASIC_AUTH`), off on beta.
 SaaS readiness (2026-10-17): threat model, gap analysis, launch plan and eight proposed ADRs in
 `docs/security/` and `docs/adr/0023`–`0031` (0031: UMAI Cloud runs on Azure); `tests/readiness/`
 measures the open gaps (xfail).
-The engine is still single-tenant. The console has OIDC sign-in (Auth0 development tenant,
-`umai-control-center`, 2026-10-18); `umai-beta` keeps Caddy basic auth until Auth0 is set up there.
+Tenants are organizations created in the console; API keys, bundles and HMAC keys are per tenant.
+The console signs people in with OIDC (Auth0 development tenant, `umai-control-center`, locally
+since 2026-10-18 and on `umai-beta` since 2026-10-19).
 
 ## Where to look
 

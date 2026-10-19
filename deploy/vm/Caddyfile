@@ -1,6 +1,6 @@
 # One hostname (Azure DNS label or a custom domain): the engine API on /v1, /healthz, /readyz;
 # /brand/* (public brand files for Auth0's login page and e-mails); everything else is the
-# console behind basic auth until console login (ADR-0024) lands.
+# console, which signs people in itself (OIDC, ADR-0024), optionally behind basic auth too.
 {
 	# No ACME account e-mail: Let's Encrypt does not require one (expiry mails are optional).
 	servers {
@@ -51,10 +51,8 @@
 	}
 
 	handle {
-		basic_auth {
-			# "<user> <bcrypt hash>", written by umai.sh from Key Vault into tmpfs.
-			import /run/umai/console-auth.caddy
-		}
+		# basic_auth when UMAI_CONSOLE_BASIC_AUTH=true, else a no-op; written by umai.sh into tmpfs.
+		import /run/umai/console-gate.caddy
 		reverse_proxy console:3100
 	}
 

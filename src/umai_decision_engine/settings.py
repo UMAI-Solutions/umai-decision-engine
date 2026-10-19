@@ -8,6 +8,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -31,6 +33,11 @@ class Settings(BaseSettings):
 
     # L0
     tenant_hmac_keys: dict[str, str] = Field(default_factory=dict)  # tenant → base64 key
+    # Single-VM and self-hosted installs whose organizations are created at runtime: a tenant
+    # without an entry above gets a key derived from this secret (HKDF-SHA256, info names the
+    # tenant), so a new organization needs no restart (ADR-0032 amendment 2026-10-19). UMAI
+    # Cloud generates and wraps one key per tenant instead (ADR-0027 §5).
+    tenant_hmac_master_key: SecretStr | None = None  # base64, at least 32 bytes
     l0_threads: int = Field(4, ge=1, le=64)
 
     # API access. Shared operator token (ADR-0016; self-hosted) and/or per-tenant API keys
@@ -82,12 +89,23 @@ class Settings(BaseSettings):
             self.expose_detect_endpoint = dev
         if self.actor_assertion is None:
             self.actor_assertion = "required" if self.env == "production" else "optional"
+        if self.tenant_hmac_master_key is not None and len(self._master_key()) < 32:
+            raise ValueError("tenant_hmac_master_key must decode to at least 32 bytes")
         return self
+
+    def _master_key(self) -> bytes:
+        assert self.tenant_hmac_master_key is not None
+        return base64.b64decode(self.tenant_hmac_master_key.get_secret_value())
 
     def tenant_key(self, tenant_id: str) -> bytes:
         encoded = self.tenant_hmac_keys.get(tenant_id)
         if encoded:
             return base64.b64decode(encoded)
+        if self.tenant_hmac_master_key is not None:
+            info = b"umai-tenant-hmac/v1:" + tenant_id.encode("utf-8")
+            return HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=info).derive(
+                self._master_key()
+            )
         if self.env == "development":
             # Deterministic development key; never valid outside development.
             return hashlib.sha256(f"umai-de-dev-key:{tenant_id}".encode()).digest()
