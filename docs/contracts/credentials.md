@@ -1,6 +1,6 @@
 # Contract: credentials
 
-**Version:** 0.3 · **Producer → consumer:** control plane → engines (key-registry snapshot), control plane ↔ console (key records), console → policy service (on-behalf-of assertion) · **Decisions:** [ADR-0023](../adr/0023-identity-planes-and-api-keys.md), [ADR-0029](../adr/0029-authorization-roles-and-four-eyes.md)
+**Version:** 0.4 · **Producer → consumer:** control plane → engines (key-registry snapshot), control plane ↔ console (key records), console → policy service (on-behalf-of assertion) · **Decisions:** [ADR-0023](../adr/0023-identity-planes-and-api-keys.md), [ADR-0029](../adr/0029-authorization-roles-and-four-eyes.md)
 
 Three shapes: the **API key record** the console manages, the **key-registry snapshot** the
 control plane publishes per tenant and every engine loads like a bundle (verify → validate →
@@ -43,7 +43,8 @@ Sent as `Authorization: Bearer <key>` only; never in a query string.
 }
 ```
 
-`scopes` ⊆ `evaluate`, `bundles:read`, `usage:read` for customer keys (default `evaluate`);
+`scopes` ⊆ `evaluate`, `gateway`, `bundles:read`, `usage:read` for customer keys (default `evaluate`;
+`gateway` admits the key at the UMAI gateway, [gateway-api](gateway-api.md));
 `bundles:reload` is a control-plane scope that customer keys cannot hold. `status` is derived
 (`revoked` when `revoked_at` is set). `last_used_at` is reserved: engines do not write to the
 store, so it stays `null` until usage telemetry exists.
@@ -142,6 +143,7 @@ assertion names no tenant); 403 `tenant_mismatch` (the target tenant is not the 
 
 ## Changelog
 
+- 0.4 (2026-10-19): scope `gateway` for the UMAI gateway (ADR-0034); snapshot payload unchanged.
 - 0.3 (2026-10-19): assertion claims `email_verified` and `name`; roles are read from the
   tenant store and the `roles` claim is ignored (ADR-0033 §1).
 - 0.2 (2026-10-19): on-behalf-of assertion (ES256 JWS from the console to the policy service,

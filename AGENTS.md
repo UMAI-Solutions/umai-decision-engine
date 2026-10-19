@@ -90,6 +90,7 @@ python -m pytest -q                      # unit + integration tests, no network
 ruff check . ; ruff format --check .
 uvicorn umai_decision_engine.api.app:app --reload --port 9100   # reads policies/ and .env
 uvicorn umai_decision_engine.control_plane.app:app --port 9200  # policy service (ADR-0022)
+uvicorn umai_decision_engine.gateway.app:app --port 9300        # UMAI gateway (ADR-0034); routes: gateway-routes/<tenant>.yaml
 python dev/local_stack.py engine | policy-service | console      # local stack with the console (shared dev settings)
 python -m umai_decision_engine.policy.cli validate policies/<bundle_id>/<version>
 python -m umai_decision_engine.policy.cli test policies --require-tests   # golden tests (ADR-0015)

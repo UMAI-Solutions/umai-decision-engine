@@ -386,8 +386,8 @@ Work packages in dependency order. "Now" means it needs nothing that does not ex
 | WP | Scope | Needs | Exit evidence |
 |---|---|---|---|
 | **WP1 Decisions and contracts** | ADR: UMAI security gateway (option B; A later; no LiteLLM core). ADR amending ADR-0005 (forwarder as raw-content zone) and ADR-0014 (injection checks after masking). Contracts: `gateway-api` 0.1 (Chat Completions), evaluation-api per-message masks, credentials `gateway` scope | Product-owner approval | **Done 2026-10-19** (contract changes to existing code move to WP2) |
-| **WP2 Gateway core (G1)** | `gateway/` package; Chat Completions non-streaming; upstreams OpenAI, Azure OpenAI v1, OpenAI-compatible self-hosted (vLLM, Ollama); pass-through provider keys; routes; PRE / POST L0 checks; masking; refusals; `MONITOR`; usage from provider `usage` | WP1 | Tests against a fake upstream (httpx mock transport); added latency p95; cross-tenant route tests; leak suite 0 |
-| **WP3 Streaming and reversible masking (G2)** | `buffer` / `window` / `after`; placeholder restoration (exact match); tool-call argument buffering | WP2 | Window-scan cost; time-to-first-token overhead; `masking-survival` eval against the customer's three upstream kinds (live, with keys) |
+| **WP2 Gateway core (G1)** — done 2026-10-19 | `gateway/` package; Chat Completions non-streaming; upstreams OpenAI, Azure OpenAI v1, OpenAI-compatible self-hosted (vLLM, Ollama); pass-through provider keys; routes; PRE / POST L0 checks; masking; refusals; `MONITOR`; usage from provider `usage` | WP1 | Tests against a fake upstream (httpx mock transport); added latency p95; cross-tenant route tests; leak suite 0 |
+| **WP3 Streaming and reversible masking (G2)** — done 2026-10-19 | `buffer` / `window` / `after`; placeholder restoration (exact match); tool-call argument buffering | WP2 | Window-scan cost; time-to-first-token overhead; `masking-survival` eval against the customer's three upstream kinds (live, with keys) |
 | **WP4a Turkish attack set** | Synthetic `pi-tr` eval suite: direct override, role-play and jailbreak, system-prompt extraction, indirect injection in documents and tool results, obfuscation (base64, leetspeak, dotless-i and diacritic tricks, homoglyphs), Turkish–English code-switching, multi-turn; hard negatives (security discussions, quoted attacks) | **Now** | Dataset, suite, baseline report |
 | **WP4b Injection detector choice** | Measure CPU-capable multilingual candidates on `pi-tr` (laya-multilingual, Vela Guard 307M, Qwen3Guard; reference `onprem-decision-models.md`) for recall, false alarms, p95 | WP4a; model downloads (product-owner approval) | Report and ADR naming the default detector (Q1 for injection) |
 | **WP4c Injection checks in the pipeline** | Detector behind a provider interface; runs on input, tool results and documents, on masked text after an L0 masking outcome; L1a deterministic tool-call rules (allow-lists, high-impact actions) | ADR-0036, WP4b | `pi-tr` test-split rates published; latency within the gateway budget |
@@ -400,7 +400,26 @@ What the customer asked for is WP2 + WP3 + WP4 + WP5; WP4a can start today in pa
 WP1. Integrations into other gateways (option A, adapters for LiteLLM, Portkey, agentgateway,
 Kong, Azure API Management) follow once WP1's per-message masks exist.
 
-## 9. Decisions needed
+## 9. Notes for later
+
+Found while building WP2–WP5; none blocks the first customer's pilot.
+
+| # | Note | Where it belongs |
+|---|---|---|
+| N1 | Routes are YAML files per tenant written by the operator; tenants cannot edit them yet | WP7: tenant store + policy service + console |
+| N2 | Decision events are not stored (no event sink yet); `X-Umai-Event-Id` names an evaluation that only the logs record | WP6 (ADR-0030) |
+| N3 | `window` streams run one full pipeline evaluation per release step; each logs a `decision` line. Fine for L0; with injection detection (WP4) on every step, measure cost and consider checking attacks only on the whole answer | WP4c benchmark |
+| N4 | A value masked inside tool-call arguments is stored as JSON source text; restoring it into plain content would show JSON escapes (only matters for values with quotes or backslashes) | gateway masking |
+| N5 | `include_usage` is added only for `openai` / `azure_openai` upstreams; self-hosted servers may report no usage in streams | usage ledger (WP6) |
+| N6 | Upstream region is recorded, not enforced per tenant | regional stack (ADR-0026) |
+| N7 | The upstream allow-list checks host names, not what they resolve to (DNS pointing an allowed name at a private address) | before tenant-edited routes (WP7) |
+| N8 | Every turn re-scans the whole history; long agent conversations cost L0 time per turn. A per-message decision cache keyed by HMAC (no content) is possible if measurements ask for it | gateway benchmark |
+| N9 | Engine and gateway processes keep separate per-key rate-limit buckets | Redis buckets (ADR-0023 §7) |
+| N10 | Docker image and Compose: the gateway needs its own service, port 9300 and a Caddy hostname | WP8 |
+| N11 | OpenAI Responses API and Anthropic Messages surfaces | after WP5 |
+| N12 | The OpenAI key used for live tests sits in the tracked file `.env.example` of the main checkout (not committed by this work): move it to `.env` (ignored) and rotate it if it was ever pushed | product owner |
+
+## 10. Decisions needed
 
 Answered: Q45 positioning (A17, ADR-0034). Open: Q46 when · Q47 provider-key custody · Q48
 refusal style · Q49 metering unit · Q50 streaming default · Q51 reversible masking and KVKK /

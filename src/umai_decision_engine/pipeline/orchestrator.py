@@ -14,8 +14,9 @@ import asyncio
 import logging
 import time
 import uuid
+from dataclasses import dataclass, field
 
-from umai_decision_engine.contracts.bundle import PolicyBundle
+from umai_decision_engine.contracts.bundle import PolicyBundle, TargetScope
 from umai_decision_engine.contracts.common import (
     ALLOWED_ACTIONS,
     Action,
@@ -23,7 +24,7 @@ from umai_decision_engine.contracts.common import (
     Mode,
     Severity,
 )
-from umai_decision_engine.contracts.entities import EntityDetectionResult
+from umai_decision_engine.contracts.entities import DetectedEntity, EntityDetectionResult
 from umai_decision_engine.contracts.evaluation import (
     BundleInfo,
     Decision,
@@ -76,6 +77,18 @@ def l1_has_work(bundle: PolicyBundle, request: EvaluationRequest) -> bool:
     return bundle.l1b.enabled and any(request.phase in p.phases for p in bundle.l1b.policies)
 
 
+@dataclass(frozen=True)
+class Evaluated:
+    """An evaluation plus what in-process raw-content callers (the gateway, ADR-0035) need to
+    apply it: the scanned text, L0's entity spans over it, and the types the decision masks.
+    Never serialized: spans index raw text."""
+
+    response: EvaluationResponse
+    scanned_text: str = ""
+    entities: list[DetectedEntity] = field(default_factory=list)
+    masked_types: frozenset[str] = frozenset()
+
+
 class Evaluator:
     def __init__(self, store: BundleStore, detector: EntityDetector, settings: Settings) -> None:
         self._store = store
@@ -107,6 +120,14 @@ class Evaluator:
         return loaded, None
 
     async def evaluate(self, request: EvaluationRequest) -> EvaluationResponse:
+        return (await self.evaluate_detailed(request)).response
+
+    async def evaluate_detailed(
+        self, request: EvaluationRequest, *, target: TargetScope | None = None
+    ) -> Evaluated:
+        """``target`` overrides the bundle's ``l0.target`` (the gateway scans every message it
+        forwards, gateway-api 0.2); callers of the HTTP API never set it."""
+
         started = time.perf_counter()
         event_id = new_event_id()
         budget_s = (
@@ -131,12 +152,14 @@ class Evaluator:
             )
         if loaded is None:
             assert missing is not None
-            return self._config_response(
-                request,
-                event_id,
-                started,
-                missing,
-                BundleInfo(id=request.bundle.id, version=request.bundle.version),
+            return Evaluated(
+                self._config_response(
+                    request,
+                    event_id,
+                    started,
+                    missing,
+                    BundleInfo(id=request.bundle.id, version=request.bundle.version),
+                )
             )
 
         bundle = loaded.bundle
@@ -144,20 +167,22 @@ class Evaluator:
             id=bundle.id, version=bundle.version, mode=bundle.mode, sha256=loaded.sha256
         )
         if request.phase not in bundle.phases:
-            return self._config_response(
-                request,
-                event_id,
-                started,
-                ErrorInfo(
-                    layer=Layer.PIPELINE,
-                    type="CONFIG_INVALID",
-                    message=(
-                        f"phase {request.phase} is not enabled in bundle "
-                        f"{bundle.id} v{bundle.version}"
+            return Evaluated(
+                self._config_response(
+                    request,
+                    event_id,
+                    started,
+                    ErrorInfo(
+                        layer=Layer.PIPELINE,
+                        type="CONFIG_INVALID",
+                        message=(
+                            f"phase {request.phase} is not enabled in bundle "
+                            f"{bundle.id} v{bundle.version}"
+                        ),
+                        retryable=False,
                     ),
-                    retryable=False,
-                ),
-                info,
+                    info,
+                )
             )
 
         errors: list[ErrorInfo] = []
@@ -174,7 +199,7 @@ class Evaluator:
         rules = type_rules(bundle.l0)
         l0_config = phase_config(bundle.l0, rules, request.phase)
         try:
-            text = extract_target_text(request.content, bundle.l0.target)
+            text = extract_target_text(request.content, target or bundle.l0.target)
             l0_result = await asyncio.wait_for(
                 self._detector.adetect(
                     text,
@@ -296,7 +321,14 @@ class Evaluator:
             degraded,
             response.latency_ms.total,
         )
-        return response
+        return Evaluated(
+            response=response,
+            scanned_text=text,
+            entities=list(l0_result.entities) if l0_result else [],
+            masked_types=frozenset(output_modifications.entities)
+            if output_modifications
+            else frozenset(),
+        )
 
     def _config_response(
         self,
