@@ -19,8 +19,8 @@ from umai_decision_engine.contracts.common import (
 )
 from umai_decision_engine.contracts.entities import EntitySummary
 
-CONTRACT_VERSION = "0.7"
-_ACCEPTED_REQUEST_VERSIONS = Literal["0.2", "0.3", "0.4", "0.5", "0.6", "0.7"]
+CONTRACT_VERSION = "0.8"
+_ACCEPTED_REQUEST_VERSIONS = Literal["0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8"]
 
 # ------------------------------------------------------------------ request
 
@@ -170,7 +170,7 @@ class ErrorInfo(ContractModel):
 
 
 class EvaluationResponse(ContractModel):
-    contract_version: Literal["0.2", "0.3", "0.4", "0.5", "0.6", "0.7"] = CONTRACT_VERSION
+    contract_version: Literal["0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8"] = CONTRACT_VERSION
     request_id: str
     tenant_id: str
     bundle: BundleInfo
@@ -211,3 +211,25 @@ class DetectResponse(ContractModel):
     redacted_text: str
     truncated: bool
     latency_ms: float
+
+
+# ------------------------------------------------------------------ errors
+
+
+class ValidationProblem(ContractModel):
+    """Where a malformed request is malformed and how; never the value (0.8, ADR-0005)."""
+
+    loc: list[str | int]
+    type: str
+
+
+class ValidationErrorDetail(ContractModel):
+    error: Literal["invalid_request"] = "invalid_request"
+    detail: str
+    problems: list[ValidationProblem] = Field(max_length=50)
+
+
+class ValidationErrorBody(ContractModel):
+    """HTTP 422 body (evaluation API 0.8): the admission error shape plus `problems`."""
+
+    detail: ValidationErrorDetail

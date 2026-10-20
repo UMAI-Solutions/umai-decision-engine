@@ -11,8 +11,10 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 
 from umai_decision_engine import __version__
+from umai_decision_engine.api.errors import validation_error_handler
 from umai_decision_engine.l0.detector import EntityDetector
 from umai_decision_engine.pipeline.orchestrator import Evaluator
 from umai_decision_engine.policy.sources import DirectorySource
@@ -87,6 +89,7 @@ def create_app(
                 state.detector.close()
 
     app = FastAPI(title="umai-decision-engine", version=__version__, lifespan=lifespan)
+    app.add_exception_handler(RequestValidationError, validation_error_handler)  # gap L1
     from umai_decision_engine.api.routes import router
 
     app.include_router(router)

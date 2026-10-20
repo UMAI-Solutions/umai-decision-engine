@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from tests.conftest import bundle_yaml
 from umai_decision_engine.api.app import create_app
+from umai_decision_engine.contracts.evaluation import ValidationErrorBody
 from umai_decision_engine.settings import Settings
 
 PII_TEXT = "TC kimlik 10000000146 ve IBAN TR33 0006 1005 1978 6457 8413 26"
@@ -309,6 +310,43 @@ def test_phase_not_enabled_blocks(write_bundle, make_client) -> None:
     write_bundle(bundle_yaml(), active=1)
     body = make_client().post("/v1/evaluate", json=_request(phase="MEMORY_WRITE")).json()
     assert body["decision"]["action"] == "BLOCK" and body["errors"][0]["type"] == "CONFIG_INVALID"
+
+
+def test_validation_errors_name_the_field_not_the_value(write_bundle, make_client) -> None:
+    # Evaluation API 0.8 (gap L1): location and type only; content never comes back.
+    write_bundle(bundle_yaml(), active=1)
+    client = make_client()
+    missing = _request()
+    del missing["timestamp"]
+    wrong_type = _request()
+    wrong_type["content"]["messages"][0]["content"] = 10000000146  # a number, not text
+    content_as_key = _request()
+    content_as_key["content"]["TC 10000000146"] = "x"  # an unknown key that is itself content
+    content_as_key["content"]["metadata"] = {"10000000146": "y", "ok": 1}
+    for body, loc, kind in (
+        (missing, ["body", "timestamp"], "missing"),
+        (wrong_type, ["body", "content", "messages", 0, "content"], "string_type"),
+        (content_as_key, ["body", "content", "<key>"], "extra_forbidden"),
+    ):
+        response = client.post("/v1/evaluate", json=body)
+        assert response.status_code == 422
+        parsed = ValidationErrorBody.model_validate(response.json())
+        assert parsed.detail.error == "invalid_request"
+        assert {"loc": loc, "type": kind} in [p.model_dump() for p in parsed.detail.problems]
+        assert "10000000146" not in response.text and '"input"' not in response.text
+
+
+def test_invalid_json_is_422_without_the_body(write_bundle, make_client) -> None:
+    write_bundle(bundle_yaml(), active=1)
+    response = make_client().post(
+        "/v1/evaluate",
+        content=b'{"content": "TC kimlik 10000000146"',  # truncated JSON
+        headers={"content-type": "application/json"},
+    )
+    assert response.status_code == 422
+    problems = ValidationErrorBody.model_validate(response.json()).detail.problems
+    assert problems[0].type == "json_invalid"
+    assert "10000000146" not in response.text
 
 
 def test_tenant_key_required_outside_development(write_bundle, make_client) -> None:

@@ -27,7 +27,7 @@ roles (8.x). Not deployed on `umai-beta` yet: Caddy basic auth stays in front of
 | Per-tenant secrets | HMAC key per tenant from env JSON, deterministic dev fallback: `settings.py:33`, `Settings.tenant_key`; signing key from a file into memory: `settings.py:44`, `control_plane/app.py` (lifespan); `cli keygen` prints the private key: `policy/cli.py:42` |
 | Storage | Bundles as files (`policy/sources.py`), drafts in SQLite (`control_plane/drafts.py:26`), change log as JSON lines (`control_plane/repository.py`, `_log`), no decision-event store (`pipeline/orchestrator.py`, `review_queued=False`) |
 | Logging | `logging.basicConfig` plain text (`telemetry/logging.py:8-11`); decision log carries ids and numbers only (`orchestrator.py:283-296`); Presidio logger clamped to WARNING |
-| Error handling | Exceptions mapped to error kinds (`orchestrator.py:_l0_error_kind`); FastAPI's default 422 handler echoes the offending input (no custom handler in `api/app.py`) — confirmed by readiness test L1 |
+| Error handling | Exceptions mapped to error kinds (`orchestrator.py:_l0_error_kind`); 422 bodies carry location and error type only, never the input (`api/errors.py`, evaluation API 0.8; readiness L1 green since 2026-10-19). Before that FastAPI's default handler echoed the offending input |
 | Limits | Regex timeout per pattern (`l0/recognizers/base.py:21`, default 1 s); no body-size, scan-length or rate limit in either service; the console caps playground text at 32 000 characters (`src/lib/engine-request.ts:14`) but the engine does not |
 | Integrity | SHA-256 + Ed25519 manifests, required outside development (`policy/manifest.py:40-70`, `settings.py:27`) |
 | Console | No authentication, no session, no roles (`src/app/(console)/layout.tsx`); engine and control tokens server-side only (`src/lib/upstream.ts:27-37`); `poweredByHeader: false`, no other security headers (`next.config.mjs`) |
@@ -89,7 +89,7 @@ roles (8.x). Not deployed on `umai-beta` yet: Caddy basic auth stays in front of
 | 16.2.5 | 2 | Sensitive data never logged; hash or mask | **holds** | leak suite, readiness C1; Presidio logger clamped | keep; extend to traces |
 | 16.3.1–16.3.4 | 2 | Log authentication attempts, failed authorization, control bypasses, unexpected errors | partial | `l0.failed`, `config_failure` logged; 401s not logged; no authorization exists | ADR-0030 §1 |
 | 16.4.1–16.4.3 | 2 | Encode log data, protect logs, ship to a separate system | **missing** | stdout only; no pipeline | launch plan S0 |
-| 16.5.1 | 2 | Generic error messages, no internals | partial | mapped error kinds; **422 echoes input** (readiness L1 red) | ADR-0030 §6 |
+| 16.5.1 | 2 | Generic error messages, no internals | holds | mapped error kinds; 422 without input (`api/errors.py`, readiness L1 green 2026-10-19) | — |
 | 16.5.2, 16.5.3 | 2 | Fail securely, no fail-open | **holds** | failure policy explicit (`pipeline/failure.py`), `L1_NOT_IMPLEMENTED` never allows silently | — |
 
 ### Data protection and cryptography (V11, V12, V14)
@@ -159,7 +159,7 @@ ASVS tally over the rows above (2026-10-18, after ADR-0023/0025 code): **holds 1
 
 | Item | Relevance | Status |
 |---|---|---|
-| LLM02 Sensitive information disclosure | The product's purpose; also our own logs/telemetry | holds in code (ADR-0005, leak suite); 422 echo is the exception |
+| LLM02 Sensitive information disclosure | The product's purpose; also our own logs/telemetry | holds in code (ADR-0005, leak suite, 422 without input since 2026-10-19) |
 | LLM06 Unbounded consumption | Our engine must not be the unbounded component | **missing** (limits) |
 | LLM08 Hidden context exposure | Policy bundles and exceptions are "hidden context" for a customer's agents | **missing** (bundles readable by any token holder) |
 | LLM04 Supply chain | Models (future L1b/L2), Presidio, dependencies | **missing** (no SBOM/audit) |

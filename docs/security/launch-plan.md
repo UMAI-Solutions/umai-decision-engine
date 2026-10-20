@@ -32,7 +32,8 @@ region pair confirmed (P2).
    `tenant_id` must match the key (ADR-0023). Readiness T1 goes green.
 2. Prompt-size limit (413) and per-key rate limit (429); ingress body cap (ADR-0019 §4,
    ADR-0023 §7). Readiness T2 goes green.
-3. Custom validation-error handler: `loc` and `type` only (GAP-L1 goes green).
+3. Custom validation-error handler: `loc` and `type` only (GAP-L1 goes green). **Done
+   2026-10-19** (evaluation API 0.8, `api/errors.py`).
 4. Console behind OIDC login (the EU Auth0 tenant, ADR-0024 §4; e-mail + password + TOTP for
    beta users), sessions and
    headers per ADR-0024 §2; on-behalf-of assertion to the policy service (ADR-0023 §1).
@@ -69,7 +70,7 @@ address, support channel for the partners.
 | S0-1 | Tenant from credential; cross-tenant evaluate refused | readiness T1, T3 green in CI | eng | **done** (2026-10-18; tenant-owned bundles and per-tenant listing 2026-10-19) |
 | S0-2 | Keys hashed, scoped, revocable; revocation effective ≤ 10 s | readiness T4, T5; revocation latency measurement | eng | open |
 | S0-3 | Size and rate limits with explicit 413/429; ingress body cap | readiness T2, T6; load test report | eng | open |
-| S0-4 | No raw content in responses, logs or errors | readiness C1, L1 green; leak suite 0 | eng | open (L1) |
+| S0-4 | No raw content in responses, logs or errors | readiness C1, L1 green; leak suite 0 | eng | partial (2026-10-19: L1 green, 422 without input; leak suite over error bodies open) |
 | S0-5 | Console requires login; sessions and headers per ADR-0024 §2 | browser tests; header scan (observatory-style) report | eng | partial (2026-10-18: OIDC login and 60 min / 12 h cookie session in `umai-control-center`; server-side session store, security headers, automated browser tests open) |
 | S0-6 | MFA for owner/admin | Auth0 MFA policy screenshot + test | eng | open |
 | S0-7 | Every configuration change has an actor; audit log visible in console | readiness A1; route test E1 | eng | partial (2026-10-19: A1 green, change log names the actor from the on-behalf-of assertion; console signing and the audit log view open) |
