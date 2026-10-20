@@ -90,6 +90,11 @@ The `umai-engine` preflight, heuristic and AGT rules map onto L1a; see
 
 ## L1b — Decision model
 
+**Status (2026-10-20, [ADR-0040](../adr/0040-l1b-decision-policies-on-openai-decisions.md)):**
+implemented with one adapter, the OpenAI Decisions API (`openai_decisions`), and a `fake` for
+tests. `gr-demo-data-protection` v5 carries nine decision policies converted from the
+`OpenAI_Decisions` set, all in shadow. L1a rules are not implemented yet.
+
 A **decision model** returns typed answers to developer-defined questions rather than
 free text. **Requirement: the default model must be deployable on-prem**
 ([ADR-0004](../adr/0004-decision-model-provider-abstraction.md)).
@@ -156,19 +161,28 @@ l1b:
 
 ### Calling the provider
 
-- **One call per evaluation**: questions of all applicable policies are batched with
-  namespaced ids (`pol-data-exfil.intent`). Split only if the provider limits questions
-  per call (check [`../reference/`](../reference/)). Note that some models decide batched
-  questions jointly (Clef) while others answer them independently (Kev, Strands).
-- **Input** is `{policy_text, facts, redacted_excerpt}`, trimmed to `l1b.max_input_chars`.
-  Vendors report accuracy dropping as irrelevant context grows, so send facts, not the
-  whole conversation. The judged content is a delimited data field: decision models are
-  documented to be movable by instructions inside the state.
-- **Timeout** `l1b.timeout_ms`; on timeout or error the `fallback_provider` is tried only
-  if the remaining runtime budget allows; otherwise the failure policy applies.
-- **Shadow providers** (`l1b.shadow_providers`) are called without awaiting; their answers
-  are recorded for evaluation only and never influence the decision. This is how
-  candidates are compared on real-shaped traffic during R&D.
+- **One call per evaluation** (`l1b.batch: all`, default): questions of all applicable
+  policies are batched with namespaced ids (`pol-data-exfil.intent`). `per_policy` sends one
+  call per policy in parallel; the `l1-latency` eval compares both on live traffic shapes.
+  Note that some models decide batched questions jointly (Clef) while others answer them
+  independently (Kev, Strands).
+- **Input** is what L0 scanned with every detected entity replaced by its placeholder
+  (`pipeline/l1_input.py`), the latest parts first up to `l1b.max_input_chars`, plus facts
+  without identifiers (phase, destination class, role, department, entity counts, tool name).
+  Vendors report accuracy dropping as irrelevant context grows. The judged content is a
+  delimited data field: decision models are documented to be movable by instructions inside
+  the state. The OpenAI adapter sends one user message: a labelled context part, then the
+  content between `<<<CONTENT` / `CONTENT>>>` markers.
+- **After the L0 gate** (ADR-0036): an L0 `BLOCK` / `STEP_UP_APPROVAL` is final and L1b does
+  not run; any other gate outcome is a floor, and `final = max(floor, L1b)`.
+- **Timeout** `l1b.timeout_ms`; not started when the remaining evaluation budget is smaller;
+  on timeout or error the `fallback_provider` is tried when at least half the timeout is
+  left; otherwise the bundle's failure policy applies to the L1b part (`L1B_<KIND>`).
+- **Shadow policies** (`enforcement: shadow`) are evaluated and logged (policy, would-be
+  action, probability) but never decide. When no applicable policy enforces, the call runs
+  after the decision is returned, so it adds no latency. Every converted policy starts here.
+- **Shadow providers** (`l1b.shadow_providers`, planned) will be called without awaiting to
+  compare candidates on the same traffic.
 - **Calibration:** per-question-type temperature fitted on our labelled data is applied
   to probabilities before thresholds, when evals show the provider's own calibration is
   off for Turkish.
@@ -192,7 +206,8 @@ Adapters live in `l1/decision_models/`; adding one: skill `add-decision-provider
 
 ### Review selection
 
-The event is marked `review = true` (queued for asynchronous L2 review) when any of:
+The event is marked `review = true` (queued for asynchronous L2 review; until the review queue
+exists (WP6) the flag is logged with the L1b outcome) when any of:
 
 - the mapped L1b action is in `review_when.actions`;
 - a provider returning probabilities reports the winning answer's probability below

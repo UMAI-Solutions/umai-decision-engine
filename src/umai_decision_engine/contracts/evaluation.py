@@ -19,9 +19,9 @@ from umai_decision_engine.contracts.common import (
 )
 from umai_decision_engine.contracts.entities import EntitySummary
 
-CONTRACT_VERSION = "0.11"
+CONTRACT_VERSION = "0.12"
 _ACCEPTED_REQUEST_VERSIONS = Literal[
-    "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "0.10", "0.11"
+    "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "0.10", "0.11", "0.12"
 ]
 
 # ------------------------------------------------------------------ request
@@ -108,9 +108,10 @@ class EvaluationRequest(ContractModel):
 
 class MatchedRule(ContractModel):
     """What produced (part of) a decision: a guardrail policy, the legacy per-type action, an
-    L0 exception or an L1a rule. Ids and versions only, never content."""
+    L0 exception, an L1a rule or an L1b decision policy (0.12). Ids and versions only, never
+    content."""
 
-    kind: Literal["l0_policy", "l0_on_detect", "l0_exception", "l1a_rule"]
+    kind: Literal["l0_policy", "l0_on_detect", "l0_exception", "l1a_rule", "l1b_policy"]
     id: str
     version: int | None = None
     name: str | None = None
@@ -175,7 +176,7 @@ class ErrorInfo(ContractModel):
 
 class EvaluationResponse(ContractModel):
     contract_version: Literal[
-        "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "0.10", "0.11"
+        "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "0.10", "0.11", "0.12"
     ] = CONTRACT_VERSION
     request_id: str
     tenant_id: str

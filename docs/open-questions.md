@@ -50,6 +50,8 @@ to the ADR or report. Mark questions that block a phase.
 | Q54 | Is there a developer role (read access plus the keys of their own application), or do administrators hand out keys? | Console, ADR-0029 | product | `architecture/console-information-architecture.md` §2, Q-P2; until decided, administrators create an application's keys |
 | Q56 | Is OpenAI the gateway's default provider for every new organization? | Console, gateway | product | `architecture/console-information-architecture.md` §5.1, Q-P4; built as proposed (ADR-0039 Implementation): a built-in pass-through OpenAI provider is the default until another is marked default |
 | Q57 | A per-application *Monitor only* mode (watch a new application before enforcing), or monitor stays a guardrail property? | evaluation-api, gateway-api | product + eng | `architecture/console-information-architecture.md` §8, Q-P5 |
+| Q59 | L1b sends redacted content to OpenAI (US by default; EU processing needs OpenAI's approval, ZDR and +10 %). Which customers accept it, do we apply for EU processing, and which provider serves on-prem customers? | L1b enforcement in the cloud, on-prem L1b | product + legal | ADR-0040, `reference/openai-decisions-api.md` (Data handling); related Q4, Q51 |
+| Q60 | Actions of the nine converted L1b policies: which may BLOCK (proposed: prompt attacks, exfiltration attempts, cyber/fraud/influence misuse, toxic content, sectarian hostility, religious insult), which only warn or tag, and who signs off each threshold | L1b leaving shadow | product | ADR-0040 §8 table; thresholds from step 3 evals |
 
 ## Answered
 

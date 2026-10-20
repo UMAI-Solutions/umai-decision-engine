@@ -25,6 +25,7 @@ umai-decision-engine/
 │   │   ├── orchestrator.py        # resolve bundle → L0 → L1 → decision; budget; MONITOR mode
 │   │   ├── failure.py             # failure policy resolution
 │   │   ├── l0_gate.py             # ADR-0014: L0 detection → per-type action + exceptions
+│   │   ├── l1_input.py            # ADR-0040: L0-scanned parts, redacted, for L1b
 │   │   └── merge.py               # (L1) docs/architecture/decision-merge-and-failure.md
 │   ├── l0/
 │   │   ├── detector.py            # AnalyzerEngine per worker thread (no_op NLP), resolve, hash, redact
@@ -42,15 +43,18 @@ umai-decision-engine/
 │   │   ├── facts.py               # request + L0 summary → facts (no content, no values)
 │   │   └── conditions.py          # condition operators, missing facts never match
 │   ├── l1/
-│   │   ├── rules.py               # L1a evaluation
-│   │   ├── questions.py           # compile bundle policies to DecisionRequest
-│   │   ├── mapping.py             # answers → action, tags, review flag
+│   │   ├── rules.py               # L1a evaluation (planned)
+│   │   ├── stage.py               # ADR-0040: L1b stage: calls, fallback, shadow, outcome
+│   │   ├── questions.py           # compile bundle policies to DecisionRequest (excerpt, facts)
+│   │   ├── mapping.py             # answers → action, tags, review reasons (p_gte thresholds)
+│   │   ├── attacks/               # WP4 groundwork (paused; not wired in)
 │   │   └── decision_models/
 │   │       ├── base.py            # DecisionModel protocol, ProviderCapabilities, errors
-│   │       ├── jev.py
-│   │       ├── openai_decisions.py
-│   │       ├── gpt_oss_safeguard.py
-│   │       └── fake.py            # deterministic fake for tests and offline evals
+│   │       ├── registry.py        # providers by name from settings, shared httpx client
+│   │       ├── openai_decisions.py # /v1/decisions adapter (user messages only)
+│   │       ├── jev.py             # planned
+│   │       ├── gpt_oss_safeguard.py # planned
+│   │       └── fake.py            # deterministic fake for tests, golden cases, offline evals
 │   ├── events/
 │   │   ├── base.py                # EventSink, ReviewQueue protocols
 │   │   ├── memory.py              # tests

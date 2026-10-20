@@ -14,6 +14,7 @@ from fastapi.exceptions import RequestValidationError
 from umai_decision_engine import __version__
 from umai_decision_engine.api.errors import validation_error_handler
 from umai_decision_engine.l0.detector import EntityDetector
+from umai_decision_engine.l1.decision_models.registry import DecisionModels
 from umai_decision_engine.policy.store import BundleStore
 from umai_decision_engine.runtime import start_runtime
 from umai_decision_engine.settings import Settings, get_settings
@@ -24,12 +25,18 @@ def create_app(
     *,
     store: BundleStore | None = None,
     detector: EntityDetector | None = None,
+    decision_models: DecisionModels | None = None,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         state = app.state
         state.ready = False
-        runtime = await start_runtime(settings or get_settings(), store=store, detector=detector)
+        runtime = await start_runtime(
+            settings or get_settings(),
+            store=store,
+            detector=detector,
+            decision_models=decision_models,
+        )
         state.settings = runtime.settings
         state.store = runtime.store
         state.detector = runtime.detector

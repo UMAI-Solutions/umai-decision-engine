@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field, model_validator
 
@@ -71,11 +71,15 @@ class GoldenCase(ContractModel):
     id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
     description: str | None = None
     input: CaseInput
+    # What the decision model answers in this case (0.3, ADR-0040), by "<policy id>.<question
+    # id>": a choice value or {value, p}, a condition probability, {level} for a score, or
+    # {refused: true}. Questions not listed come back refused, so their policy's default applies.
+    model_answers: dict[str, Any] | None = None
     expect: Expectation
 
 
 class PolicyTestFile(ContractModel):
-    contract_version: Literal["0.1", "0.2"]
+    contract_version: Literal["0.1", "0.2", "0.3"]
     defaults: CaseInput = Field(default_factory=CaseInput)
     cases: list[GoldenCase] = Field(min_length=1)
 

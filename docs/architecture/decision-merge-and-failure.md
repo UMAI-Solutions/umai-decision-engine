@@ -49,7 +49,7 @@ Rules:
    is final and L1a/L1b do not run. Any other outcome (`ALLOW_WITH_MODIFICATIONS`,
    `ALLOW_WITH_WARNINGS`, an exception's `ALLOW`) is a **floor**: L1 runs on the masked text and
    `final = max(L0 outcome, L1 outcome)` ([ADR-0036](../adr/0036-checks-continue-after-masking.md)).
-   Until L1 is implemented the L0 outcome is final, as before.
+   In effect since L1b (ADR-0040); a masking outcome keeps its masking unless L1 refuses.
    `STEP_UP_APPROVAL` behaves as `BLOCK` in phases without a user interface.
 1. An L1a `BLOCK` is final; L1b does not run.
 2. An L1a `ALLOW` with `final: true` is final unless rule 1 applies.
@@ -84,6 +84,8 @@ not tried, if its timeout exceeds the remaining budget; the failure rule applies
 | L1b provider error / timeout | try `fallback_provider` if budget allows, else `on_evaluation_failure` applied **to the L1b part**: `final = max(floor, failure action)` | bundle |
 | L1b answer outside declared options | treated as provider error | fixed |
 | L1b refusal on a question | not an error: the question has no answer; `decide` rules using it do not match; event is marked for review | fixed |
+| L1b provider not configured | as a provider error (`L1B_UNAVAILABLE`), never an allow | fixed |
+| Shadow policy (any outcome or failure) | logged only; never changes the decision or adds latency when no policy enforces | bundle (`enforcement`) |
 | `flags.allow_model_calls = false` | L1b skipped; `final = floor`; `degraded: true` if an L1b policy applied | request |
 | Event emit failure | decision unaffected; retried locally and counted | fixed |
 

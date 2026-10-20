@@ -1,11 +1,15 @@
-"""Runtime evaluation: resolve bundle → L0 → (L0 gate | L1) → final decision.
+"""Runtime evaluation: resolve bundle → L0 → L0 gate → L1 → final decision
+(docs/architecture/decision-merge-and-failure.md).
 
-- L0 detected an entity → the L0 gate decides and L1 does not run (ADR-0014): no decision-model
-  call, no tokens.
-- L0 detected nothing → L1. L1 (rules and decision model) is not implemented yet: a bundle with
-  nothing for L1 to evaluate yields the L1a floor (ALLOW); a bundle with L1 logic is answered
-  with its ``on_evaluation_failure`` and an explicit ``L1_NOT_IMPLEMENTED`` error — never a
-  silent allow (AGENTS.md rule 4).
+- L0 gate (ADR-0014): a detection's ``BLOCK`` / ``STEP_UP_APPROVAL`` is final; any other gate
+  outcome (masking, warning, an exception's allow) is a floor and L1 still runs, on the
+  redacted text (ADR-0036): ``final = max(floor, L1)``.
+- L1b (ADR-0040): the bundle's decision policies, answered by a decision model. A provider
+  failure applies the bundle's failure policy to the L1b part. Shadow policies are recorded,
+  never decide.
+- L1a rules are not implemented yet: a bundle with L1a rules is answered with its
+  ``on_evaluation_failure`` and an explicit ``L1_NOT_IMPLEMENTED`` error — never a silent allow
+  (AGENTS.md rule 4).
 """
 
 from __future__ import annotations
@@ -40,10 +44,13 @@ from umai_decision_engine.contracts.evaluation import (
 from umai_decision_engine.l0.detector import EntityDetector
 from umai_decision_engine.l0.hashing import TenantKeyError
 from umai_decision_engine.l0.recognizers.catalog import TAG_BY_ENTITY
-from umai_decision_engine.l0.target import SEPARATOR, extract_target_segments
+from umai_decision_engine.l0.target import SEPARATOR, extract_target_parts
+from umai_decision_engine.l1.decision_models.registry import DecisionModels
+from umai_decision_engine.l1.stage import L1bStage, stricter
 from umai_decision_engine.pipeline.failure import config_failure_decision, failure_decision
 from umai_decision_engine.pipeline.l0_gate import decide_l0
 from umai_decision_engine.pipeline.l0_policies import phase_config, type_rules
+from umai_decision_engine.pipeline.l1_input import redacted_parts
 from umai_decision_engine.policy.store import BundleStore, LoadedBundle
 from umai_decision_engine.policy.validate import BundleValidationError
 from umai_decision_engine.rules.facts import build_facts
@@ -70,12 +77,32 @@ def l0_tags(result: EntityDetectionResult) -> list[Tag]:
     ]
 
 
-def l1_has_work(bundle: PolicyBundle, request: EvaluationRequest) -> bool:
+def l1a_has_rules(bundle: PolicyBundle) -> bool:
     if bundle.l1a.rules:
         return True
-    if bundle.l1a.legacy_preflight and bundle.l1a.legacy_preflight.rules:
-        return True
+    return bool(bundle.l1a.legacy_preflight and bundle.l1a.legacy_preflight.rules)
+
+
+def l1b_applies(bundle: PolicyBundle, request: EvaluationRequest) -> bool:
     return bundle.l1b.enabled and any(request.phase in p.phases for p in bundle.l1b.policies)
+
+
+def l1_has_work(bundle: PolicyBundle, request: EvaluationRequest) -> bool:
+    return l1a_has_rules(bundle) or l1b_applies(bundle, request)
+
+
+_TERMINAL_L0 = frozenset({Action.BLOCK, Action.STEP_UP_APPROVAL})
+
+
+def with_floor(floor: Decision | None, decision: Decision) -> Decision:
+    """``max(floor, decision)``; the floor wins ties. Matched rules of both are kept, the
+    winner's first."""
+
+    if floor is None:
+        return decision
+    if stricter(decision, floor):
+        return decision.model_copy(update={"matched": decision.matched + floor.matched})
+    return floor.model_copy(update={"matched": floor.matched + decision.matched})
 
 
 @dataclass(frozen=True)
@@ -91,10 +118,17 @@ class Evaluated:
 
 
 class Evaluator:
-    def __init__(self, store: BundleStore, detector: EntityDetector, settings: Settings) -> None:
+    def __init__(
+        self,
+        store: BundleStore,
+        detector: EntityDetector,
+        settings: Settings,
+        decision_models: DecisionModels | None = None,
+    ) -> None:
         self._store = store
         self._detector = detector
         self._settings = settings
+        self.l1b = L1bStage(decision_models or DecisionModels({}))
 
     def resolve_bundle(
         self, request: EvaluationRequest
@@ -199,8 +233,10 @@ class Evaluator:
         # for this phase: a policy only screens the roles / phases it is enabled for (ADR-0021).
         rules = type_rules(bundle.l0)
         l0_config = phase_config(bundle.l0, rules, request.phase)
+        parts: list[tuple[str, str]] = []
         try:
-            segments = extract_target_segments(request.content, target or bundle.l0.target)
+            parts = extract_target_parts(request.content, target or bundle.l0.target)
+            segments = [part for _, part in parts]
             text = SEPARATOR.join(segments)
             l0_result = await asyncio.wait_for(
                 self._detector.adetect_segments(
@@ -221,8 +257,9 @@ class Evaluator:
             degraded = True
             logger.warning("l0.failed request_id=%s kind=%s", request.request_id, kind)
 
-        # ---------------- L0 gate (ADR-0014): a detection is terminal, L1 does not run
+        # ---------------- L0 gate (ADR-0014, ADR-0036): BLOCK / STEP_UP final, else a floor
         output_modifications: OutputModifications | None = None
+        floor: Decision | None = None
         if decision is None and l0_result is not None:
             if l0_result.summary:
                 gate = decide_l0(
@@ -243,8 +280,51 @@ class Evaluator:
         l0_ms = _ms(l0_started)
         tags = l0_tags(l0_result) if l0_result else []
 
-        # ---------------- L1 (only when L0 detected nothing; not implemented yet)
+        # A gate outcome that is not BLOCK / STEP_UP becomes the floor when L1 has work.
+        if (
+            decision is not None
+            and not degraded
+            and decision.decided_by == "L0"
+            and decision.action not in _TERMINAL_L0
+            and l1_has_work(bundle, request)
+        ):
+            floor, decision = decision, None
+
+        # ---------------- L1
         l1_ms: float | None = None
+        l1b_ms: float | None = None
+        if decision is None and l1b_applies(bundle, request) and not l1a_has_rules(bundle):
+            assert l0_result is not None
+            l1b = await self.l1b.run(
+                bundle,
+                request,
+                redacted_parts(parts, l0_result.entities),
+                l0_result.summary,
+                remaining_s=budget_s - (time.perf_counter() - started),
+                event_id=event_id,
+            )
+            l1b_ms = l1b.latency_ms
+            trace.extend(l1b.trace)
+            errors.extend(l1b.errors)
+            tags.extend(l1b.tags)
+            degraded = degraded or l1b.degraded
+            if l1b.failed is not None:
+                decision = with_floor(
+                    floor,
+                    failure_decision(
+                        bundle.on_evaluation_failure, request.phase, f"L1b {l1b.failed}"
+                    ),
+                )
+            elif l1b.decision is not None:
+                decision = with_floor(floor, l1b.decision)
+            else:  # only shadow policies applied, or model calls disabled: as without L1b
+                decision = floor or Decision(
+                    action=Action.ALLOW,
+                    allowed=True,
+                    severity=Severity.LOW,
+                    reason="no entities detected and no policy rules apply",
+                    decided_by="L1a",
+                )
         if decision is None:
             l1_started = time.perf_counter()
             if l1_has_work(bundle, request):
@@ -264,15 +344,18 @@ class Evaluator:
                         layer=Layer.L1A, outcome="not_implemented", latency_ms=_ms(l1_started)
                     )
                 )
-                decision = failure_decision(
-                    bundle.on_evaluation_failure, request.phase, "L1_NOT_IMPLEMENTED"
+                decision = with_floor(
+                    floor,
+                    failure_decision(
+                        bundle.on_evaluation_failure, request.phase, "L1_NOT_IMPLEMENTED"
+                    ),
                 )
                 degraded = True
             else:
                 trace.append(
                     TraceEntry(layer=Layer.L1A, outcome="no_rules", latency_ms=_ms(l1_started))
                 )
-                decision = Decision(
+                decision = floor or Decision(
                     action=Action.ALLOW,
                     allowed=True,
                     severity=Severity.LOW,
@@ -280,6 +363,10 @@ class Evaluator:
                     decided_by="L1a",
                 )
             l1_ms = _ms(l1_started)
+
+        # Masking applies only while the final action is the gate's masking outcome.
+        if decision.action != Action.ALLOW_WITH_MODIFICATIONS:
+            output_modifications = None
 
         # ---------------- mode
         would_have = None
@@ -309,7 +396,7 @@ class Evaluator:
             output_modifications=output_modifications,
             event_id=event_id,
             review_queued=False,  # event sink arrives with L2 (F3)
-            latency_ms=LatencyMs(total=_ms(started), l0=l0_ms, l1a=l1_ms),
+            latency_ms=LatencyMs(total=_ms(started), l0=l0_ms, l1a=l1_ms, l1b=l1b_ms),
             trace=trace if request.flags.trace else None,
             errors=errors,
         )

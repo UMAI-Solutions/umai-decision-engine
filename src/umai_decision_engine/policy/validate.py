@@ -79,13 +79,19 @@ def _check_when(
         if question is None:
             problems.append(f"{where}: unknown question {qid!r}")
         elif isinstance(question, ChoiceQuestion):
+            # value | [values] | {value: v | [v], p_gte: probability} (decision-questions 0.4)
+            if isinstance(expected, dict):
+                _check_probability_keys(where, qid, expected, {"value", "p_gte"}, problems)
+                expected = expected.get("value")
             values = expected if isinstance(expected, list) else [expected]
             options = {o.value for o in question.options}
             for value in values:
                 if value not in options:
                     problems.append(f"{where}: {value!r} is not an option of {qid!r}")
         elif isinstance(question, ConditionQuestion):
-            if not isinstance(expected, bool):
+            if isinstance(expected, dict):  # {p_gte: probability of "true"}
+                _check_probability_keys(where, qid, expected, {"p_gte"}, problems)
+            elif not isinstance(expected, bool):
                 problems.append(f"{where}: condition {qid!r} must be compared to true/false")
         elif isinstance(question, ScoreQuestion):
             top = len(question.levels) - 1
@@ -95,6 +101,22 @@ def _check_when(
                     problems.append(f"{where}: unknown score operator {op!r} for {qid!r}")
                 elif not isinstance(level, int) or not 0 <= level <= top:
                     problems.append(f"{where}: level {level!r} out of range 0..{top} for {qid!r}")
+
+
+def _check_probability_keys(
+    where: str, qid: str, expected: dict[str, Any], allowed: set[str], problems: list[str]
+) -> None:
+    unknown = set(expected) - allowed
+    if unknown:
+        problems.append(f"{where}: unknown keys {sorted(unknown)} for {qid!r}")
+    if "p_gte" not in expected:
+        problems.append(f"{where}: {qid!r} needs p_gte")
+        return
+    threshold = expected["p_gte"]
+    if isinstance(threshold, bool) or not isinstance(threshold, int | float):
+        problems.append(f"{where}: p_gte for {qid!r} must be a number")
+    elif not 0 <= threshold <= 1:
+        problems.append(f"{where}: p_gte for {qid!r} must be between 0 and 1")
 
 
 def validate_bundle(bundle: PolicyBundle) -> list[str]:
@@ -206,9 +228,11 @@ def validate_bundle(bundle: PolicyBundle) -> list[str]:
         for index, rule in enumerate(policy.decide):
             if rule.when is not None:
                 _check_when(f"{where}.decide[{index}]", rule.when, policy.questions, problems)
-            for entity in rule.redact:
-                if entity not in entities:
-                    problems.append(f"{where}: redact type {entity!r} is not in l0.entities")
+            if rule.redact:
+                problems.append(
+                    f"{where}.decide[{index}]: redact is not supported by L1b in this engine "
+                    "version"
+                )
             _check_tags(f"{where}.decide[{index}]", rule.tags, problems)
     if bundle.l1b.policies and bundle.l1b.enabled and not bundle.l1b.provider:
         problems.append("l1b.provider: required when l1b has policies")

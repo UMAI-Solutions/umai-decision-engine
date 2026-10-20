@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 
 from umai_decision_engine.applications import AllowList, ApplicationTable
 from umai_decision_engine.l0.detector import EntityDetector
+from umai_decision_engine.l1.decision_models.registry import DecisionModels
 from umai_decision_engine.pipeline.orchestrator import Evaluator
 from umai_decision_engine.policy.sources import DirectorySource
 from umai_decision_engine.policy.store import BundleStore
@@ -43,6 +44,8 @@ class Runtime:
             with contextlib.suppress(asyncio.CancelledError):
                 await task
         self.tasks.clear()
+        await self.evaluator.l1b.drain()
+        await self.evaluator.l1b.aclose()
         if self.owns_detector:
             self.detector.close()
 
@@ -52,6 +55,7 @@ async def start_runtime(
     *,
     store: BundleStore | None = None,
     detector: EntityDetector | None = None,
+    decision_models: DecisionModels | None = None,
 ) -> Runtime:
     if cfg.env != "development" and cfg.api_token is None and cfg.key_registry_dir is None:
         raise RuntimeError(
@@ -93,7 +97,12 @@ async def start_runtime(
         settings=cfg,
         store=store,
         detector=detector,
-        evaluator=Evaluator(store, detector, cfg),
+        evaluator=Evaluator(
+            store,
+            detector,
+            cfg,
+            decision_models=decision_models or DecisionModels.from_settings(cfg),
+        ),
         registry=registry,
         admission=admission,
         applications=applications,

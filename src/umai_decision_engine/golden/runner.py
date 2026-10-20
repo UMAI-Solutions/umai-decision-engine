@@ -15,6 +15,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import yaml
 from pydantic import ValidationError
@@ -36,6 +37,8 @@ from umai_decision_engine.contracts.policy_tests import (
     PolicyTestFile,
 )
 from umai_decision_engine.l0.detector import EntityDetector
+from umai_decision_engine.l1.decision_models.fake import FakeDecisionModel
+from umai_decision_engine.l1.decision_models.registry import DecisionModels
 from umai_decision_engine.pipeline.orchestrator import Evaluator
 from umai_decision_engine.policy.sources import (
     BUNDLE_FILE,
@@ -401,13 +404,19 @@ async def run_golden(
     if detector is None:
         detector = EntityDetector(lambda _tenant: _HMAC_KEY, threads=2)
         await asyncio.to_thread(detector.warm_up)
-    evaluator = Evaluator(store, detector, _settings())
+    # Decision-model answers come from the cases (policy-tests 0.3): deterministic, offline.
+    answers: dict[str, dict[str, Any]] = {}
+    model = FakeDecisionModel("golden", lambda r: answers.get(r.request_id, {}))
+    evaluator = Evaluator(
+        store, detector, _settings(), decision_models=DecisionModels.answering_for_all(model)
+    )
     try:
         for entry, cases, owner, bundle_id in plans:
             for item in cases:
                 request = build_request(
                     item.case.id, item.input, bundle_id, entry.version, tenant_id=owner
                 )
+                answers[request.request_id] = item.case.model_answers or {}
                 actual = None
                 try:
                     response = await evaluator.evaluate(request)
@@ -418,6 +427,7 @@ async def run_golden(
                     actual = observed(response)
                 entry.cases.append(CaseResult(item.case.id, item.file, tuple(failures), actual))
     finally:
+        await evaluator.l1b.drain()
         if own_detector:
             detector.close()
     return report

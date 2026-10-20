@@ -311,6 +311,13 @@ class ReviewWhen(ContractModel):
 class DecisionPolicy(ContractModel):
     id: str = Field(min_length=1)
     version: int = Field(ge=1)
+    # Display data and provenance (0.9); never sent to a provider.
+    name: str | None = Field(None, max_length=120)
+    description: str | None = Field(None, max_length=1000)
+    source: str | None = Field(None, max_length=300)
+    # shadow (0.9, ADR-0040): the policy is evaluated and recorded but never changes the
+    # decision; a policy enforces only once evals have set its thresholds.
+    enforcement: Literal["enforce", "shadow"] = "enforce"
     phases: list[Phase] = Field(min_length=1)
     policy_text: str = Field(min_length=1, max_length=4000)
     questions: dict[str, Question] = Field(min_length=1)
@@ -344,6 +351,9 @@ class L1bConfig(ContractModel):
     shadow_providers: list[str] = Field(default_factory=list)
     timeout_ms: int = Field(600, ge=10, le=10_000)
     max_input_chars: int = Field(4000, ge=100, le=100_000)
+    # all: one provider call with every applicable question; per_policy: one call per policy,
+    # in parallel (0.9, ADR-0040; measured, see docs/architecture/l1-policy-decision.md).
+    batch: Literal["all", "per_policy"] = "all"
     policies: list[DecisionPolicy] = Field(default_factory=list)
 
 
@@ -376,7 +386,7 @@ class L2Config(ContractModel):
 
 
 class PolicyBundle(ContractModel):
-    contract_version: Literal["0.3", "0.4", "0.5", "0.6", "0.7"]
+    contract_version: Literal["0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9"]
     id: str = Field(pattern=r"^[a-z0-9][a-z0-9._\-]{0,127}$")
     version: int = Field(ge=1)
     # Guardrail display data (0.6); the id stays the identifier callers use.
