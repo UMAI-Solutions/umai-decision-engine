@@ -144,10 +144,10 @@ with `umai.sh set-secret`; Caddy's basic auth is a switch (`UMAI_CONSOLE_BASIC_A
 SaaS readiness (2026-10-17): threat model, gap analysis, launch plan and eight proposed ADRs in
 `docs/security/` and `docs/adr/0023`–`0031` (0031: UMAI Cloud runs on Azure); `tests/readiness/`
 measures the open gaps (xfail).
-UMAI gateway (2026-10-19/20, ADR-0034 to ADR-0039, contract `gateway-api` 0.10): `gateway/` on port
+UMAI gateway (2026-10-19/20, ADR-0034 to ADR-0039, contract `gateway-api` 0.12): `gateway/` on port
 9300 speaks OpenAI Chat Completions, the Responses API, embeddings and `/v1/models`. Applications
 are the protected unit (ADR-0039): one guardrail on every path, its own keys (credentials 0.6,
-tenant-store migration 0004; evaluation API 0.10 takes the guardrail from the key's application),
+tenant-store migration 0004; evaluation API 0.11 takes the active guardrail from the key's application),
 optional allowed providers, model names, aliases and a fallback target. The AI gateway has the
 organization's providers (a built-in pass-through OpenAI provider, the default unless another is
 marked; `@<provider>/<model>` picks one) with `pass_through` / `secret` / `none` credentials, and
