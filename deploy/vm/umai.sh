@@ -81,6 +81,40 @@ secret() {  # $1 = Key Vault secret name; in secrets.env: upper case, '-' -> '_'
   fi
 }
 
+optional_secret() {  # like secret, but empty when the secret is not stored
+  if [[ -n "$UMAI_KEY_VAULT" ]]; then
+    curl -sf -H "Authorization: Bearer $KV_TOKEN" \
+      "https://${UMAI_KEY_VAULT}.vault.azure.net/secrets/$1?api-version=7.4" | jq -r .value || true
+  else
+    local var="${1//-/_}"
+    var="${var^^}"
+    # shellcheck source=/dev/null
+    (set -a; . "$SECRETS"; printf '%s' "${!var:-}")
+  fi
+}
+
+# L1b decision provider (ADR-0040), for the engine and the gateway. Optional: without the key the
+# engine has no decision provider, and a guardrail with decision policies answers its L1b part
+# with the bundle's failure policy. UMAI_DECISION_PROVIDERS in config.env replaces the provider
+# entry (e.g. https://eu.api.openai.com/v1 once OpenAI approved EU processing); the key belongs to
+# the provider named "openai", the name the bundles use.
+DEFAULT_DECISION_PROVIDERS='{"openai":{"adapter":"openai_decisions","base_url":"https://api.openai.com/v1","model":"gpt-6-luna"}}'
+
+decision_env() {  # stdout: the engine.env lines, or nothing without a key
+  local key
+  key="$(optional_secret umai-openai-api-key)"
+  if [[ -z "$key" ]]; then
+    echo "umai: no UMAI_OPENAI_API_KEY stored: L1b has no decision provider" >&2
+    return 0
+  fi
+  if [[ ! "$key" =~ ^[A-Za-z0-9_-]+$ ]]; then
+    echo "umai: UMAI_OPENAI_API_KEY has characters an OpenAI key does not have" >&2
+    exit 1
+  fi
+  printf 'UMAI_DE_DECISION_PROVIDERS=%s\n' "${UMAI_DECISION_PROVIDERS:-$DEFAULT_DECISION_PROVIDERS}"
+  printf 'UMAI_DE_DECISION_PROVIDER_KEYS={"openai":"%s"}\n' "$key"
+}
+
 new_hex() { openssl rand -hex 24; }
 new_key32() { openssl rand -base64 32; }
 # The console's P-256 key for on-behalf-of assertions (credentials 0.3): PKCS#8 PEM, base64 on one line.
@@ -149,7 +183,7 @@ secrets() {
   ensure_local_secret UMAI_TENANT_HMAC_MASTER_KEY new_key32  # organizations (ADR-0032 amendment)
   ensure_local_secret UMAI_SESSION_SECRET                    # console session cookie key
   ensure_local_secret UMAI_CONSOLE_ACTOR_KEY new_actor_key   # console -> policy service assertions
-  local api control hmac hmac_master db_owner db_app actor_public session oidc_secret
+  local api control hmac hmac_master db_owner db_app actor_public session oidc_secret decision
   db_owner="$(secret umai-db-owner-password)"
   db_app="$(secret umai-db-app-password)"
   api="$(secret umai-api-token)"
@@ -159,8 +193,12 @@ secrets() {
   session="$(secret umai-session-secret)"
   oidc_secret="$(secret umai-oidc-client-secret)"  # README §3a: set-secret from Terraform's output
   secret umai-signing-key | put "$RUN/signing.key" "$APP_UID"
-  printf 'UMAI_DE_API_TOKEN=%s\nUMAI_DE_TENANT_HMAC_KEYS=%s\nUMAI_DE_TENANT_HMAC_MASTER_KEY=%s\n' \
-    "$api" "$hmac" "$hmac_master" | put "$RUN/engine.env" 0
+  decision="$(decision_env)"  # before engine.env is written: a bad key stops here
+  {
+    printf 'UMAI_DE_API_TOKEN=%s\nUMAI_DE_TENANT_HMAC_KEYS=%s\nUMAI_DE_TENANT_HMAC_MASTER_KEY=%s\n' \
+      "$api" "$hmac" "$hmac_master"
+    [[ -z "$decision" ]] || printf '%s\n' "$decision"
+  } | put "$RUN/engine.env" 0
   secret umai-console-actor-key | base64 -d | put "$RUN/actor.pem" "$CONSOLE_UID"
   actor_public="$(openssl pkey -in "$RUN/actor.pem" -pubout -outform DER | base64 -w0)"
   printf 'UMAI_DE_CONTROL_API_TOKEN=%s\n' "$control" | put "$RUN/policy.env" 0
@@ -177,7 +215,7 @@ secrets() {
   } | put "$RUN/console.env" 0
   gateway_env
   console_gate
-  unset KV_TOKEN api control hmac hmac_master db_owner db_app session oidc_secret
+  unset KV_TOKEN api control hmac hmac_master db_owner db_app session oidc_secret decision
   echo "secrets: written to $RUN"
 }
 

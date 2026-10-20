@@ -196,6 +196,26 @@ Caddy caps request bodies at 4 MB on the gateway paths (a whole conversation per
 `UMAI_GATEWAY=false` and run `docker compose -p umai stop gateway` once (a profiled container is
 not removed by `up`).
 
+## 7a. L1b decision provider (optional, ADR-0040)
+
+Guardrails with decision policies (L1b) ask the OpenAI Decisions API (`gpt-6-luna`). The
+engine and the gateway get the provider when its key is stored; without it they have no
+decision provider, and a guardrail with decision policies answers its L1b part with the bundle's
+failure policy. Use a key of a dedicated OpenAI project, so its usage can be capped and revoked
+on its own. On the workstation, in Git Bash (the key is never echoed or put in the history):
+
+```bash
+read -rs OPENAI_KEY && printf %s "$OPENAI_KEY" | ssh -i ~/.ssh/umai_beta_ed25519 umaiops@<hostname> \
+  "sudo /opt/umai/src/umai-decision-engine/deploy/vm/umai.sh set-secret UMAI_OPENAI_API_KEY"; unset OPENAI_KEY
+```
+
+Then `umai.sh up` on the VM (Key Vault mode: secret `umai-openai-api-key`). It writes
+`UMAI_DE_DECISION_PROVIDERS` (default: OpenAI, `https://api.openai.com/v1`, `gpt-6-luna`; replace it
+with `UMAI_DECISION_PROVIDERS` in `config.env`, for example the EU endpoint once OpenAI approved EU
+processing) and `UMAI_DE_DECISION_PROVIDER_KEYS` into `engine.env`; Compose recreates the engine
+and the gateway. Redacted content then goes to OpenAI, in the US unless EU processing is approved
+(Q59). Every converted policy stays in shadow until Q60 is decided.
+
 ## 8. What this deployment does not have
 
 No WAF, no HA, no DR region, one shared API token (body `tenant_id` not bound to the credential,

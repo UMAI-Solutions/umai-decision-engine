@@ -3,6 +3,7 @@ containers must follow. The script is sourced with stubbed commands; nothing tou
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -102,3 +103,52 @@ def test_a_rotated_actor_key_restarts_the_console(tmp_path) -> None:
     (tmp_path / "calls").unlink()
     assert _run(tmp_path, "follow_config").returncode == 0
     assert not any("restart" in c for c in (tmp_path / "calls").read_text().splitlines())
+
+
+# ------------------------------------------------------------ L1b decision provider (ADR-0040)
+
+KEY = "sk-proj-synthetic_Key-0123"  # synthetic: the shape of an OpenAI key, never a real one
+
+
+def _settings(output: str) -> dict[str, object]:
+    lines = dict(line.split("=", 1) for line in output.splitlines() if line)
+    return {name: json.loads(value) for name, value in lines.items()}
+
+
+def test_a_stored_openai_key_gives_the_engine_its_decision_provider(tmp_path) -> None:
+    (tmp_path / "secrets.env").write_text(
+        f"UMAI_OPENAI_API_KEY='{KEY}'\n", encoding="utf-8", newline="\n"
+    )
+    result = _run(tmp_path, "decision_env")
+    assert result.returncode == 0, result.stderr
+    assert _settings(result.stdout) == {
+        "UMAI_DE_DECISION_PROVIDERS": {
+            "openai": {
+                "adapter": "openai_decisions",
+                "base_url": "https://api.openai.com/v1",
+                "model": "gpt-6-luna",
+            }
+        },
+        "UMAI_DE_DECISION_PROVIDER_KEYS": {"openai": KEY},
+    }
+
+    eu = '{"openai":{"adapter":"openai_decisions","base_url":"https://eu.api.openai.com/v1"}}'
+    result = _run(tmp_path, "decision_env", config=f"UMAI_DECISION_PROVIDERS='{eu}'\n")
+    assert _settings(result.stdout)["UMAI_DE_DECISION_PROVIDERS"] == json.loads(eu)
+
+
+def test_without_a_key_the_engine_gets_no_decision_settings(tmp_path) -> None:
+    (tmp_path / "secrets.env").write_text("UMAI_API_TOKEN='x'\n", encoding="utf-8", newline="\n")
+    result = _run(tmp_path, "decision_env; echo end")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "end\n"  # an empty value would stop the engine: nothing is written
+    assert "no UMAI_OPENAI_API_KEY stored" in result.stderr
+
+
+def test_a_key_that_would_break_the_settings_stops_the_script(tmp_path) -> None:
+    (tmp_path / "secrets.env").write_text(
+        "UMAI_OPENAI_API_KEY='sk-a,\"b'\n", encoding="utf-8", newline="\n"
+    )
+    result = _run(tmp_path, 'out="$(decision_env)"; echo reached')
+    assert result.returncode == 1 and "reached" not in result.stdout
+    assert "sk-a" not in result.stderr  # the key is never echoed
