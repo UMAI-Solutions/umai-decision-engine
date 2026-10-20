@@ -49,9 +49,10 @@ from umai_decision_engine.gateway.guard import CallContext, Check, Guard, strict
 from umai_decision_engine.gateway.masking import MaskSession
 from umai_decision_engine.gateway.tools import (
     chat_tool_action,
-    check_tool_calls,
+    chat_tool_calls,
     input_checks,
     note_output,
+    settle_tool_calls,
 )
 from umai_decision_engine.gateway.upstream import UpstreamClient, forwarded_headers
 from umai_decision_engine.settings import Settings
@@ -411,7 +412,7 @@ async def chat_completions(request: Request) -> Response:
     call = Call(
         ctx=CallContext(request_id, tenant, route, _subject(request, body)),
         provider_key=provider_key,
-        session=MaskSession(),
+        session=MaskSession.for_call(s.text for s in segments),
         guard=state.guard,
         upstream=state.upstream,
         settings=state.settings,
@@ -459,7 +460,10 @@ def _apply_input_masks(
 ) -> None:
     for segment, spans in zip(segments, check.spans, strict=True):
         if spans:
-            set_text(messages, segment, call.session.mask(segment.text, spans, from_input=True))
+            masked = call.session.mask_text(
+                segment.text, spans, from_input=True, json_text=segment.json_string
+            )
+            set_text(messages, segment, masked)
 
 
 def _refuse(call: Call, check: Check, *, model: str, stream: bool) -> Response:
@@ -511,53 +515,61 @@ async def check_answer(call: Call, choices: list[Any]) -> None:
         message = choice.get("message") if isinstance(choice, dict) else None
         if not isinstance(message, dict):
             continue
-        content = message.get("content")
-        if output_enabled and isinstance(content, str) and content:
-            check = await call.guard.check(call.ctx, Phase.POST_LLM, [("assistant", content)])
-            note_output(call, check)
-            if not check.allowed:
-                if route.refusal == "error":
-                    raise refusal_error(call, check)
-                message["content"] = route.refusal_text
-                message.pop("tool_calls", None)
-                choice["finish_reason"] = "content_filter"
-                continue
-            if check.masks:
-                content = call.session.mask(content, check.spans[0], from_input=False)
-        if isinstance(content, str) and route.restore_placeholders:
-            content = call.session.restore(content)
-        if isinstance(content, str):
-            message["content"] = content
-        if route.restore_placeholders:
-            restore_tool_calls(call, message)
-        blocking = await check_tool_calls(call, _functions(message))
+        blocking = await _check_content(call, message, output_enabled)
+        if blocking is None:
+            blocking = await settle_tool_calls(call, chat_tool_calls(message))
         if blocking is not None:
             if route.refusal == "error":
                 raise refusal_error(call, blocking)
             message["content"] = route.refusal_text
             message.pop("tool_calls", None)
+            message.pop("function_call", None)
             choice["finish_reason"] = "content_filter"
 
 
-def _functions(message: dict[str, Any]) -> list[dict[str, Any]]:
-    """The ``function`` objects of a message's tool calls (mutable, for in-place masking)."""
+def _text_parts(content: Any) -> list[dict[str, Any]]:
+    """The text parts of an answer whose ``content`` is an array of parts."""
 
-    out = []
-    for tool_call in message.get("tool_calls") or []:
-        function = tool_call.get("function") if isinstance(tool_call, dict) else None
-        if isinstance(function, dict):
-            out.append(function)
-    return out
+    return [
+        part
+        for part in content
+        if isinstance(part, dict)
+        and part.get("type") in ("text", "output_text")
+        and isinstance(part.get("text"), str)
+    ]
 
 
-def restore_tool_calls(call: Call, message: dict[str, Any]) -> None:
-    calls = message.get("tool_calls")
-    if not isinstance(calls, list):
-        return
-    for tool_call in calls:
-        function = tool_call.get("function") if isinstance(tool_call, dict) else None
-        if isinstance(function, dict) and isinstance(function.get("arguments"), str):
-            function["arguments"] = call.session.restore(function["arguments"], json_string=True)
+async def _check_content(call: Call, message: dict[str, Any], output_enabled: bool) -> Check | None:
+    """Check ``message.content`` (a string or an array of text parts), mask and restore it in
+    place; the blocking check, if any. Content of any other shape is removed: only checked text
+    reaches the caller."""
+
+    content = message.get("content")
+    if content is None:
+        return None
+    if isinstance(content, str):
+        holders: list[tuple[dict[str, Any], str]] = [(message, "content")]
+    elif isinstance(content, list):
+        holders = [(part, "text") for part in _text_parts(content)]
+    else:
+        message["content"] = None
+        return None
+    texts = [holder[key] for holder, key in holders]
+    if output_enabled and any(texts):
+        check = await call.guard.check(
+            call.ctx, Phase.POST_LLM, [("assistant", text) for text in texts]
+        )
+        note_output(call, check)
+        if not check.allowed:
+            return check
+        if check.masks:
+            texts = [
+                call.session.mask(text, spans, from_input=False) if spans else text
+                for text, spans in zip(texts, check.spans, strict=True)
+            ]
+    for (holder, key), text in zip(holders, texts, strict=True):
+        holder[key] = call.session.restore(text) if call.route.restore_placeholders else text
+    return None
 
 
 def _log(

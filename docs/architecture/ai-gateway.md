@@ -254,7 +254,10 @@ call only** (never persisted, logged or sent to L1 / L2), forwards the masked pr
 answer, then restores the input's placeholders in the answer. **Exact match only**: fuzzy
 restoration (as LLM Guard offers) can put a wrong person's value back. Placeholders the model
 altered or invented stay as they are. Multi-turn chats need no state: the app re-sends the
-history, which is masked again in the next call.
+history, which is masked again in the next call. New placeholders are numbered above any the
+call's input already shows, and above the current time in milliseconds when the provider keeps
+the earlier turns (`previous_response_id`), so one placeholder never names two values. Tool-call
+arguments are masked value by value and stay valid JSON (gateway-api 0.12).
 
 This is what makes the gateway more than a filter: the provider never receives the TCKN or IBAN,
 and the user still gets a useful answer. Whether pseudonymised prompts change the KVKK Art. 9 /
@@ -270,8 +273,8 @@ placeholder format.
 | `window` (proposed default) | Hold back a tail of *k* characters (longest entity plus context, e.g. 128), re-run L0 on the **raw** accumulated text (never on already-masked text), release what is safe; on `BLOCK` end the stream with `finish_reason: content_filter` | One L0 pass per release step; a short tail delay | L0 entities never leave unmasked; L1b output policies run at the end and can only record |
 | `after` | Stream unchanged, check at the end, record | None | Detection only |
 
-Tool-call arguments stream as partial JSON; each call is buffered until complete before its
-`TOOL_INPUT` check. Restoration of placeholders also holds back an unfinished `<TYPE_` sequence.
+Tool-call arguments stream as partial JSON; each call (every tool-call shape the provider
+streams, gateway-api 0.12) is buffered until complete before its `TOOL_INPUT` check. Restoration of placeholders also holds back an unfinished `<TYPE_` sequence.
 Routes whose guardrail has L1b output policies use `buffer` or accept detection-only. Prior art
 uses the same three shapes (APIM 1 000-character windows, NeMo chunk and context sizes, LiteLLM
 sampling and end-of-stream checks; reference §6.2).

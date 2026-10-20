@@ -1033,3 +1033,146 @@ def test_tool_results_fall_back_to_the_input_check(make_gateway, upstream) -> No
     )
     assert response.status_code == 200
     assert upstream.last_body["messages"][2]["content"] == "E-posta: <EMAIL_ADDRESS_1>"
+
+
+# ------------------------------------------------------------------ review fixes (gateway-api 0.12)
+
+
+def test_an_answer_made_of_text_parts_is_checked(make_gateway, upstream) -> None:
+    client = make_gateway()
+
+    def _parts(text: str) -> dict[str, Any]:
+        answer = completion(None)
+        answer["choices"][0]["message"]["content"] = [{"type": "text", "text": text}]
+        return answer
+
+    upstream.reply = lambda body: _parts(f"Yazın: {EMAIL}")
+    response = ask(client, "İletişim?")
+    parts = response.json()["choices"][0]["message"]["content"]
+    assert parts == [{"type": "text", "text": "Yazın: <EMAIL_ADDRESS_1>"}]
+
+    upstream.reply = lambda body: _parts(f"Kart {CARD}")
+    response = ask(client, "Bir kart yaz")
+    assert response.status_code == 400 and CARD not in response.text
+    assert response.json()["error"]["umai"]["phase"] == "POST_LLM"
+
+
+def test_legacy_function_call_and_custom_tool_calls_are_checked(make_gateway, upstream) -> None:
+    client = make_gateway(guardrail=AGENT_GUARDRAIL)  # ids may go to tools, cards never
+    legacy = completion(None)
+    message = legacy["choices"][0]["message"]
+    message["function_call"] = {"name": "pay", "arguments": json.dumps({"card": CARD})}
+    upstream.reply = lambda body: legacy
+    response = ask(client, "Öde")
+    assert response.status_code == 400 and "4242" not in response.text
+    assert response.json()["error"]["umai"]["phase"] == "TOOL_INPUT"
+
+    message["function_call"] = {"name": "find", "arguments": '{"tckn": "<TR_TCKN_1>"}'}
+    answer = ask(client, f"TC kimlik {TCKN} bul").json()["choices"][0]["message"]
+    assert json.loads(answer["function_call"]["arguments"]) == {"tckn": TCKN}  # restored
+
+    custom = {"id": "call_c", "type": "custom", "custom": {"name": "note", "input": f"kart {CARD}"}}
+    upstream.reply = lambda body: completion(None, tool_calls=[custom])
+    response = ask(client, "Not al")
+    assert response.status_code == 400 and "4242" not in response.text
+
+    custom["custom"]["input"] = f"yaz {EMAIL}"
+    answer = ask(client, "Not al").json()["choices"][0]["message"]
+    assert answer["tool_calls"][0]["custom"]["input"] == "yaz <EMAIL_ADDRESS_1>"
+
+
+def test_stream_legacy_function_call_and_custom_deltas_are_held(make_gateway, upstream) -> None:
+    client = make_gateway(guardrail=AGENT_GUARDRAIL)
+    upstream.stream = sse(
+        chunk({"role": "assistant", "content": None}),
+        chunk({"function_call": {"name": "pay", "arguments": '{"card": "4242 '}}),
+        chunk({"function_call": {"arguments": '4242 4242 4242"}'}}),
+        chunk({}, "function_call"),
+        "[DONE]",
+    )
+    response = ask(client, "Öde", stream=True)
+    assert finish_reasons(stream_events(response)) == ["content_filter"]
+    assert "4242" not in response.text
+
+    upstream.stream = sse(
+        chunk({"role": "assistant", "content": None}),
+        chunk({"function_call": {"name": "find", "arguments": '{"tckn": "<TR_'}}),
+        chunk({"function_call": {"arguments": 'TCKN_1>"}'}}),
+        chunk({}, "function_call"),
+        "[DONE]",
+    )
+    events = stream_events(ask(client, f"TC kimlik {TCKN} bul", stream=True))
+    legacy = [
+        c["choices"][0]["delta"]["function_call"]
+        for c in events
+        if isinstance(c, dict) and c["choices"][0]["delta"].get("function_call")
+    ]
+    assert len(legacy) == 1 and json.loads(legacy[0]["arguments"]) == {"tckn": TCKN}
+
+    custom = {"index": 0, "id": "call_c", "type": "custom", "custom": {"name": "note"}}
+    upstream.stream = sse(
+        chunk({"role": "assistant", "content": None}),
+        chunk({"tool_calls": [custom]}),
+        chunk({"tool_calls": [{"index": 0, "custom": {"input": f"kart {CARD}"}}]}),
+        chunk({}, "tool_calls"),
+        "[DONE]",
+    )
+    response = ask(client, "Not al", stream=True)
+    assert finish_reasons(stream_events(response)) == ["content_filter"]
+    assert "4242" not in response.text
+
+
+def test_numbers_in_tool_arguments_are_masked_as_json_values(make_gateway, upstream) -> None:
+    client = make_gateway()  # identity is masked in tool calls too
+    upstream.reply = lambda body: completion(
+        None, tool_calls=[_tool_call("find_customer", {"tckn": int(TCKN)})]
+    )
+    response = ask(client, "Müşteriyi bul")
+    arguments = response.json()["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"]
+    assert json.loads(arguments) == {"tckn": "<TR_TCKN_1>"}  # valid JSON, value masked
+
+    body = _agent_turn("find_customer", "Bulundu")
+    body["messages"][1]["tool_calls"][0]["function"]["arguments"] = json.dumps({"tckn": int(TCKN)})
+    assert client.post("/v1/chat/completions", json=body).status_code == 200
+    sent = upstream.last_body["messages"][1]["tool_calls"][0]["function"]["arguments"]
+    assert json.loads(sent) == {"tckn": "<TR_TCKN_1>"}
+
+
+def test_new_placeholders_never_reuse_one_the_history_shows(make_gateway, upstream) -> None:
+    """An earlier answer showed ``<EMAIL_ADDRESS_1>`` (the model's own address, never restored);
+    the caller's new address must get another placeholder, and the old one stays as it is."""
+
+    client = make_gateway()
+    upstream.reply = lambda body: completion("Önceki: <EMAIL_ADDRESS_1>, yeni: <EMAIL_ADDRESS_2>")
+    body = {
+        "model": "gpt-eu",
+        "messages": [
+            {"role": "user", "content": "Destek adresi?"},
+            {"role": "assistant", "content": "Bize <EMAIL_ADDRESS_1> adresinden yazın."},
+            {"role": "user", "content": f"Benimki {EMAIL}"},
+        ],
+    }
+    response = client.post("/v1/chat/completions", json=body)
+    assert upstream.last_body["messages"][2]["content"] == "Benimki <EMAIL_ADDRESS_2>"
+    content = response.json()["choices"][0]["message"]["content"]
+    assert content == f"Önceki: <EMAIL_ADDRESS_1>, yeni: {EMAIL}"
+
+
+def test_stream_keeps_a_chunk_with_a_unicode_line_separator(make_gateway, upstream) -> None:
+    client = make_gateway()
+    piece = "satır\u2028ayrı"
+    upstream.stream = (
+        "".join(
+            f"data: {json.dumps(c, ensure_ascii=False)}\n\n"
+            for c in (chunk({"role": "assistant", "content": ""}), chunk({"content": piece}))
+        )
+        + f"data: {json.dumps(chunk({}, 'stop'))}\n\ndata: [DONE]\n\n"
+    ).encode()
+    response = ask(client, "Yaz", stream=True)
+    events = [
+        json.loads(line[len("data: ") :])
+        for line in response.text.split("\n")
+        if line.startswith("data: {")
+    ]
+    assert streamed_text(events) == piece
+    assert not any("error" in e for e in events)

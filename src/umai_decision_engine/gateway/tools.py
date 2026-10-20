@@ -4,9 +4,12 @@
   ``TOOL_OUTPUT``, each one is checked on its own as ``TOOL_OUTPUT`` with the tool's name as
   ``action.tool_name`` (policies with the ``tool`` role, exceptions on the tool name). Otherwise
   they are part of the ``PRE_LLM`` input check. Either way they are masked before they leave.
-- **Tool calls in the answer**: after the caller's values are restored, each call's arguments
-  are checked as ``TOOL_INPUT`` (policies with the ``tool_call`` role) when the guardrail enables
-  it: masked in place, or the answer is refused.
+- **Tool calls in the answer**: after the caller's values are restored, each call's input is
+  checked as ``TOOL_INPUT`` (policies with the ``tool_call`` role) when the guardrail enables
+  it: masked in place, or the answer is refused. Every shape counts (gateway-api 0.12): Chat
+  ``function`` and ``custom`` tool calls and the deprecated ``function_call``; Responses
+  function, custom, MCP, shell, apply-patch and computer calls. JSON input is masked value by
+  value, so it stays valid JSON.
 
 All checks of a call share one placeholder namespace (contract gateway-api).
 """
@@ -14,8 +17,10 @@ All checks of a call share one placeholder namespace (contract gateway-api).
 from __future__ import annotations
 
 import asyncio
+import json
 from collections import OrderedDict
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from umai_decision_engine.contracts.common import ACTION_RANK, Phase
@@ -106,34 +111,165 @@ async def input_checks(
     return [(check, parts) for check, (_, parts, _) in zip(checks, groups, strict=True)]
 
 
-async def check_tool_calls(call: Call, functions: list[dict[str, Any]]) -> Check | None:
-    """Check each tool call (``{"name", "arguments"}``, arguments already restored) as
-    ``TOOL_INPUT``; mask arguments in place. Returns the first blocking check, if any."""
+@dataclass
+class ToolCall:
+    """One tool call in an answer: the tool's name and the text ``TOOL_INPUT`` reads, which
+    ``write`` puts back in place after restoration and masking."""
 
-    if not functions or not call.guard.enabled(call.ctx, Phase.TOOL_INPUT):
+    name: str | None
+    text: str
+    json_text: bool  # JSON source: restored JSON-escaped, masked value by value
+    write: Callable[[str], None]
+
+    def update(self, text: str) -> None:
+        self.text = text
+        self.write(text)
+
+
+def _put(holder: dict[str, Any], key: str) -> Callable[[str], None]:
+    def _write(text: str) -> None:
+        holder[key] = text
+
+    return _write
+
+
+def _put_json(holder: dict[str, Any], key: str) -> Callable[[str], None]:
+    def _write(text: str) -> None:
+        holder[key] = json.loads(text)  # restoration and mask_json keep it valid JSON
+
+    return _write
+
+
+def _name(value: Any) -> str | None:
+    return value[:128] if isinstance(value, str) and value else None
+
+
+def _structured(name: str, holder: dict[str, Any], key: str) -> ToolCall:
+    """A tool call whose input is a JSON structure (shell commands, a patch): checked as its
+    JSON text, written back as the masked structure."""
+
+    text = json.dumps(holder[key], ensure_ascii=False)
+    return ToolCall(name, text, True, _put_json(holder, key))
+
+
+def chat_tool_calls(message: dict[str, Any]) -> list[ToolCall]:
+    """The tool calls of a Chat Completions answer message: ``function`` and ``custom`` tool
+    calls, any other typed call by its JSON payload, and the deprecated ``function_call``."""
+
+    calls: list[ToolCall] = []
+    tool_calls = message.get("tool_calls")
+    for tool_call in tool_calls if isinstance(tool_calls, list) else []:
+        if not isinstance(tool_call, dict):
+            continue
+        kind = tool_call.get("type") or "function"
+        payload = tool_call.get(kind)
+        if not isinstance(payload, dict):
+            continue
+        if kind == "function" and isinstance(payload.get("arguments"), str):
+            calls.append(_text_call(payload, "arguments", json_text=True))
+        elif kind == "custom" and isinstance(payload.get("input"), str):
+            calls.append(_text_call(payload, "input", json_text=False))
+        elif kind not in ("function", "custom"):
+            calls.append(_structured(_name(payload.get("name")) or kind, tool_call, kind))
+    legacy = message.get("function_call")
+    if isinstance(legacy, dict) and isinstance(legacy.get("arguments"), str):
+        calls.append(_text_call(legacy, "arguments", json_text=True))
+    return calls
+
+
+def _text_call(holder: dict[str, Any], key: str, *, json_text: bool) -> ToolCall:
+    return ToolCall(_name(holder.get("name")), holder[key], json_text, _put(holder, key))
+
+
+# Responses output items the caller's client (or the provider, for MCP) acts on: where their
+# input lives. The model's text items and provider-side items are handled elsewhere.
+_RESPONSES_TEXT_INPUT = {
+    "function_call": ("arguments", True),
+    "custom_tool_call": ("input", False),
+    "mcp_call": ("arguments", True),
+    "mcp_approval_request": ("arguments", True),
+}
+_RESPONSES_STRUCTURED_INPUT = {
+    "shell_call": ("action",),
+    "local_shell_call": ("action",),
+    "apply_patch_call": ("operation",),
+    "computer_call": ("action", "actions"),
+}
+RESPONSES_TOOL_ITEMS = frozenset(_RESPONSES_TEXT_INPUT) | frozenset(_RESPONSES_STRUCTURED_INPUT)
+
+
+def responses_tool_fields(kind: Any) -> tuple[str, ...]:
+    """The fields holding a Responses tool item's input."""
+
+    if kind in _RESPONSES_TEXT_INPUT:
+        return (_RESPONSES_TEXT_INPUT[kind][0],)
+    return _RESPONSES_STRUCTURED_INPUT.get(kind, ())
+
+
+def responses_tool_calls(item: dict[str, Any]) -> list[ToolCall]:
+    """The tool call(s) of one Responses output item; empty for any other item."""
+
+    kind = item.get("type")
+    if kind in _RESPONSES_TEXT_INPUT:
+        key, json_text = _RESPONSES_TEXT_INPUT[kind]
+        if not isinstance(item.get(key), str):
+            return []
+        return [_text_call(item, key, json_text=json_text)]
+    if kind in _RESPONSES_STRUCTURED_INPUT:
+        name = kind.removesuffix("_call")
+        return [
+            _structured(name, item, key)
+            for key in _RESPONSES_STRUCTURED_INPUT[kind]
+            if item.get(key) is not None
+        ]
+    return []
+
+
+def restore_tool_calls(call: Call, calls: list[ToolCall]) -> None:
+    """Put the caller's own values back into each call (before its check, ADR-0036)."""
+
+    if not call.route.restore_placeholders:
+        return
+    for tool_call in calls:
+        restored = call.session.restore(tool_call.text, json_string=tool_call.json_text)
+        if restored != tool_call.text:
+            tool_call.update(restored)
+
+
+async def check_tool_calls(call: Call, calls: list[ToolCall]) -> Check | None:
+    """Check each tool call (already restored) as ``TOOL_INPUT``; mask its input in place.
+    Returns the first blocking check, if any."""
+
+    if not calls or not call.guard.enabled(call.ctx, Phase.TOOL_INPUT):
         return None
-    pending = [f for f in functions if isinstance(f.get("arguments"), str) and f["arguments"]]
+    pending = [c for c in calls if c.text]
     checks = await asyncio.gather(
         *(
             call.guard.check(
                 call.ctx,
                 Phase.TOOL_INPUT,
-                [("assistant", f["arguments"])],
-                action=AgentAction(
-                    name=str(f.get("name") or "")[:128] or None,
-                    tool_name=str(f.get("name") or "")[:128] or None,
-                ),
+                [("assistant", c.text)],
+                action=AgentAction(name=c.name, tool_name=c.name),
             )
-            for f in pending
+            for c in pending
         )
     )
     blocking: Check | None = None
-    for function, check in zip(pending, checks, strict=True):
+    for tool_call, check in zip(pending, checks, strict=True):
         note_output(call, check)
         if not check.allowed:
             blocking = blocking or check
         elif check.masks:
-            function["arguments"] = call.session.mask(
-                function["arguments"], check.spans[0], from_input=False
+            tool_call.update(
+                call.session.mask_text(
+                    tool_call.text, check.spans[0], from_input=False, json_text=tool_call.json_text
+                )
             )
     return blocking
+
+
+async def settle_tool_calls(call: Call, calls: list[ToolCall]) -> Check | None:
+    """Restore, then check: what every tool call in an answer goes through."""
+
+    restore_tool_calls(call, calls)
+    return await check_tool_calls(call, calls)

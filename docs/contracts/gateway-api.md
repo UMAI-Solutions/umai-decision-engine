@@ -193,7 +193,7 @@ policy-service route: the person's tenant, or `X-Umai-Tenant` with the control t
 | `model` | Resolved by the application's aliases and the provider prefix ([Applications](#applications-providers-and-model-010-adr-0039)) |
 | `messages[].role` | `system`, `developer` → evaluated as `system`; `user`; `assistant`; `tool` and the deprecated `function` → evaluated as input from the caller |
 | `messages[].content` | A string, or an array of parts: `text` (and `refusal`) parts are scanned and may be rewritten in place; other part types follow `unscanned_parts` |
-| `messages[].tool_calls[].function.arguments`, `messages[].function_call.arguments` | Assistant tool calls in the history; scanned with the input and masked like text |
+| `messages[].tool_calls[].function.arguments`, `messages[].function_call.arguments` | Assistant tool calls in the history; scanned with the input and masked value by value, so the arguments stay valid JSON: a number holding an entity becomes a string (`{"tckn": 10000000146}` → `{"tckn": "<TR_TCKN_1>"}`, 0.12) |
 | `stream` | `true`: streaming (below) |
 | `stream_options.include_usage` | For `openai` and `azure_openai` upstreams the gateway sets it for its usage record and removes the usage-only chunk when the caller did not ask for it |
 | `n` | Each choice is checked on its own |
@@ -221,8 +221,8 @@ its new messages (ADR-0037).
 |---|---|---|---|
 | Input | `PRE_LLM` | Every message the gateway forwards: system, developer, user, assistant (with tool-call arguments), history included; tool results too when the bundle does not enable `TOOL_OUTPUT` | Before forwarding |
 | Tool results | `TOOL_OUTPUT` | Each `tool` / `function` message on its own, `action.name` = `action.tool_name` = the tool's name (from the matching `tool_call_id`), so policies with the `tool` role and exceptions on the tool name apply | Before forwarding, concurrently with the input check, when the bundle enables `TOOL_OUTPUT` |
-| Answer | `POST_LLM` | Each choice's `message.content` (streams: per release step and on the whole answer) | After the upstream answers |
-| Tool calls | `TOOL_INPUT` | Each complete tool call in the answer, after restoration: `action.name` = `action.tool_name` = `function.name`, content = `function.arguments` (policies with the `tool_call` role) | When the bundle enables `TOOL_INPUT`; masked arguments keep their placeholders |
+| Answer | `POST_LLM` | Each choice's `message.content`, a string or an array of `text` parts (streams: per release step and on the whole answer); content of any other shape is removed (0.12) | After the upstream answers |
+| Tool calls | `TOOL_INPUT` | Each complete tool call in the answer, after restoration: `action.name` = `action.tool_name` = the tool's name, content = its input (policies with the `tool_call` role). Chat: `function` tool calls (`arguments`), `custom` tool calls (`input`), the deprecated `function_call`; Responses: see [below](#openai-responses-api-post-v1responses-04) (0.12) | When the bundle enables `TOOL_INPUT`; masked arguments keep their placeholders and stay valid JSON |
 
 - The gateway scans **every message it forwards**, whatever the bundle's `l0.target` says (a
   widening only): a value masked in an earlier turn is re-sent by the caller in the history and
@@ -232,7 +232,12 @@ its new messages (ADR-0037).
   After masking, attack and agent-action checks still run on the masked text (ADR-0036).
 - **One placeholder namespace per call.** All checks of a call share placeholder numbering: the
   same value (same type and tenant HMAC) gets the same placeholder everywhere in the call,
-  different values never share one.
+  different values never share one. New numbers start above any placeholder the call's input
+  already shows (an earlier answer's own masked value, a placeholder the caller typed), so one
+  placeholder never names two values in the model's context. A Responses call with
+  `previous_response_id` or `conversation` cannot show the earlier turns' placeholders (the
+  provider keeps them): its numbers start above the current time in milliseconds (modulo
+  10⁹), which grows from turn to turn (0.12).
 - The placeholder → value map stays in the gateway's memory for the call only (ADR-0035).
 
 ## Decisions on the wire
@@ -308,8 +313,11 @@ are dropped. In `window` streams a blocked tool call is never released: the choi
 | `window` | Per choice the gateway holds back the last `UMAI_DE_GATEWAY_STREAM_HOLDBACK_CHARS` characters (default 128), re-checks the raw tail every `UMAI_DE_GATEWAY_STREAM_STEP_CHARS` (default 32) and releases what is safe; an entity or a placeholder straddling the boundary is held until complete; the whole answer is checked before the last characters go out; on `BLOCK` the choice ends with `finish_reason: "content_filter"` and the upstream is closed | No detected entity leaves unmasked; decision-model policies on the answer act per release step |
 | `after` | Unchanged stream (placeholders still restored); the whole answer is checked at the end and the decision recorded | Detection only |
 
-- Tool-call deltas are buffered per call; when the choice finishes each call is restored, checked
-  (`TOOL_INPUT`) and released complete, or the choice ends with `content_filter`.
+- Tool-call deltas are buffered per call (`function` and `custom` tool calls, the deprecated
+  `function_call`); when the choice finishes each call is restored, checked (`TOOL_INPUT`) and
+  released complete, or the choice ends with `content_filter`.
+- Upstream event lines are split only at CRLF, LF and CR, as the SSE grammar says; other Unicode
+  line separators inside a `data:` line are content (0.12).
 - Chunks keep the provider's shape (`chat.completion.chunk`, upstream `id`, `model`, `created`);
   the gateway writes only `delta.content`, `delta.tool_calls` and `finish_reason`; other delta
   fields (role, model refusal text) pass through. The stream ends with `data: [DONE]`.
@@ -335,7 +343,11 @@ that serve Responses).
 | everything else (`tools`, `previous_response_id`, `store`, `reasoning`, `text`, …) | Forwarded unchanged |
 
 Answer: each `output_text` part of a `message` item is checked (`POST_LLM`), masked and restored;
-each `function_call` item's `arguments` are restored, then checked (`TOOL_INPUT`). A refusal with
+the input of each tool item is restored, then checked (`TOOL_INPUT`) and masked in place:
+`function_call` and `mcp_call` / `mcp_approval_request` `arguments`, `custom_tool_call` `input`,
+and the structured input of `shell_call` / `local_shell_call` (`action`), `apply_patch_call`
+(`operation`) and `computer_call` (`action`, `actions`), checked as its JSON text (0.12). An MCP
+call runs at the provider, so its check can only mask or refuse what the caller receives. A refusal with
 `refusal: error` is HTTP 400 as above; with `refusal: message` the response has `status:
 "incomplete"`, `incomplete_details: {"reason": "content_filter"}` and one `message` item carrying
 `refusal_text` (the SDK's `output_text`).
@@ -345,9 +357,14 @@ Streaming uses the Responses events (`event: <type>` + `data: {…}`; the stream
 
 - `response.output_text.delta` events are held back and released as in `window` / `buffer` /
   `after`; `response.output_text.done`, `response.content_part.done`, `response.output_item.done`
-  and `response.completed` carry the checked, restored text.
-- `response.function_call_arguments.delta` events are held; at `…arguments.done` the call is
-  restored and checked, then released as one delta plus the done event.
+  and `response.completed` carry the checked, restored text. Text that first appears in one of
+  these final events (no delta before) is checked there; `output_item.added` and
+  `content_part.added` go out with empty text (0.12).
+- `response.function_call_arguments.delta`, `response.custom_tool_call_input.delta` and
+  `response.mcp_call_arguments.delta` events are held; at the matching done event the call is
+  restored and checked, then released as one delta plus the done event. `response.shell_call_command.*`
+  events are not passed on: the checked commands arrive with `response.output_item.done`. A tool
+  item that first appears in `output_item.done` or `response.completed` is checked there (0.12).
 - A block ends the stream with `response.incomplete` (`incomplete_details.reason:
   "content_filter"`) and closes the upstream; in `buffer` mode with `refusal: error` the answer is
   HTTP 400 instead.
@@ -404,6 +421,12 @@ latency. No record carries prompt, answer, provider key or mask map (ADR-0035).
 
 - 0.12 (2026-10-20, review fixes after merging): the default provider never moves silently:
   `PUT` without `default` keeps it, `DELETE` is refused while an application relies on it.
+  Only checked content reaches the caller: answer text first seen in a final Responses event,
+  Chat answers made of text parts, and every tool-call shape (Chat `custom` and the deprecated
+  `function_call`; Responses `custom_tool_call`, MCP, shell, apply-patch and computer calls) are
+  checked. Placeholder numbers start above those the input shows (and above the time for
+  `previous_response_id`); tool-call arguments stay valid JSON when masked; event-stream lines
+  split only at CRLF, LF, CR.
 - 0.11 (2026-10-20, review fixes before merging): request fields the guardrail cannot check
   are refused (`prediction`, audio answers, Responses `prompt.variables`) or left out
   (`metadata`, participant `name`, log probabilities, reasoning summaries); answers lose

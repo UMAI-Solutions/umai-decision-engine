@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
@@ -40,12 +41,13 @@ from umai_decision_engine.gateway.errors import GatewayHTTPError
 from umai_decision_engine.gateway.fields import unchecked_delta_field
 from umai_decision_engine.gateway.guard import Check
 from umai_decision_engine.gateway.masking import MaskSession, Span
-from umai_decision_engine.gateway.tools import check_tool_calls, note_output
+from umai_decision_engine.gateway.tools import ToolCall, note_output, settle_tool_calls
 from umai_decision_engine.gateway.upstream import forwarded_headers
 
 log = logging.getLogger("umai.gateway.stream")
 
 _SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+_LINE_END = re.compile(r"\r\n|\r|\n")
 
 
 def _sse(data: dict[str, Any] | str) -> str:
@@ -53,11 +55,30 @@ def _sse(data: dict[str, Any] | str) -> str:
     return f"data: {payload}\n\n"
 
 
+async def sse_lines(response: httpx.Response) -> AsyncIterator[str]:
+    """Lines of an event stream, split only on CRLF, LF or CR (the SSE grammar). httpx's
+    ``aiter_lines`` splits like ``str.splitlines`` and would break a JSON ``data`` line at a raw
+    U+2028, U+2029, U+0085 or form feed inside a string."""
+
+    buffer = ""
+    async for text in response.aiter_text():
+        buffer += text
+        start = 0
+        for end in _LINE_END.finditer(buffer):
+            if end.group() == "\r" and end.end() == len(buffer):
+                break  # may be the first half of a CRLF split across chunks
+            yield buffer[start : end.start()]
+            start = end.end()
+        buffer = buffer[start:]
+    if buffer:
+        yield buffer.removesuffix("\r")
+
+
 async def sse_events(response: httpx.Response) -> AsyncIterator[str]:
     """The ``data`` of each server-sent event (multi-line data joined with newlines)."""
 
     data: list[str] = []
-    async for line in response.aiter_lines():
+    async for line in sse_lines(response):
         if line == "":
             if data:
                 yield "\n".join(data)
@@ -77,18 +98,29 @@ async def sse_events(response: httpx.Response) -> AsyncIterator[str]:
 
 @dataclass
 class ToolCallBuffer:
+    """One streamed tool call (``function`` or ``custom``) or the deprecated ``function_call``;
+    ``arguments`` holds a custom tool's free-text input."""
+
     id: str | None = None
     type: str | None = None
     name: str = ""
     arguments: str = ""
 
     def as_delta(self, index: int) -> dict[str, Any]:
-        delta: dict[str, Any] = {"index": index, "function": {"name": self.name}}
+        kind = self.type or "function"
+        field = "input" if kind == "custom" else "arguments"
+        delta: dict[str, Any] = {"index": index}
         if self.id is not None:
             delta["id"] = self.id
-        delta["type"] = self.type or "function"
-        delta["function"]["arguments"] = self.arguments
+        delta["type"] = kind
+        delta[kind] = {"name": self.name, field: self.arguments}
         return delta
+
+    def tool_call(self) -> ToolCall:
+        def _write(text: str) -> None:
+            self.arguments = text
+
+        return ToolCall(self.name[:128] or None, self.arguments, self.type != "custom", _write)
 
 
 @dataclass
@@ -98,6 +130,7 @@ class ChoiceState:
     released: int = 0  # raw characters already sent (after masking and restoration)
     sent: str = ""  # what the caller received for this choice (masked, restored)
     tool_calls: dict[int, ToolCallBuffer] = field(default_factory=dict)
+    function_call: ToolCallBuffer | None = None  # the deprecated single function call
     announced: bool = False  # the first delta (role) went out
     finished: bool = False
     blocked: bool = False
@@ -209,6 +242,9 @@ class AnswerStream:
         if st.tool_calls:
             deltas = [st.tool_calls[k].as_delta(k) for k in sorted(st.tool_calls)]
             chunks.append(self.chunk(st.index, {"tool_calls": deltas}))
+        if st.function_call is not None:
+            legacy = {"name": st.function_call.name, "arguments": st.function_call.arguments}
+            chunks.append(self.chunk(st.index, {"function_call": legacy}))
         chunks.append(self.chunk(st.index, {}, finish_reason or "stop"))
         return chunks
 
@@ -228,7 +264,7 @@ class AnswerStream:
             extra = {
                 k: v
                 for k, v in delta.items()
-                if k not in ("content", "tool_calls")
+                if k not in ("content", "tool_calls", "function_call")
                 and not unchecked_delta_field(k)
                 and (v is not None or not st.announced)
             }
@@ -239,6 +275,9 @@ class AnswerStream:
                 st.raw += delta["content"]
             for tool_delta in delta.get("tool_calls") or []:
                 _merge_tool_delta(st, tool_delta)
+            if isinstance(delta.get("function_call"), dict):
+                legacy = st.function_call = st.function_call or ToolCallBuffer()
+                _merge_call(legacy, delta["function_call"], "arguments")
             finish = choice.get("finish_reason")
             if finish is not None:
                 out.extend(await self.finish(st, finish))
@@ -256,7 +295,7 @@ class AnswerStream:
         out = await self.release(st, final=True)
         if self.mode == "after" and self.output_enabled and st.raw and not st.blocked:
             await self._check(st.raw)
-        if st.tool_calls and not st.blocked:
+        if (st.tool_calls or st.function_call is not None) and not st.blocked:
             await self._check_tool_calls(st)
         out.extend(self.finish_chunks(st, finish_reason))
         st.finished = True
@@ -266,18 +305,12 @@ class AnswerStream:
         """Restore the caller's values in each complete call, then check it (TOOL_INPUT)."""
 
         buffers = [st.tool_calls[k] for k in sorted(st.tool_calls)]
-        functions = []
-        for buffer in buffers:
-            if self.call.route.restore_placeholders:
-                buffer.arguments = self.session.restore(buffer.arguments, json_string=True)
-            functions.append({"name": buffer.name, "arguments": buffer.arguments})
-        blocking = await check_tool_calls(self.call, functions)
+        if st.function_call is not None:
+            buffers.append(st.function_call)
+        blocking = await settle_tool_calls(self.call, [b.tool_call() for b in buffers])
         if blocking is not None:
             st.blocked = True
             st.block_check = blocking
-            return
-        for buffer, function in zip(buffers, functions, strict=True):
-            buffer.arguments = function["arguments"]
 
     async def close_unfinished(self) -> list[dict[str, Any]]:
         """Choices the upstream ended without a finish reason get the same final check."""
@@ -304,11 +337,18 @@ def _merge_tool_delta(st: ChoiceState, delta: Any) -> None:
         buffer.id = delta["id"]
     if delta.get("type"):
         buffer.type = delta["type"]
-    function = delta.get("function") or {}
-    if isinstance(function.get("name"), str):
-        buffer.name += function["name"]
-    if isinstance(function.get("arguments"), str):
-        buffer.arguments += function["arguments"]
+    if isinstance(delta.get("custom"), dict):
+        buffer.type = "custom"
+        _merge_call(buffer, delta["custom"], "input")
+    elif isinstance(delta.get("function"), dict):
+        _merge_call(buffer, delta["function"], "arguments")
+
+
+def _merge_call(buffer: ToolCallBuffer, part: dict[str, Any], field: str) -> None:
+    if isinstance(part.get("name"), str):
+        buffer.name += part["name"]
+    if isinstance(part.get(field), str):
+        buffer.arguments += part[field]
 
 
 # ------------------------------------------------------------------ entry points
