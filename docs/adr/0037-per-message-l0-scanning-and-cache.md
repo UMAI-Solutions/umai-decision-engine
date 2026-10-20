@@ -94,8 +94,20 @@
   - no text in the cache;
   - the cache is bounded.
 - **Gateway test:** a 3 500-character conversation passes with an engine-API limit of 1 000.
-- **Pilot benchmark:** per-turn cost with the cache on the pilot VM is recorded in
-  [`ai-gateway.md`](../architecture/ai-gateway.md) §9, N14.
+- **Pilot benchmark** (pilot VM, 2026-10-20): a conversation grown turn by turn, each turn
+  adding a user message and the previous answer before the gateway checks the whole history:
+
+  | History | 8.6 k | 33 k | 65 k | 130 k | 256 k |
+  |---|---|---|---|---|---|
+  | Check per turn, with the cache | 19 ms | 36 ms | 11 ms | 20 ms | 23 ms |
+  | Full scan, before (Context) | 25 ms | 92 ms | 186 ms | 372 ms | 773 ms |
+
+- **End to end** (public hostname, OpenAI SDK):
+  - a 100 k-character chat took 331 ms in the pipeline on the first call and 5 ms on the
+    next turn;
+  - a 250 k-character call passes;
+  - a 300 k-character call gets 413 `input_too_large` from the gateway;
+  - a 700 KB body reaches the gateway, while Caddy's 512 KB cap stays on the engine paths.
 - **Revisit when:**
   - the hit rate in production is low;
   - the gateway runs several replicas;
