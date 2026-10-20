@@ -637,6 +637,17 @@ async def put_provider(
             422, {"error": "invalid_configuration", "detail": "provider_id: not an id"}
         )
     body = await _body(request, "provider_id", provider_id)
+    if body.get("credential") == "secret" and actor.kind != "operator":
+        # Provider keys in UMAI_DE_GATEWAY_PROVIDER_KEYS belong to the deployment, not to a
+        # tenant: only the operator may point a tenant's provider at one (review fix, Q47).
+        raise HTTPException(
+            403,
+            {
+                "error": "forbidden",
+                "detail": "only the operator can give a provider a key the deployment holds; "
+                "use credential pass_through",
+            },
+        )
     async with _FILE_LOCKS[tenant.slug]:
         data = await _read_file(request, tenant)
         providers = _entries(data, "providers")

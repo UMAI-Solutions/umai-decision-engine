@@ -208,11 +208,12 @@ admission error shape plus `problems`: where the request is malformed (`loc`) an
 Pydantic's error type), at most 50 entries. The body never contains the caller's input: no
 `input`, `ctx`, `msg` or `url`, and a location keeps only the contract's field names and list
 positions; any other key (an unknown field, a `metadata` key) is shown as `<key>` (ADR-0005).
-Authentication runs first, so only an admitted caller sees a 422.
+Authentication runs before field validation; a body that is not JSON at all is rejected with
+422 before it, without revealing anything either.
 
 **Prompt size** ([ADR-0019](../adr/0019-editions-as-runtime-entitlements.md) §4 and its
 amendment): the characters (Unicode code points) of every `content.messages[].content` and
-every `content.artifacts[].content`, added up. Above the limit (`UMAI_DE_MAX_INPUT_CHARS`,
+every `content.artifacts[].payload_summary` and `content`, added up: everything L0 can scan. Above the limit (`UMAI_DE_MAX_INPUT_CHARS`,
 default 32 000, until per-tenant entitlements carry `max_input_chars`) `POST /v1/evaluate` and
 `POST /v1/detect` answer **413** in the admission error shape with the limit and the measured
 size. Nothing is evaluated and nothing is truncated: the caller's own failure behaviour
@@ -247,7 +248,8 @@ applies, visibly. The check runs after admission and schema validation.
 
 - 0.10 (2026-10-20): one guardrail per application on every path (ADR-0039 §2): `bundle` is
   optional for a key that belongs to an application, whose guardrail applies; errors
-  `guardrail_mismatch`, `unknown_application` (403) and `bundle_required` (422). Requests
+  `guardrail_mismatch`, `unknown_application` (403) and `bundle_required` (422). The prompt
+  size also counts `artifacts[].payload_summary`, which L0 scans (review fix). Requests
   0.2–0.10 accepted.
 - 0.9 (2026-10-19): prompt-size limit: HTTP 413 `input_too_large` with `limit`, `size` and
   `unit: "characters"` above `UMAI_DE_MAX_INPUT_CHARS` (default 32 000) over all message and

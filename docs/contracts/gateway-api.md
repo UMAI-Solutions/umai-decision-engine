@@ -1,6 +1,6 @@
 # Contract: gateway API
 
-**Version:** 0.10 · **Status:** implemented for Chat Completions and the Responses API,
+**Version:** 0.11 · **Status:** implemented for Chat Completions and the Responses API,
 non-streaming and streaming, and for embeddings (input checks): applications, providers, input, tool-result, answer and tool-call checks, masking,
 restoration and refusals (WP2, WP3, WP5; [design](../architecture/ai-gateway.md) §8) · **Endpoints**
 (gateway host, e.g. `eu.gateway.<domain>`): `POST /v1/chat/completions`, `POST /v1/responses`, `POST /v1/embeddings`,
@@ -133,7 +133,7 @@ applications:
 | `providers[].kind` | Selects the credential header |
 | `providers[].base_url` | Defaults to `https://api.openai.com/v1` for `openai`; required for the other kinds. It must match an entry of the deployment's allow-list `UMAI_DE_GATEWAY_UPSTREAM_ALLOWLIST` (`scheme://host-glob[:port]`; default: OpenAI and Azure OpenAI / Foundry hosts over https). An IP-literal host matches only an entry that names it exactly. A file with a provider outside the list does not load |
 | `providers[].region` | Declared processing region (recorded; enforcement per tenant comes with the regional stack) |
-| `providers[].credential` | `pass_through`: `X-Umai-Provider-Key` is required on every call. `secret`: a provider key the deployment holds (`UMAI_DE_GATEWAY_PROVIDER_KEYS`, name → key). `none`: no credential (self-hosted servers). Tenant-managed stored keys come later (Q47) |
+| `providers[].credential` | `pass_through`: `X-Umai-Provider-Key` is required on every call. `secret`: a provider key the deployment holds (`UMAI_DE_GATEWAY_PROVIDER_KEYS`, name → key); only the operator may save such a provider (403 `forbidden` for people, since the keys belong to the deployment, not to a tenant). `none`: no credential (self-hosted servers). Tenant-managed stored keys come later (Q47) |
 | `providers[].default` | At most one; bare model names go there. Without one, the built-in `openai` provider is the default; a file whose default is disabled does not load |
 | `applications[].application_id` | `^[a-z0-9][a-z0-9-]{0,63}$`, unique per tenant; named by keys and `X-Umai-Application` |
 | `applications[].guardrail` | The bundle evaluated for every check of every call of the application, on the gateway and on the evaluation API; recorded with id, version and hash on every decision. A phase the bundle does not enable is not checked (configuration, not a failure). A missing bundle blocks (`CONFIG_MISSING`) |
@@ -195,7 +195,15 @@ policy-service route: the person's tenant, or `X-Umai-Tenant` with the control t
 | `stream_options.include_usage` | For `openai` and `azure_openai` upstreams the gateway sets it for its usage record and removes the usage-only chunk when the caller did not ask for it |
 | `n` | Each choice is checked on its own |
 | `safety_identifier`, `user` | Fallbacks for `subject.user_id` |
+| `prediction` (Predicted Outputs), `audio` / `modalities` with `audio` | Refused: 400 `unsupported_content` (content or an answer the guardrail cannot check) |
+| `metadata`, `messages[].name` (system, developer, user, assistant), `logprobs`, `top_logprobs` | Left out of the upstream call: not scanned, or they would return the answer outside the checked text |
+| Responses: `prompt.variables` | Refused: 400 `unsupported_content` |
+| Responses: `metadata`, `top_logprobs`, `include` entries with `logprobs`, `reasoning.summary` | Left out of the upstream call |
 | anything else | Forwarded unchanged, never interpreted |
+
+Answers: `choices[].logprobs` is `null`; `reasoning_content` / `reasoning` text in a message or a
+streamed delta is removed; in a Responses answer, `logprobs` of output text and reasoning
+`summary` are empty. Only checked text reaches the caller.
 
 Limits: the body is at most `UMAI_DE_GATEWAY_MAX_REQUEST_BYTES` (413 `request_too_large`); the
 scanned text, which is the whole conversation resent on every turn, at most
@@ -368,7 +376,7 @@ Admission and gateway errors use the OpenAI error shape with `type: "umai_gatewa
 | 401 | `invalid_credential` | Missing or unknown UMAI key |
 | 403 | `insufficient_scope` | The key lacks `gateway` |
 | 403 | `application_mismatch` | `X-Umai-Application` names another application than the key's |
-| 403 | `provider_not_allowed` | The application has a `providers` list without the target provider |
+| 403 | `provider_not_allowed` | The application has a `providers` list without the target provider, or the provider's address (also the built-in `openai` one) is not on the deployment's allow-list |
 | 404 | `unknown_application` | The key's application, or the one named by `X-Umai-Application`, is not an enabled application of the tenant; or the tenant has none |
 | 404 | `unknown_provider` | The `@<provider>/` prefix names no enabled provider, or there is no default provider |
 | 404 | `model_not_allowed` | The application has a `models` list and `model` is neither in it nor an alias |
@@ -391,6 +399,12 @@ latency. No record carries prompt, answer, provider key or mask map (ADR-0035).
 
 ## Changelog
 
+- 0.11 (2026-10-20, review fixes before merging): request fields the guardrail cannot check
+  are refused (`prediction`, audio answers, Responses `prompt.variables`) or left out
+  (`metadata`, participant `name`, log probabilities, reasoning summaries); answers lose
+  `logprobs` and reasoning text; every call checks the provider's address against the
+  allow-list (the built-in `openai` provider too); only the operator saves a `secret`
+  provider.
 - 0.10 (2026-10-20, breaking): applications and providers replace gateways (ADR-0039). The
   application carries the guardrail, keys and gateway options; providers are connected once per
   organization, with a built-in `openai` provider as the default; `@<provider>/<model>` picks

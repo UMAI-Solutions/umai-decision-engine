@@ -154,6 +154,12 @@ class ApplicationTable:
         self._state = _State()
         self._fingerprint: str | None = None
 
+    def permits(self, url: str) -> bool:
+        """Whether the deployment allows calls to ``url`` (the upstream allow-list). Checked on
+        every call too, so the built-in OpenAI provider, which no file lists, obeys it."""
+
+        return self._allowlist.permits(url)
+
     def tenant(self, tenant_id: str) -> ApplicationFile:
         """The tenant's file; an empty one (built-in OpenAI provider, no applications) if none."""
 

@@ -241,10 +241,11 @@ class ValidationErrorBody(ContractModel):
 
 def input_size(content: Content) -> int:
     """Prompt size (0.9, ADR-0019 §4 and amendment): characters (Unicode code points) over all
-    request content, i.e. every message and every artifact's content."""
+    request content L0 can scan: every message and every artifact's ``payload_summary`` and
+    ``content`` (the parts ``l0/target.py`` reads)."""
 
     return sum(len(m.content) for m in content.messages) + sum(
-        len(a.content or "") for a in content.artifacts
+        len(a.payload_summary or "") + len(a.content or "") for a in content.artifacts
     )
 
 

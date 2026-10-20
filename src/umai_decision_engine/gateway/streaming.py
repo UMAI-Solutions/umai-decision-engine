@@ -37,6 +37,7 @@ from umai_decision_engine.gateway.chat import (
     send_upstream,
 )
 from umai_decision_engine.gateway.errors import GatewayHTTPError
+from umai_decision_engine.gateway.fields import unchecked_delta_field
 from umai_decision_engine.gateway.guard import Check
 from umai_decision_engine.gateway.masking import MaskSession, Span
 from umai_decision_engine.gateway.tools import check_tool_calls, note_output
@@ -227,7 +228,9 @@ class AnswerStream:
             extra = {
                 k: v
                 for k, v in delta.items()
-                if k not in ("content", "tool_calls") and (v is not None or not st.announced)
+                if k not in ("content", "tool_calls")
+                and not unchecked_delta_field(k)
+                and (v is not None or not st.announced)
             }
             if extra:
                 out.append(self.chunk(st.index, extra))

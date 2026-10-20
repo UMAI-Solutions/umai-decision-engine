@@ -40,6 +40,11 @@ from umai_decision_engine.gateway.content import (
     text_size,
 )
 from umai_decision_engine.gateway.errors import GatewayHTTPError, from_admission
+from umai_decision_engine.gateway.fields import (
+    check_chat_request,
+    clean_chat_answer,
+    clean_chat_upstream,
+)
 from umai_decision_engine.gateway.guard import CallContext, Check, Guard, strictest
 from umai_decision_engine.gateway.masking import MaskSession
 from umai_decision_engine.gateway.tools import (
@@ -180,6 +185,15 @@ def _target(request: Request, caller: Caller, model: str) -> tuple[Route, Route 
         fallback = content.resolve(app, app.fallback, check_models=False) if app.fallback else None
     except ResolveError as exc:
         raise GatewayHTTPError(exc.status, exc.code, str(exc), param="model") from None
+    table = request.app.state.applications
+    for target in (route, fallback):
+        if target is not None and not table.permits(target.upstream.base_url):
+            raise GatewayHTTPError(
+                403,
+                "provider_not_allowed",
+                "this deployment does not allow calls to that provider's address",
+                param="model",
+            )
     return route, fallback
 
 
@@ -341,6 +355,12 @@ async def list_models(request: Request) -> Response:
     if provider is None:
         raise GatewayHTTPError(404, "unknown_provider", "this application has no usable provider")
     route = content.resolve(app, f"@{provider.provider_id}/models", check_models=False)
+    if not request.app.state.applications.permits(route.upstream.base_url):
+        raise GatewayHTTPError(
+            403,
+            "provider_not_allowed",
+            "this deployment does not allow calls to that provider's address",
+        )
     response = await request.app.state.upstream.get(
         route, _provider_key(request, route), path="models"
     )
@@ -381,6 +401,7 @@ async def chat_completions(request: Request) -> Response:
             "(images, audio, files)",
             param="messages",
         )
+    check_chat_request(body)
     limit = state.settings.gateway_max_input_chars
     if text_size(segments) > limit:
         raise GatewayHTTPError(
@@ -404,6 +425,7 @@ async def chat_completions(request: Request) -> Response:
 
     upstream_body = copy.deepcopy(body)
     upstream_body["model"] = route.upstream.model
+    clean_chat_upstream(upstream_body)
     if segments:
         results = await input_checks(call, segments, chat_tool_action(body["messages"]))
         worst = strictest([check for check, _ in results])
@@ -472,6 +494,7 @@ async def _finish(call: Call, response: Any, *, client_model: str) -> Response:
         ) from None
     if isinstance(data, dict) and isinstance(data.get("choices"), list):
         await check_answer(call, data["choices"])
+        clean_chat_answer(data)
     usage = data.get("usage") if isinstance(data, dict) else None
     _log(call, status=response.status_code, usage=usage)
     return JSONResponse(

@@ -44,6 +44,9 @@
      - the part's text.
    - **Size:** `UMAI_DE_L0_CACHE_ENTRIES` entries (default 20 000; `0` disables it).
    - **Lifetime:** memory only, lost at restart.
+   - **What goes in:** input checks only (`PRE_LLM`, `TOOL_OUTPUT`), the texts a conversation
+     resends. Answer and tool-call checks are one-off (a streamed answer is checked every 32
+     characters) and would only push conversation entries out (review fix, 2026-10-20).
 
    A resent history is therefore not scanned again; a turn costs its new parts.
 3. **The gateway has its own input limit.**

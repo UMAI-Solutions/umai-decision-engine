@@ -375,6 +375,19 @@ def test_input_size_counts_every_message_and_artifact(write_bundle, make_client)
         )
 
 
+def test_input_size_counts_artifact_summaries(write_bundle, make_client) -> None:
+    # L0 scans payload_summary too (l0/target.py), so the limit counts it (review fix).
+    write_bundle(bundle_yaml(), active=1)
+    client = make_client(max_input_chars=1000)
+    request = _request("a" * 400)
+    request["content"]["artifacts"] = [
+        {"artifact_type": "TOOL_OUTPUT", "payload_summary": "s" * 601}
+    ]
+    response = client.post("/v1/evaluate", json=request)
+    assert response.status_code == 413
+    assert InputTooLargeBody.model_validate(response.json()).detail.size == 1001
+
+
 def test_tenant_key_required_outside_development(write_bundle, make_client) -> None:
     write_bundle(bundle_yaml(), active=1)
     client = make_client(own_detector=True, env="test", require_signed_bundles=False)

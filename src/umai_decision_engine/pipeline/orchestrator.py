@@ -22,6 +22,7 @@ from umai_decision_engine.contracts.common import (
     Action,
     Layer,
     Mode,
+    Phase,
     Severity,
 )
 from umai_decision_engine.contracts.entities import DetectedEntity, EntityDetectionResult
@@ -207,6 +208,8 @@ class Evaluator:
                     tenant_id=request.tenant_id,
                     config=l0_config,
                     language_hint=request.content.language,
+                    # inputs are resent every turn; answers and tool calls are checked once
+                    cache=request.phase in (Phase.PRE_LLM, Phase.TOOL_OUTPUT),
                 ),
                 timeout=max(budget_s - (time.perf_counter() - started), 0.001),
             )

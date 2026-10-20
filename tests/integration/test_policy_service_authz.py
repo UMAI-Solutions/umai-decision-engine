@@ -76,6 +76,25 @@ def client(write_bundle, detector, tmp_path):
         yield c
 
 
+@pytest.fixture
+def gateway_client(write_bundle, detector, tmp_path):
+    write_bundle(bundle_yaml(), active=1)
+    settings = Settings(
+        env="test",
+        require_signed_bundles=False,
+        policy_dir=write_bundle.root,
+        control_db_path=tmp_path / "control.sqlite",
+        control_api_token=CONTROL,
+        actor_assertion="required",
+        actor_public_keys={"console-1": public_key_b64(KEY)},
+        applications_dir=tmp_path / "applications",
+    )
+    with TestClient(create_app(settings, detector=detector)) as c:
+        c.headers["Authorization"] = f"Bearer {CONTROL}"
+        _CURRENT["client"] = c
+        yield c
+
+
 def _as(token: str) -> dict[str, str]:
     return {"X-Umai-Actor": token}
 
@@ -192,3 +211,27 @@ def test_claimed_roles_are_not_believed(client) -> None:
     )
     token = sign_actor_assertion(claims, KEY, "console-1")
     assert client.get("/v1/guardrails", headers=_as(token)).status_code == 403
+
+
+def test_only_the_operator_points_a_provider_at_a_deployment_key(gateway_client) -> None:
+    # Provider keys in UMAI_DE_GATEWAY_PROVIDER_KEYS belong to the deployment (review fix, Q47).
+    provider = {
+        "kind": "azure_openai",
+        "base_url": "https://contoso-hr.openai.azure.com/openai/v1/",
+        "credential": "secret",
+        "secret": "openai",
+    }
+    owner = _as(_assertion(roles=("owner",), sub="auth0|lin"))
+    refused = gateway_client.put("/v1/providers/mine", json=provider, headers=owner)
+    assert refused.status_code == 403
+    assert refused.json()["detail"]["error"] == "forbidden"
+    pass_through = {k: v for k, v in provider.items() if k not in ("credential", "secret")}
+    assert (
+        gateway_client.put("/v1/providers/mine", json=pass_through, headers=owner).status_code
+        == 201
+    )
+    operator = {"X-Umai-Tenant": "default"}
+    assert (
+        gateway_client.put("/v1/providers/shared", json=provider, headers=operator).status_code
+        == 201
+    )
