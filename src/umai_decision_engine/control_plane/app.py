@@ -30,7 +30,13 @@ from umai_decision_engine.applications import (
 )
 from umai_decision_engine.applications import problem as application_problem
 from umai_decision_engine.contracts.credentials import KeyEnv, Scope
-from umai_decision_engine.contracts.gateway import APPLICATION_ID, PROVIDER_ID, ApplicationFile
+from umai_decision_engine.contracts.gateway import (
+    APPLICATION_ID,
+    BUILTIN_OPENAI,
+    PROVIDER_ID,
+    ApplicationFile,
+    Provider,
+)
 from umai_decision_engine.contracts.organizations import (
     InvitationAccept,
     InvitationCreate,
@@ -482,14 +488,21 @@ async def _body(request: Request, id_field: str, value: str) -> dict[str, Any]:
     return body
 
 
+_SWITCHES = {"name", "enabled", "default"}
+
+
+def _is_builtin(provider: Provider) -> bool:
+    """The built-in OpenAI provider, also when only renamed, switched off or made the default."""
+    return provider.model_dump(exclude=_SWITCHES) == BUILTIN_OPENAI.model_dump(exclude=_SWITCHES)
+
+
 def _provider_view(content: ApplicationFile) -> list[dict[str, Any]]:
-    defined = {p.provider_id for p in content.providers}
     default = content.default_provider()
     view = []
     for provider in content.effective_providers().values():
         entry = provider.model_dump(mode="json", exclude_none=True)
         entry["default"] = default is not None and provider.provider_id == default.provider_id
-        entry["builtin"] = provider.provider_id not in defined
+        entry["builtin"] = _is_builtin(provider)
         view.append(entry)
     return view
 

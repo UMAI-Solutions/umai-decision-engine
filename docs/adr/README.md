@@ -47,6 +47,6 @@ listed in [`../open-questions.md`](../open-questions.md) as blocking, and flag d
 | [0036](0036-checks-continue-after-masking.md) | Masking does not end the evaluation: attack and agent-action checks run on the masked text; only L0 `BLOCK` / `STEP_UP_APPROVAL` are terminal | Accepted (2026-10-19; effective with L1) |
 | [0037](0037-per-message-l0-scanning-and-cache.md) | L0 scans a multi-part target one message at a time with a per-process detection cache (types, spans, value hashes; never text), so a resent conversation is not rescanned; the gateway gets its own input limit (256 000 characters) | Accepted (2026-10-20) |
 | [0038](0038-gateways-instead-of-model-routes.md) | Gateways instead of per-model routes: one provider connection and one guardrail per gateway, models pass through, keys bind to a gateway (amends ADR-0034 §6) | Accepted (2026-10-20) |
-| [0039](0039-applications-and-connections.md) | Applications as the protected unit, one guardrail per application on every path; the AI gateway as one way to connect, with its own providers (`@provider/model`); console organized as Protect, Investigate, Connect (would amend ADR-0038) | Proposed |
+| [0039](0039-applications-and-connections.md) | Applications as the protected unit, one guardrail per application on every path; the AI gateway as one way to connect, with its own providers (`@provider/model`); console organized as Protect, Investigate, Connect (amends ADR-0038) | Accepted (2026-10-20) |
 
 New ADR: copy [`0000-template.md`](0000-template.md), or use skill `write-adr`.

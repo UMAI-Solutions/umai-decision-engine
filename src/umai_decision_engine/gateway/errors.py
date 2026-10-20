@@ -6,6 +6,7 @@ Messages name codes, ids and entity types only; they never echo request or upstr
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from fastapi import HTTPException, Request
@@ -16,6 +17,8 @@ from umai_decision_engine.contracts.gateway import (
     GatewayErrorBody,
     UmaiDecisionInfo,
 )
+
+log = logging.getLogger("umai.gateway")
 
 
 class GatewayHTTPError(Exception):
@@ -69,6 +72,16 @@ async def gateway_error_handler(request: Request, exc: Exception) -> JSONRespons
     assert isinstance(exc, GatewayHTTPError)
     response = exc.response()
     request_id = getattr(request.state, "request_id", None)
+    if exc.type != "umai_guardrail":  # guardrail refusals are in gateway.call already
+        # Refused before or around the guardrail (selection, provider, model, upstream): ids
+        # and codes only, so an administrator can see why an application's calls fail.
+        log.info(
+            "gateway.refused request_id=%s path=%s status=%s code=%s",
+            request_id,
+            request.url.path,
+            exc.status,
+            exc.code,
+        )
     if request_id:
         response.headers["X-Umai-Request-Id"] = request_id
     return response

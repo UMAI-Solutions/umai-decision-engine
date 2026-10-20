@@ -112,6 +112,21 @@ def test_providers_include_the_builtin_openai_and_one_default(control) -> None:
     assert by_id["openai"]["default"] is False and by_id["contoso-hr"]["builtin"] is False
 
 
+def test_the_builtin_openai_stays_builtin_when_switched(control) -> None:
+    control.put("/v1/providers/contoso-hr", json={**AZURE, "default": True})
+    control.put("/v1/providers/openai", json={"name": "OpenAI", "kind": "openai", "enabled": False})
+    by_id = {p["provider_id"]: p for p in control.get("/v1/providers").json()["providers"]}
+    assert by_id["openai"]["builtin"] is True and by_id["openai"]["enabled"] is False
+    control.put("/v1/providers/openai", json={"kind": "openai", "default": True})
+    by_id = {p["provider_id"]: p for p in control.get("/v1/providers").json()["providers"]}
+    assert by_id["openai"]["builtin"] is True and by_id["openai"]["default"] is True
+    proxied = {"kind": "openai", "base_url": "https://api.openai.com/v1/proxy", "default": True}
+    assert control.put("/v1/providers/openai", json=proxied).json()["provider"]["builtin"] is False
+    assert control.delete("/v1/providers/openai").status_code == 200  # the built-in one is back
+    by_id = {p["provider_id"]: p for p in control.get("/v1/providers").json()["providers"]}
+    assert by_id["openai"]["builtin"] is True
+
+
 @pytest.mark.parametrize(
     ("provider_id", "body", "fragment"),
     [

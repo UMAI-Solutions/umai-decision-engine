@@ -152,29 +152,39 @@ control token alone runs operator actions only.
 The gateway answers OpenAI-compatible calls on the same hostname: `/v1/chat/completions`,
 `/v1/responses`, `/v1/embeddings`, `/v1/models` (contract `docs/contracts/gateway-api.md`).
 
-1. Provider keys the deployment holds for `credential: secret` gateways, as one JSON object
-   (`{}` if every gateway passes the caller's key through):
+1. Provider keys the deployment holds for `credential: secret` providers, as one JSON object
+   (`{}` if every provider passes the caller's key through):
 
    ```bash
    echo '{"openai": "<provider key>"}' | sudo /opt/umai/umai.sh set-secret UMAI_GATEWAY_PROVIDER_KEYS
    ```
 
    With Key Vault: secret `umai-gateway-provider-keys`.
-2. Gateways (ADR-0038): one provider connection plus one guardrail each; the model a caller
-   sends passes through. Create them with `PUT /v1/gateways/<id>` on the policy service (the
-   console, or the control token with `X-Umai-Tenant`), or by hand in
-   `/opt/umai/gateways/<tenant>.yaml`. Reloaded within 5 seconds:
+2. Applications and providers (ADR-0039): an application has one guardrail and its own keys; the
+   gateway sends its calls to the default provider (a built-in pass-through OpenAI provider
+   unless another is marked default) or to `@<provider>/<model>`. Create them in the console
+   (Applications, AI Gateway → Providers), with `PUT /v1/applications/<id>` and
+   `PUT /v1/providers/<id>` on the policy service (control token with `X-Umai-Tenant`), or by hand
+   in `/opt/umai/applications/<tenant>.yaml`. Reloaded within 5 seconds:
 
    ```yaml
-   gateways:
-     - gateway_id: main
-       provider: { kind: openai }       # pass_through: callers send X-Umai-Provider-Key
-       guardrail: gr-demo-data-protection
+   applications:
+     - application_id: main
+       guardrail: gr-demo-data-protection   # callers send X-Umai-Provider-Key (built-in OpenAI)
    ```
 
-   Keys: `POST /v1/tenants/<tenant>/keys` with `{"name": ..., "gateway_id": "main"}` binds a
-   key to the gateway. The operator token acts as the tenant `UMAI_CONSOLE_TENANT_ID` and names
-   the gateway with `X-Umai-Gateway`, unless the tenant has only one.
+   Keys: `POST /v1/tenants/<tenant>/keys` with `{"name": ..., "application_id": "main"}`; the key
+   then works on the gateway and on `/v1/evaluate`, both with the application's guardrail. The
+   operator token acts as the tenant `UMAI_CONSOLE_TENANT_ID` and names the application with
+   `X-Umai-Application`, unless the tenant has only one.
+
+   **Upgrading from gateways (ADR-0038).** Migration 0004 runs when the policy service starts and
+   renames each key's `gateway_id` to `application_id`. Before `umai.sh up`, write
+   `/opt/umai/applications/<tenant>.yaml` for every `/opt/umai/gateways/<tenant>.yaml`: one
+   application per gateway with the **same id** (so its keys keep working) and the same
+   guardrail; a gateway's provider becomes an entry under `providers:` (not needed for
+   `{ kind: openai }` with pass-through, which is the built-in provider). Then remove the old
+   directory.
 3. `UMAI_GATEWAY=true` in `config.env`, then `sudo /opt/umai/umai.sh up`.
 4. Check: `curl https://$UMAI_HOSTNAME/v1/models -H "Authorization: Bearer <key or token>"`.
    Clients use `base_url=https://<hostname>/v1` with the official OpenAI SDKs.

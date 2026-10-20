@@ -1,10 +1,11 @@
 # Console: information architecture for an AI runtime security product
 
-**Status:** proposal for decision (2026-10-20, second design). The object model is drafted as
-[ADR-0039](../adr/0039-applications-and-connections.md) (Proposed). Nothing in the engine, the
-contracts or the console has changed for this document.
+**Status:** accepted and built (2026-10-20, second design): the object model is
+[ADR-0039](../adr/0039-applications-and-connections.md); what was built and what was left out is
+in its Implementation section. The wireframes show the target, including the WP6 sections that
+stay hidden for now.
 **Scope:** the console's structure in `umai-control-center` (ADR-0016) and the engine changes the
-ADR would need if accepted.
+ADR needed.
 **Builds on:** [overview](overview.md), [gateway design](ai-gateway.md) §1 (positioning),
 [gateway-api](../contracts/gateway-api.md) 0.9, [ADR-0038](../adr/0038-gateways-instead-of-model-routes.md),
 the console's `docs/design.md`.
@@ -360,10 +361,11 @@ an error the application received.
   Recommended: yes; today monitor mode is a property of the guardrail version.
 - Q-P6 Hide WP6 sections until records exist (recommended) or show them as "coming"?
 
-## 9. Engine changes if ADR-0039 is accepted
+## 9. Engine changes of ADR-0039
 
-Not done; listed so the cost of the decision is visible. All within the 0.x contracts, before any
-customer data exists.
+Accepted and built on 2026-10-20 (ADR-0039 Implementation), except the WP6 detection records and
+the per-application Monitor only mode (Q57). All within the 0.x contracts, before any customer
+data exists.
 
 | Change | Contract |
 |---|---|

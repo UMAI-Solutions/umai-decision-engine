@@ -387,11 +387,14 @@ TWO_APPLICATIONS = (
 )
 
 
-def test_several_applications_need_a_name(make_gateway, upstream) -> None:
+def test_several_applications_need_a_name(make_gateway, upstream, caplog) -> None:
     client = make_gateway(applications=app_yaml(*TWO_APPLICATIONS, providers=[AZURE]))
-    response = ask(client, "selam")
+    with caplog.at_level(logging.INFO, logger="umai.gateway"):
+        response = ask(client, "selam")
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "application_required"
+    assert "gateway.refused" in caplog.text and "code=application_required" in caplog.text
+    assert "selam" not in caplog.text
     named = client.post(
         "/v1/chat/completions",
         json={"model": "@azure-eu/hr", "messages": [{"role": "user", "content": "selam"}]},
