@@ -122,7 +122,7 @@ with FORCE and `WITH CHECK`, SQLite for development; isolation tests in `tests/d
 against a Postgres service container). Slice (b) groundwork (2026-10-19): bundles are tenant-owned (policy-bundle 0.8:
 `policies/tenants/<tenant>/`, signed `manifest.tenant_id`, unowned bundles belong to the default
 tenant; evaluation API 0.7 reads one tenant; 0.8: 422 bodies without the caller's input, gap L1
-closed), the policy service verifies on-behalf-of assertions
+closed; 0.9: 413 `input_too_large` above 32 000 characters, gap T2 closed), the policy service verifies on-behalf-of assertions
 (credentials 0.2, `control_plane/actors.py`) and authorizes every route with the permission
 matrix (`control_plane/authz.py`, ADR-0029). Organizations (2026-10-19, ADR-0033 store first):
 contract `organizations` 0.2, `db/organizations.py` (users, memberships with `member_self`,

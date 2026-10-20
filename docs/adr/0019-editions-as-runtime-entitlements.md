@@ -104,3 +104,23 @@ self-hosted, differing only in limits and features. Constraints from earlier dec
 - Leak suite over SIEM export payloads: 0 raw values.
 - Revisit if the gateway-only alternative becomes sufficient (e.g. if self-hosted drops
   quotas entirely) or if the counter store cannot meet the latency budget.
+
+## Amendment 2026-10-19: prompt size in characters (Q19 answered)
+
+**Decision.** Prompt size is counted in **characters** (Unicode code points) over all request
+content, not in tokens. The entitlement limit is `max_input_chars` (Community **32 000**, about
+the 8 000 tokens first planned at four characters per token), replacing `max_input_tokens`.
+Until entitlement snapshots reach the engine, one deployment-wide setting enforces it
+(`UMAI_DE_MAX_INPUT_CHARS`, default 32 000; evaluation API 0.9, 413 `input_too_large` with
+`limit`, `size`, `unit`).
+
+**Why.** A tokenizer is a new dependency and a model file to ship and update (AGENTS rule 6)
+and counts differently per vendor; characters cost microseconds (0.6 µs for one 32 000-character
+message, 3.8 µs for 50 parts, measured 2026-10-19) and treat every language alike, while tokens
+penalise Turkish, which needs more tokens per character than English. The console's playground
+already capped at 32 000 characters.
+
+**Consequences.** A size in tokens can still be added for billing or provider limits later,
+without changing the security limit. The engine's L0 scan has no limit of its own beyond this
+one: it scans long text in overlapping chunks (`l0.max_chars` is a chunk size, not a cut-off).
+
