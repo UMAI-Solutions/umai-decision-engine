@@ -133,6 +133,7 @@ def _record(row: ApiKey, slug: str) -> ApiKeyRecord:
         env=row.env,  # type: ignore[arg-type]
         region=row.region,  # type: ignore[arg-type]
         scopes=[Scope(s) for s in row.scopes],
+        gateway_id=row.gateway_id,
         created_by=row.created_by,
         created_at=row.created_at,
         expires_at=row.expires_at,
@@ -155,6 +156,7 @@ class ApiKeyRepository:
         scopes: list[Scope] | None,
         created_by: str,
         expires_at: datetime | None = None,
+        gateway_id: str | None = None,
     ) -> tuple[ApiKeyRecord, str]:
         """Returns the record and the presentation secret (shown once, never stored)."""
 
@@ -166,6 +168,7 @@ class ApiKeyRepository:
             env=env,
             region=region,
             scopes=[s.value for s in (scopes or list(DEFAULT_SCOPES))],
+            gateway_id=gateway_id,
             name=name,
             created_by=created_by,
             expires_at=expires_at,
@@ -216,6 +219,7 @@ class ApiKeyRepository:
                     env=k.env,
                     region=k.region,
                     scopes=k.scopes,
+                    gateway_id=k.gateway_id,
                     status="revoked" if k.revoked_at else "active",
                     expires_at=k.expires_at,
                 )

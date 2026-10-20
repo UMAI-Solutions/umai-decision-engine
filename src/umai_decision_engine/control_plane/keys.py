@@ -84,7 +84,13 @@ class KeyService:
         env: KeyEnv,
         expires_at: datetime | None,
         created_by: str,
+        gateway_id: str | None = None,
     ) -> tuple[ApiKeyRecord, str, bool]:
+        if gateway_id is not None:
+            # A bound key is a gateway key (credentials 0.5, ADR-0038).
+            scopes = scopes or [Scope.GATEWAY]
+            if Scope.GATEWAY not in scopes:
+                raise ValueError("a key bound to a gateway needs the scope gateway")
         if scopes:
             self._check_scopes(scopes)
         record, secret = await self.keys.create(
@@ -95,8 +101,15 @@ class KeyService:
             scopes=scopes,
             created_by=created_by,
             expires_at=expires_at,
+            gateway_id=gateway_id,
         )
-        log.info("api key created: tenant=%s key_id=%s env=%s", tenant.slug, record.key_id, env)
+        log.info(
+            "api key created: tenant=%s key_id=%s env=%s gateway=%s",
+            tenant.slug,
+            record.key_id,
+            env,
+            gateway_id,
+        )
         return record, secret, await self.republish(tenant)
 
     async def list(self, tenant: TenantInfo) -> list[ApiKeyRecord]:

@@ -1,9 +1,9 @@
 """Suite `gateway-latency`: what the UMAI gateway adds to a call (ADR-0034, AGENTS rule 6).
 
 The gateway runs in-process against a zero-latency fake upstream, so every millisecond measured is
-the gateway's own: admission, route, input check (L0 over every message), masking, answer check,
-restoration, JSON and SSE handling. Guardrail: the repository's demo bundle (full L0 catalog).
-Synthetic text only. No network.
+the gateway's own: admission, gateway and model, input check (L0 over every message), masking,
+answer check, restoration, JSON and SSE handling. Guardrail: the repository's demo bundle (full
+L0 catalog). Synthetic text only. No network.
 """
 
 from __future__ import annotations
@@ -94,24 +94,25 @@ def run(args: argparse.Namespace) -> Path:
         return httpx.Response(200, json=state["reply"])
 
     work = Path(tempfile.mkdtemp(prefix="umai-gw-bench-"))
-    routes = work / "routes"
-    routes.mkdir()
-    route_list = [
+    gateways = work / "gateways"
+    gateways.mkdir()
+    # One gateway per streaming mode; the model name doubles as the gateway's id.
+    gateway_list = [
         {
-            "route_id": f"r-{mode}",
-            "upstream": {"kind": "openai", "base_url": "https://api.openai.com/v1", "model": "m"},
-            "credential": "none",
+            "gateway_id": f"r-{mode}",
+            "provider": {"kind": "openai", "credential": "none"},
             "guardrail": BUNDLE,
+            "aliases": [{"name": f"r-{mode}", "model": "m"}],
             "stream_mode": mode,
         }
         for mode in ("window", "buffer", "after")
     ]
-    (routes / "default.yaml").write_text(json.dumps({"routes": route_list}), encoding="utf-8")
+    (gateways / "default.yaml").write_text(json.dumps({"gateways": gateway_list}), encoding="utf-8")
     settings = Settings(
         env="development",
         policy_dir=ROOT / "policies",
-        gateway_routes_dir=routes,
-        gateway_routes_poll_interval_s=0,
+        gateways_dir=gateways,
+        gateways_poll_interval_s=0,
         bundle_poll_interval_s=0,
         l0_threads=1,
         log_level="WARNING",
@@ -162,7 +163,11 @@ def run(args: argparse.Namespace) -> Path:
                         "https://api.openai.com/v1/chat/completions",
                         json={"model": "m", "messages": []},
                     )
-                return client.post("/v1/chat/completions", json=payload)
+                return client.post(
+                    "/v1/chat/completions",
+                    json=payload,
+                    headers={"X-Umai-Gateway": payload["model"]},
+                )
 
             for _ in range(5):
                 response = call()  # warm-up

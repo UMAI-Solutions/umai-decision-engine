@@ -9,7 +9,9 @@ import asyncio
 import base64
 import hmac
 import logging
+import re
 import uuid
+from collections import defaultdict
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -21,6 +23,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from umai_decision_engine import __version__
 from umai_decision_engine.contracts.credentials import KeyEnv, Scope
+from umai_decision_engine.contracts.gateway import GATEWAY_ID
 from umai_decision_engine.contracts.organizations import (
     InvitationAccept,
     InvitationCreate,
@@ -59,14 +62,14 @@ from umai_decision_engine.db.repositories import (
     TenantRepository,
 )
 from umai_decision_engine.db.session import make_engine, sqlite_url
+from umai_decision_engine.gatewayfiles import (
+    AllowList,
+    read_gateway_file,
+    validate_gateway_file,
+    write_gateway_file,
+)
 from umai_decision_engine.l0.detector import EntityDetector
 from umai_decision_engine.l0.recognizers.catalog import SPECS_BY_ENTITY, TAG_BY_ENTITY
-from umai_decision_engine.routefiles import (
-    AllowList,
-    read_route_file,
-    validate_route_file,
-    write_route_file,
-)
 from umai_decision_engine.settings import Settings, get_settings
 from umai_decision_engine.telemetry.logging import configure_logging
 
@@ -126,6 +129,9 @@ class KeyCreate(BaseModel):
     scopes: list[Scope] | None = None  # default: evaluate only (ADR-0023 §3)
     env: KeyEnv = "live"
     expires_at: datetime | None = None
+    # Binds the key to one gateway of the tenant; scopes then default to gateway (credentials
+    # 0.5, ADR-0038).
+    gateway_id: str | None = Field(None, pattern=GATEWAY_ID)
 
 
 async def require_token(request: Request) -> None:
@@ -356,6 +362,16 @@ async def create_key(
 
     check_tenant(actor, tenant_id)
     tenant = await _tenant(request, tenant_id)
+    if body.gateway_id is not None:
+        settings: Settings = request.app.state.settings
+        data = await asyncio.to_thread(read_gateway_file, settings.gateways_dir, tenant.slug)
+        if not any(
+            isinstance(g, dict) and g.get("gateway_id") == body.gateway_id
+            for g in data.get("gateways") or []
+        ):
+            raise HTTPException(
+                422, {"error": "unknown_gateway", "detail": "no such gateway for this tenant"}
+            )
     try:
         record, secret, published = await _keys(request).create(
             tenant,
@@ -364,6 +380,7 @@ async def create_key(
             env=body.env,
             expires_at=body.expires_at,
             created_by="control-token" if actor.kind == "operator" else actor.label,
+            gateway_id=body.gateway_id,
         )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
@@ -411,64 +428,155 @@ async def _org(request: Request, org_id: str, actor: Actor) -> TenantInfo:
     return tenant
 
 
-# ------------------------------------------------------------- gateway routes (gateway-api 0.7)
+# ------------------------------------------------------------- gateways (gateway-api 0.9)
+
+_GATEWAY_ID = re.compile(GATEWAY_ID)
+# One writer per tenant file inside this process (the policy service is the only writer).
+_GATEWAY_LOCKS: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
 
-def _route_problem(exc: Exception) -> str:
+def _gateway_problem(exc: Exception) -> str:
     if isinstance(exc, ValidationError):
         first = exc.errors()[0]
-        location = ".".join(str(p) for p in first.get("loc", ())) or "routes"
+        location = ".".join(str(p) for p in first.get("loc", ())) or "gateways"
         return f"{location}: {first.get('msg', first.get('type', 'invalid'))}"[:300]
     return str(exc)[:300]
 
 
-@router.get("/gateway/routes")
-async def gateway_routes(
+def _gateway_list(data: dict[str, Any]) -> list[Any]:
+    gateways = data.get("gateways") or []
+    return gateways if isinstance(gateways, list) else []
+
+
+def _is_gateway(entry: Any, gateway_id: str) -> bool:
+    return isinstance(entry, dict) and entry.get("gateway_id") == gateway_id
+
+
+@router.get("/gateways")
+async def list_gateways(
     request: Request,
     tenant: TenantInfo = _TENANT,
-    actor: Actor = _ALLOW[Action.GATEWAY_ROUTE_READ],
+    actor: Actor = _ALLOW[Action.GATEWAY_READ],
 ) -> dict[str, Any]:
     settings: Settings = request.app.state.settings
-    data = await asyncio.to_thread(read_route_file, settings.gateway_routes_dir, tenant.slug)
-    return {"tenant_id": tenant.slug, "routes": data.get("routes") or []}
+    data = await asyncio.to_thread(read_gateway_file, settings.gateways_dir, tenant.slug)
+    return {"tenant_id": tenant.slug, "gateways": _gateway_list(data)}
 
 
-@router.put("/gateway/routes")
-async def put_gateway_routes(
+@router.put("/gateways/{gateway_id}")
+async def put_gateway(
+    gateway_id: str,
     request: Request,
     tenant: TenantInfo = _TENANT,
-    actor: Actor = _ALLOW[Action.GATEWAY_ROUTE_WRITE],
-) -> dict[str, Any]:
-    """Replace the tenant's routes. Validated like the gateway loads them (schema, fallbacks,
-    upstream allow-list) plus: every guardrail exists for this tenant. The gateway picks the file
-    up at its next reload (seconds)."""
+    actor: Actor = _ALLOW[Action.GATEWAY_WRITE],
+) -> JSONResponse:
+    """Create or replace one gateway. The tenant's whole file is validated as the gateway loads
+    it (schema, fallbacks, allow-list) and the guardrail must exist for this tenant; the gateway
+    picks the file up at its next reload (seconds)."""
 
-    settings: Settings = request.app.state.settings
+    if not _GATEWAY_ID.match(gateway_id):
+        raise HTTPException(
+            422, {"error": "invalid_gateway", "detail": "gateway_id: not a gateway id"}
+        )
     try:
         body = await request.json()
-        routes = validate_route_file(body, AllowList(settings.gateway_upstream_allowlist))
-    except (ValueError, ValidationError) as exc:
+    except ValueError:
+        body = None
+    if not isinstance(body, dict):
         raise HTTPException(
-            422, {"error": "invalid_routes", "detail": _route_problem(exc)}
-        ) from None
-    known = set(_service(request).guardrails.for_tenant(tenant.slug).ids())
-    unknown = sorted({r.guardrail for r in routes.routes} - known)
-    if unknown:
-        raise HTTPException(
-            422,
-            {"error": "unknown_guardrail", "detail": f"no guardrail {', '.join(unknown)} here"},
+            422, {"error": "invalid_gateway", "detail": "the body must be one gateway object"}
         )
-    await asyncio.to_thread(write_route_file, settings.gateway_routes_dir, tenant.slug, routes)
+    if body.setdefault("gateway_id", gateway_id) != gateway_id:
+        raise HTTPException(
+            422, {"error": "invalid_gateway", "detail": "gateway_id: must equal the path"}
+        )
+    settings: Settings = request.app.state.settings
+    async with _GATEWAY_LOCKS[tenant.slug]:
+        data = await asyncio.to_thread(read_gateway_file, settings.gateways_dir, tenant.slug)
+        current = _gateway_list(data)
+        created = not any(_is_gateway(g, gateway_id) for g in current)
+        gateways = [body if _is_gateway(g, gateway_id) else g for g in current]
+        gateways += [body] if created else []
+        try:
+            parsed = validate_gateway_file(
+                {"gateways": gateways}, AllowList(settings.gateway_upstream_allowlist)
+            )
+        except (ValueError, ValidationError) as exc:
+            raise HTTPException(
+                422, {"error": "invalid_gateway", "detail": _gateway_problem(exc)}
+            ) from None
+        stored = parsed.get(gateway_id)
+        assert stored is not None
+        known = set(_service(request).guardrails.for_tenant(tenant.slug).ids())
+        if stored.guardrail not in known:
+            raise HTTPException(
+                422,
+                {"error": "unknown_guardrail", "detail": f"no guardrail {stored.guardrail} here"},
+            )
+        await asyncio.to_thread(write_gateway_file, settings.gateways_dir, tenant.slug, parsed)
     log.info(
-        "gateway.routes.updated tenant=%s actor=%s routes=%d",
+        "gateway.saved tenant=%s actor=%s gateway=%s created=%s",
         tenant.slug,
         actor.label,
-        len(routes.routes),
+        gateway_id,
+        created,
     )
-    return {
-        "tenant_id": tenant.slug,
-        "routes": routes.model_dump(mode="json", exclude_none=True)["routes"],
-    }
+    return JSONResponse(
+        {"tenant_id": tenant.slug, "gateway": stored.model_dump(mode="json", exclude_none=True)},
+        status_code=201 if created else 200,
+    )
+
+
+@router.delete("/gateways/{gateway_id}")
+async def delete_gateway(
+    gateway_id: str,
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.GATEWAY_WRITE],
+) -> dict[str, Any]:
+    """Remove a gateway; refused while an active key is bound to it or another gateway falls
+    back to it, so no caller silently loses or changes its guardrail."""
+
+    settings: Settings = request.app.state.settings
+    async with _GATEWAY_LOCKS[tenant.slug]:
+        data = await asyncio.to_thread(read_gateway_file, settings.gateways_dir, tenant.slug)
+        current = _gateway_list(data)
+        if not any(_is_gateway(g, gateway_id) for g in current):
+            raise HTTPException(
+                404, {"error": "unknown_gateway", "detail": "no such gateway for this tenant"}
+            )
+        users = sorted(
+            str(g.get("gateway_id"))
+            for g in current
+            if isinstance(g, dict) and g.get("fallback") == gateway_id
+        )
+        if users:
+            raise HTTPException(
+                409,
+                {"error": "gateway_in_use", "detail": f"gateway {users[0]} falls back to it"},
+            )
+        keys = await _keys(request).list(tenant)
+        bound = [k for k in keys if k.gateway_id == gateway_id and k.revoked_at is None]
+        if bound:
+            raise HTTPException(
+                409,
+                {
+                    "error": "gateway_in_use",
+                    "detail": f"{len(bound)} active key(s) are bound to it; revoke them first",
+                },
+            )
+        try:
+            remaining = validate_gateway_file(
+                {"gateways": [g for g in current if not _is_gateway(g, gateway_id)]},
+                AllowList(settings.gateway_upstream_allowlist),
+            )
+        except (ValueError, ValidationError) as exc:
+            raise HTTPException(
+                422, {"error": "invalid_gateway", "detail": _gateway_problem(exc)}
+            ) from None
+        await asyncio.to_thread(write_gateway_file, settings.gateways_dir, tenant.slug, remaining)
+    log.info("gateway.deleted tenant=%s actor=%s gateway=%s", tenant.slug, actor.label, gateway_id)
+    return {"tenant_id": tenant.slug, "deleted": gateway_id}
 
 
 @router.get("/me/organizations")

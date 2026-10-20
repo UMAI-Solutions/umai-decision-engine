@@ -26,8 +26,9 @@ from umai_decision_engine.gateway.chat import (
     _log,
     _provider_key,
     _read_body,
-    _route,
     _subject,
+    _target,
+    call_headers,
     refusal_error,
     send_upstream,
 )
@@ -70,16 +71,17 @@ async def create_embeddings(request: Request) -> Response:
     request.state.request_id = request_id
     state = request.app.state
 
-    tenant = _admit(request)
+    caller = _admit(request)
+    tenant = caller.tenant
     body = await _read_body(request)
-    route = _route(request, tenant, body["model"])
+    route, fallback = _target(request, caller, body["model"])
     provider_key = _provider_key(request, route)
     texts, unscanned = _texts(body.get("input"))
     if unscanned and route.unscanned_parts == "reject":
         raise GatewayHTTPError(
             400,
             "unsupported_content",
-            "token arrays cannot be scanned on this route",
+            "token arrays cannot be scanned on this gateway",
             param="input",
         )
     limit = state.settings.gateway_max_input_chars
@@ -95,8 +97,8 @@ async def create_embeddings(request: Request) -> Response:
         upstream=state.upstream,
         settings=state.settings,
         started=started,
-        headers={"X-Umai-Request-Id": request_id},
-        fallback=state.routes.get(tenant, route.fallback) if route.fallback else None,
+        headers=call_headers(request_id, route),
+        fallback=fallback,
     )
     if unscanned:
         call.headers["X-Umai-Unscanned-Parts"] = str(unscanned)

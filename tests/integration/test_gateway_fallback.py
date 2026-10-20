@@ -1,6 +1,5 @@
-"""Fallback routes (gateway-api 0.6): one retry on another upstream, same masked body and guardrail.
-
-Synthetic content only.
+"""Fallback gateways (gateway-api 0.6, 0.9): one retry on another provider, same masked body and
+guardrail. Synthetic content only.
 """
 
 from __future__ import annotations
@@ -17,22 +16,22 @@ from umai_decision_engine.gateway.app import create_gateway_app
 from umai_decision_engine.settings import Settings
 
 PRIMARY = {
-    "route_id": "gpt-eu",
-    "upstream": {"kind": "openai", "base_url": "https://api.openai.com/v1", "model": "gpt-x"},
-    "credential": "pass_through",
+    "gateway_id": "gw-openai",
+    "provider": {"kind": "openai"},
     "guardrail": "gr-gw",
-    "fallback": "azure-eu",
+    "aliases": [{"name": "gpt-eu", "model": "gpt-x"}],
+    "fallback": "gw-azure",
 }
 AZURE = {
-    "route_id": "azure-eu",
-    "upstream": {
+    "gateway_id": "gw-azure",
+    "provider": {
         "kind": "azure_openai",
         "base_url": "https://res.openai.azure.com/openai/v1/",
-        "model": "gpt-x-deployment",
+        "credential": "secret",
+        "secret": "azure",
     },
-    "credential": "secret",
-    "secret": "azure",
     "guardrail": "gr-gw",
+    "aliases": [{"name": "gpt-eu", "model": "gpt-x-deployment"}],
 }
 
 
@@ -61,25 +60,29 @@ def gateway(write_bundle, detector, tmp_path):
     clients: list[TestClient] = []
     upstreams = Upstreams()
 
-    def _make(routes: list[dict]) -> tuple[TestClient, Upstreams]:
+    def _make(gateways: list[dict]) -> tuple[TestClient, Upstreams]:
         write_bundle(GUARDRAIL.format(mode="ENFORCE"), bundle_id="gr-gw", active=1)
-        directory = tmp_path / "routes"
+        directory = tmp_path / "gateways"
         directory.mkdir(exist_ok=True)
-        (directory / "tenant-a.yaml").write_text(json.dumps({"routes": routes}), encoding="utf-8")
+        (directory / "tenant-a.yaml").write_text(
+            json.dumps({"gateways": gateways}), encoding="utf-8"
+        )
         settings = Settings(
             env="development",
             policy_dir=write_bundle.root,
             bundle_poll_interval_s=0,
             l0_threads=1,
             default_tenant_id="tenant-a",
-            gateway_routes_dir=directory,
-            gateway_routes_poll_interval_s=0,
+            gateways_dir=directory,
+            gateways_poll_interval_s=0,
             gateway_provider_keys={"azure": "az-secret"},
         )
         app = create_gateway_app(
             settings, detector=detector, upstream_transport=httpx.MockTransport(upstreams.handler)
         )
-        client = TestClient(app, headers={"X-Umai-Provider-Key": "sk-test"})
+        client = TestClient(
+            app, headers={"X-Umai-Provider-Key": "sk-test", "X-Umai-Gateway": "gw-openai"}
+        )
         client.__enter__()
         clients.append(client)
         return client, upstreams
@@ -108,14 +111,14 @@ def test_falls_back_once_with_the_same_masked_body(gateway, failure) -> None:
     upstreams.primary = failure
     response = ask(client)
     assert response.status_code == 200
-    assert response.headers["X-Umai-Fallback"] == "azure-eu"
+    assert response.headers["X-Umai-Fallback"] == "gw-azure"
     assert response.json()["choices"][0]["message"]["content"] == f"res.openai.azure.com: {TCKN}"
     hosts = [host for host, _ in upstreams.seen]
     assert hosts == ["api.openai.com", "res.openai.azure.com"]
     first, second = (body for _, body in upstreams.seen)
     assert first["messages"] == second["messages"]  # masked once, sent twice
     assert TCKN not in json.dumps(second)
-    assert second["model"] == "gpt-x-deployment"
+    assert second["model"] == "gpt-x-deployment"  # the fallback's own alias
 
 
 def test_client_errors_do_not_fall_back(gateway) -> None:
@@ -127,31 +130,39 @@ def test_client_errors_do_not_fall_back(gateway) -> None:
     assert [host for host, _ in upstreams.seen] == ["api.openai.com"]
 
 
+def test_no_fallback_when_the_fallback_does_not_offer_the_model(gateway) -> None:
+    client, upstreams = gateway([PRIMARY, {**AZURE, "aliases": [], "models": ["other"]}])
+    response = ask(client)
+    assert response.status_code == 503
+    assert "X-Umai-Fallback" not in response.headers
+    assert [host for host, _ in upstreams.seen] == ["api.openai.com"]
+
+
 def test_streams_fall_back_before_the_first_byte(gateway) -> None:
     client, _ = gateway([PRIMARY, AZURE])
     response = ask(client, stream=True)
     assert response.status_code == 200
-    assert response.headers["X-Umai-Fallback"] == "azure-eu"
+    assert response.headers["X-Umai-Fallback"] == "gw-azure"
     assert "Yedek." in response.text
 
 
 @pytest.mark.parametrize(
     ("change", "problem"),
     [
-        ({"fallback": "missing"}, "not another route"),
-        ({"fallback": "gpt-eu"}, "not another route"),
+        ({"fallback": "missing"}, "not another gateway"),
+        ({"fallback": "gw-openai"}, "not another gateway"),
     ],
 )
 def test_invalid_fallbacks_do_not_load(gateway, change, problem) -> None:
     client, _ = gateway([{**PRIMARY, **change}, AZURE])
-    assert [m["id"] for m in client.get("/v1/models").json()["data"]] == []
-    assert problem in client.app.state.routes.errors[0][1]
+    assert client.get("/v1/models").json()["error"]["code"] == "unknown_gateway"
+    assert problem in client.app.state.gateways.errors[0][1]
 
 
 def test_fallback_needs_the_same_guardrail_and_its_own_credential(gateway) -> None:
     client, _ = gateway([PRIMARY, {**AZURE, "guardrail": "other"}])
-    assert "same guardrail" in client.app.state.routes.errors[0][1]
-    pass_through = {**AZURE, "credential": "pass_through"}
-    pass_through.pop("secret")
+    assert "same guardrail" in client.app.state.gateways.errors[0][1]
+    pass_through = {**AZURE, "provider": {**AZURE["provider"], "credential": "pass_through"}}
+    pass_through["provider"].pop("secret")
     client, _ = gateway([PRIMARY, pass_through])
-    assert "cannot pass the caller's provider key" in client.app.state.routes.errors[0][1]
+    assert "cannot pass the caller's provider key" in client.app.state.gateways.errors[0][1]

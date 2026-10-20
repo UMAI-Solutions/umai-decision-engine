@@ -35,6 +35,7 @@ class Principal:
     scopes: frozenset[Scope]
     key_id: str | None = None
     env: str | None = None
+    gateway_id: str | None = None  # the key's gateway (credentials 0.5, ADR-0038)
 
     @property
     def rate_limit_key(self) -> str:
@@ -104,6 +105,7 @@ class Admission:
                 frozenset(key.entry.scopes),
                 key_id=key.key_id,
                 env=key.entry.env,
+                gateway_id=key.entry.gateway_id,
             )
         if self.shared_token is not None and hmac.compare_digest(
             value.encode(), self.shared_token.encode()

@@ -135,6 +135,8 @@ class ApiKey(Base):
     env: Mapped[str] = mapped_column(String(8), nullable=False)  # live | test
     region: Mapped[str] = mapped_column(String(8), nullable=False)
     scopes: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    # The gateway the key is bound to (credentials 0.5, ADR-0038); fixed at creation.
+    gateway_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     created_by: Mapped[str] = mapped_column(String(200), nullable=False)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime(), default=_now)

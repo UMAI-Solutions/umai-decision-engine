@@ -171,7 +171,7 @@ flowchart TB
     STR --> UP2["Azure OpenAI<br/>EU data zone"]
     STR --> UP3["Own models<br/>vLLM, Ollama"]
     subgraph CTRL["Control and records: no content"]
-        CON["Console + policy service<br/>routes, signed bundles"]
+        CON["Console + policy service<br/>gateways, signed bundles"]
         EVT["Decision events, usage"]
         OUT["Dashboards, SIEM, L2,<br/>governance later"]
     end
@@ -191,7 +191,7 @@ sequenceDiagram
     participant S as Event sink
 
     App->>GW: POST /v1/chat/completions (UMAI key)
-    GW->>GW: admission (key, scope gateway, quota, size), resolve route
+    GW->>GW: admission (key, scope gateway, quota, size), select gateway, resolve model
     GW->>EV: EvaluationRequest PRE_LLM (messages mapped)
     EV-->>GW: decision (+ per-message masks)
     alt BLOCK
@@ -225,10 +225,10 @@ shapes are re-verified before implementation (rule 7).
 | roles `user`, `assistant` | same; tool-call arguments → separate `TOOL_INPUT` evaluation per call |
 | role `tool` / tool-result blocks | separate `TOOL_OUTPUT` evaluation, `action.tool_name` from the matching call (indirect prompt injection lands here) |
 | text content parts | concatenated per message with offsets kept, so masks map back to parts |
-| image / audio / file parts | route setting: `reject`, or `pass_unscanned` recorded as `degraded` (Q12) |
+| image / audio / file parts | gateway setting: `reject`, or `pass_unscanned` recorded as `degraded` (Q12) |
 | `user` field, `x-umai-session-id`, `x-umai-subject-*` headers | `subject.user_id`, `session_id`, `role`, `department` (answers Q10 for gateway callers) |
-| route's upstream and class | `destination.app` (`<provider>/<model>`), `destination.class` (`external_llm`, `internal_llm`) |
-| route's guardrail | `bundle.id` (active version) |
+| gateway's provider, resolved model and class | `destination.app` (`<provider>/<model>`), `destination.class` (`external_llm`, `internal_llm`) |
+| gateway's guardrail | `bundle.id` (active version) |
 
 ### 6.4 Decision → gateway action
 
@@ -241,7 +241,7 @@ shapes are re-verified before implementation (rule 7).
 | `BLOCK` | refuse; nothing reaches the provider | replace the answer with a refusal, `finish_reason: content_filter` |
 | `MONITOR` mode | forward unchanged; `would_have` recorded | return unchanged |
 
-Refusal style is a route setting (Q48): the provider's error object with HTTP 400 and code
+Refusal style is a gateway setting (Q48): the provider's error object with HTTP 400 and code
 `umai_blocked` (what SDKs raise as an exception, and what LiteLLM does on a block), or HTTP 200
 with a refusal message for chat UIs that cannot show errors. Reasons follow the evaluation API:
 entity types and policy ids, never values.
@@ -298,13 +298,21 @@ authorization stay deterministic code (rule 3). An MCP gateway surface (`MCP_REQ
 `MCP_RESPONSE`) is a later stage; through option A, LiteLLM's and Portkey's MCP guardrail hooks
 reach it earlier.
 
-### 6.8 Routes and provider credentials
+### 6.8 Gateways and provider credentials
 
-A **route** is tenant configuration, not policy: `route_id`, upstream (provider kind, base URL
-from an allow-list, model), credential reference, guardrail (bundle id), stream mode, refusal
-style, explicit timeouts, optional fallback route. Routes live in the tenant store (ADR-0025),
-are edited in the console through the policy service and hot-reloaded; every decision event
-records the route id. The guardrail itself stays in the signed bundle (rule 8).
+A **gateway** (ADR-0038, which replaced per-model routes on 2026-10-20) is tenant configuration,
+not policy. It has:
+
+- one provider connection: kind, base URL from an allow-list, credential mode;
+- one guardrail (bundle id);
+- stream mode, refusal style and explicit timeouts;
+- optional model aliases, a `models` allow-list and a fallback gateway.
+
+The model a caller sends passes through to the provider. Keys bind to a gateway; unbound callers
+name one with `X-Umai-Gateway`, or use the tenant's only gateway. Gateways live in one YAML file
+per tenant (the tenant store later, ADR-0025). The console edits them through the policy service
+(`/v1/gateways`) and the gateway hot-reloads them. Every decision event records the gateway id.
+The guardrail itself stays in the signed bundle (rule 8).
 
 Provider credentials (Q47):
 
@@ -376,6 +384,7 @@ of `gateway/`.
 | Feature matrix row, entitlement feature `gateway`, planned contract changes | B | deployment-and-editions | done (WP1) |
 | Per-message masks, scan of every forwarded message, one placeholder namespace per call | A, B | evaluation-api + model + pipeline (skill `change-contract`) | WP2, with its code |
 | `gateway` scope; `route_id`, `source: gateway` on decision events | B | credentials, tagged-action | WP2, with their code |
+| Gateways instead of per-model routes: provider connection + guardrail per gateway, models pass through, keys bind to a gateway | B | ADR-0038; gateway-api 0.9, credentials 0.5, migration 0003 | done (2026-10-20) |
 | Leak suite over adapter responses, gateway logs, events and error bodies | A, B | evals | WP2 exit |
 | Recommended failure settings per integration (e.g. Portkey "Fail on Error" on) | A | integration docs (rule 4) | with the adapters |
 
@@ -394,7 +403,7 @@ Work packages in dependency order. "Now" means it needs nothing that does not ex
 | **WP5 Agents (G3)** — tool checks and the Responses API done 2026-10-19 (MCP later) | Tool-call and tool-result checks in the gateway; Responses API surface; MCP later | WP2, WP4c | Tool-call evals; Responses contract tests |
 | **WP6 Records** | Decision events and usage ledger with route, model, app, user fields (ADR-0030, ADR-0028): the customer's dashboard and the base for governance packages | Platform-first track | Events stored per tenant; leak suite over events |
 | **WP7 Console** | Routes, gateway keys, usage and decision views (`umai-control-center`) | WP1 contracts | Console end to end against a local stack |
-| **WP8 Pilot deployment** — started 2026-10-20 | Cloud pilot on the EU single-VM starter (ADR-0032 allows pilots) with a gateway hostname; on-prem with the same image and Compose | WP2, WP3 | Pilot runbook; customer traffic in `MONITOR` mode first. **2026-10-20:** `umai-beta` runs the gateway enforcing (not `MONITOR`, product owner): routes `gpt-4.1-mini`, `gpt-5.4-mini`, `text-embedding-3-small` with `pass_through` keys for the tenants `console` and `smarttech`; checked end to end with the OpenAI SDK through the public hostname (masking and restoration, TCKN refusal, streaming, Responses, embeddings, tool call; no raw values in logs). Still open: the customer's own organization and Azure route, the runbook |
+| **WP8 Pilot deployment** — started 2026-10-20 | Cloud pilot on the EU single-VM starter (ADR-0032 allows pilots) with a gateway hostname; on-prem with the same image and Compose | WP2, WP3 | Pilot runbook; customer traffic in `MONITOR` mode first. **2026-10-20:** `umai-beta` runs the gateway enforcing (not `MONITOR`, product owner): routes `gpt-4.1-mini`, `gpt-5.4-mini`, `text-embedding-3-small` with `pass_through` keys for the tenants `console` and `smarttech`; checked end to end with the OpenAI SDK through the public hostname (masking and restoration, TCKN refusal, streaming, Responses, embeddings, tool call; no raw values in logs). **Later on 2026-10-20 (ADR-0038):** the three routes per tenant became one gateway `main` per tenant (OpenAI, caller's key, same guardrail); migration 0003 ran on PostgreSQL; a key bound to `smarttech/main` and the older unbound key both work; checked again end to end, including a model nobody configured (`gpt-4.1-nano`) and `gateway_mismatch`. Still open: the customer's own organization and Azure gateway, the runbook |
 
 **WP4 paused (product owner, 2026-10-19):** the engine has only L0 today; prompt-attack work resumes with L1, and guardrail tests come then. Groundwork kept: the `pi-tr` set (356 generated cases + 65 handwritten holdout cases), detector code in `l1/attacks/` (not wired into the pipeline) and first measurements: open classifiers miss Turkish (Vela Guard, Prompt Guard 2 ≤ 10 % recall; ProtectAI 55 % recall at 24 % false alarms on the holdout), the keyword heuristic does not generalise (holdout recall 15 %), an LLM judge over an OpenAI-compatible endpoint does (holdout 100 %, test 96–98 %, 0–4 % false alarms; p50 0.7–1.1 s, so it would run in parallel with the upstream call). Reports: `evals/reports/2026-10-19-pi-tr-wp4b*`.
 
@@ -408,13 +417,13 @@ Found while building WP2–WP5; none blocks the first customer's pilot.
 
 | # | Note | Where it belongs |
 |---|---|---|
-| N1 | Routes are YAML files per tenant; the policy service reads and replaces them (`/v1/gateway/routes`, 2026-10-20), the console page is still to build | WP7: console (`umai-control-center`); tenant store later if files stop scaling |
+| N1 | Gateways are YAML files per tenant; the policy service manages them one by one (`/v1/gateways`, ADR-0038, 2026-10-20), the console flow is still to build (create gateway → key → snippet) | WP7: console (`umai-control-center`); tenant store later if files stop scaling |
 | N2 | Decision events are not stored (no event sink yet); `X-Umai-Event-Id` names an evaluation that only the logs record | WP6 (ADR-0030) |
 | N3 | `window` streams run one full pipeline evaluation per release step; each logs a `decision` line. Fine for L0; with injection detection (WP4) on every step, measure cost and consider checking attacks only on the whole answer | WP4c benchmark |
 | N4 | A value masked inside tool-call arguments is stored as JSON source text; restoring it into plain content would show JSON escapes (only matters for values with quotes or backslashes) | gateway masking |
 | N5 | `include_usage` is added only for `openai` / `azure_openai` upstreams; self-hosted servers may report no usage in streams | usage ledger (WP6) |
 | N6 | Upstream region is recorded, not enforced per tenant | regional stack (ADR-0026) |
-| N7 | The upstream allow-list checks host names, not what they resolve to (DNS pointing an allowed name at a private address) | before tenant-edited routes (WP7) |
+| N7 | The upstream allow-list checks host names, not what they resolve to (DNS pointing an allowed name at a private address) | before tenant-edited gateways (WP7) |
 | N8 | Done 2026-10-20 (ADR-0037): L0 scans each message on its own and caches what it found per message (types, spans, value hashes; never text), so a resent history is not rescanned and a turn costs its new messages | — |
 | N9 | Engine and gateway processes keep separate per-key rate-limit buckets | Redis buckets (ADR-0023 §7) |
 | N10 | Done 2026-10-19: Compose profile `gateway` (port 9300), Caddy routes the OpenAI paths on the same hostname with streaming flush, provider keys through `umai.sh` (deploy/vm/README §7). Caddy's body cap is 4 MB on the gateway paths since 2026-10-20 (512 KB elsewhere); large images may still exceed it | WP8 |

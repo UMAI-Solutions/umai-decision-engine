@@ -17,13 +17,13 @@ from umai_decision_engine import __version__
 from umai_decision_engine.gateway.chat import router
 from umai_decision_engine.gateway.embeddings import router as embeddings_router
 from umai_decision_engine.gateway.errors import GatewayHTTPError, gateway_error_handler
+from umai_decision_engine.gateway.gateways import GatewayTable
 from umai_decision_engine.gateway.guard import Guard
 from umai_decision_engine.gateway.responses import router as responses_router
-from umai_decision_engine.gateway.routing import RouteTable
 from umai_decision_engine.gateway.upstream import UpstreamClient
+from umai_decision_engine.gatewayfiles import AllowList
 from umai_decision_engine.l0.detector import EntityDetector
 from umai_decision_engine.policy.store import BundleStore
-from umai_decision_engine.routefiles import AllowList
 from umai_decision_engine.runtime import start_runtime
 from umai_decision_engine.settings import Settings, get_settings
 
@@ -41,14 +41,14 @@ def create_gateway_app(
         state.ready = False
         runtime = await start_runtime(settings or get_settings(), store=store, detector=detector)
         cfg = runtime.settings
-        routes = RouteTable(cfg.gateway_routes_dir, AllowList(cfg.gateway_upstream_allowlist))
-        await asyncio.to_thread(routes.reload, force=True)
-        if cfg.gateway_routes_poll_interval_s > 0:
-            runtime.poll(routes.poll(cfg.gateway_routes_poll_interval_s))
+        gateways = GatewayTable(cfg.gateways_dir, AllowList(cfg.gateway_upstream_allowlist))
+        await asyncio.to_thread(gateways.reload, force=True)
+        if cfg.gateways_poll_interval_s > 0:
+            runtime.poll(gateways.poll(cfg.gateways_poll_interval_s))
         state.settings = cfg
         state.store = runtime.store
         state.admission = runtime.admission
-        state.routes = routes
+        state.gateways = gateways
         state.guard = Guard(runtime.evaluator, runtime.store)
         state.upstream = UpstreamClient(upstream_transport)
         state.ready = True

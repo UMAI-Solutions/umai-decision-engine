@@ -10,9 +10,12 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from umai_decision_engine.contracts.gateway import GATEWAY_ID
 from umai_decision_engine.contracts.organizations import Role
 
-CONTRACT_VERSION = "0.1"  # key-registry snapshot payload version (unchanged in 0.2, 0.3)
+# Key-registry snapshot payload version: 0.1 until credentials 0.4, 0.2 since 0.5 (entries
+# may carry gateway_id). Engines read both.
+CONTRACT_VERSION = "0.2"
 
 KeyEnv = Literal["live", "test"]
 KeyRegion = Literal["eu", "us", "sh"]
@@ -46,6 +49,7 @@ class KeyRegistryEntry(BaseModel):
     env: KeyEnv
     region: KeyRegion
     scopes: list[Scope]
+    gateway_id: str | None = Field(None, pattern=GATEWAY_ID)  # credentials 0.5, ADR-0038
     status: Literal["active", "revoked"]
     expires_at: datetime | None = None
 
@@ -57,7 +61,7 @@ class KeyRegistrySnapshot(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    contract_version: Literal["0.1"] = CONTRACT_VERSION
+    contract_version: Literal["0.1", "0.2"] = CONTRACT_VERSION
     tenant_id: str = Field(min_length=1, max_length=128)
     generated_at: datetime
     keys: list[KeyRegistryEntry]
@@ -81,6 +85,7 @@ class ApiKeyRecord(BaseModel):
     env: KeyEnv
     region: KeyRegion
     scopes: list[Scope]
+    gateway_id: str | None = None  # the gateway the key is bound to (0.5, ADR-0038)
     created_by: str
     created_at: datetime
     expires_at: datetime | None = None
