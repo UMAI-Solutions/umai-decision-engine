@@ -9,6 +9,7 @@ import asyncio
 import base64
 import hmac
 import logging
+import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -20,6 +21,13 @@ from pydantic import BaseModel, Field
 
 from umai_decision_engine import __version__
 from umai_decision_engine.contracts.credentials import KeyEnv, Scope
+from umai_decision_engine.contracts.organizations import (
+    InvitationAccept,
+    InvitationCreate,
+    MembershipUpdate,
+    OrganizationCreate,
+    OrganizationUpdate,
+)
 from umai_decision_engine.control_plane.actors import load_public_key
 from umai_decision_engine.control_plane.authz import (
     Action,
@@ -29,9 +37,19 @@ from umai_decision_engine.control_plane.authz import (
     check_tenant,
 )
 from umai_decision_engine.control_plane.keys import KeyPublisher, KeyService
+from umai_decision_engine.control_plane.organizations import (
+    DISPOSABLE_EMAIL_DOMAINS,
+    OrganizationError,
+    OrganizationService,
+)
 from umai_decision_engine.control_plane.repository import GuardrailRepositories
 from umai_decision_engine.control_plane.service import PolicyService, ServiceError
 from umai_decision_engine.db.migrate import upgrade
+from umai_decision_engine.db.organizations import (
+    InvitationRepository,
+    MembershipRepository,
+    UserRepository,
+)
 from umai_decision_engine.db.repositories import (
     ApiKeyRepository,
     Conflict,
@@ -372,6 +390,138 @@ async def publish_keys(
     return {"published": await _keys(request).republish(tenant)}
 
 
+# ------------------------------------------------------------------ organizations (ADR-0033)
+
+
+def _orgs(request: Request) -> OrganizationService:
+    return request.app.state.organizations
+
+
+async def _org(request: Request, org_id: str, actor: Actor) -> TenantInfo:
+    check_tenant(actor, org_id)
+    tenant = await _tenant_repo(request).get(org_id)
+    if tenant is None:
+        raise HTTPException(404, {"error": "not_found", "detail": "no such organization"})
+    return tenant
+
+
+@router.get("/me/organizations")
+async def my_organizations(
+    request: Request, actor: Actor = _ALLOW[Action.ME_ORGANIZATIONS]
+) -> dict[str, Any]:
+    return {"organizations": await _orgs(request).mine(actor)}
+
+
+@router.post("/organizations", status_code=201)
+async def create_organization(
+    body: OrganizationCreate,
+    request: Request,
+    actor: Actor = _ALLOW[Action.ORGANIZATION_CREATE],
+) -> dict[str, Any]:
+    return await _orgs(request).create(actor, body)
+
+
+@router.get("/organizations/{org_id}")
+async def get_organization(
+    org_id: str, request: Request, actor: Actor = _ALLOW[Action.ORGANIZATION_READ]
+) -> dict[str, Any]:
+    return await _orgs(request).get(await _org(request, org_id, actor))
+
+
+@router.patch("/organizations/{org_id}")
+async def update_organization(
+    org_id: str,
+    body: OrganizationUpdate,
+    request: Request,
+    actor: Actor = _ALLOW[Action.ORGANIZATION_UPDATE],
+) -> dict[str, Any]:
+    return await _orgs(request).rename(await _org(request, org_id, actor), body.name)
+
+
+@router.get("/organizations/{org_id}/members")
+async def list_members(
+    org_id: str, request: Request, actor: Actor = _ALLOW[Action.MEMBER_READ]
+) -> dict[str, Any]:
+    return {"members": await _orgs(request).members(await _org(request, org_id, actor))}
+
+
+@router.patch("/organizations/{org_id}/members/{user_id}")
+async def update_member(
+    org_id: str,
+    user_id: uuid.UUID,
+    body: MembershipUpdate,
+    request: Request,
+    actor: Actor = _ALLOW[Action.MEMBER_UPDATE],
+) -> dict[str, Any]:
+    tenant = await _org(request, org_id, actor)
+    return await _orgs(request).set_roles(tenant, actor, user_id, body.roles)
+
+
+@router.delete("/organizations/{org_id}/members/{user_id}", status_code=204)
+async def remove_member(
+    org_id: str,
+    user_id: uuid.UUID,
+    request: Request,
+    actor: Actor = _ALLOW[Action.MEMBER_REMOVE],
+) -> None:
+    await _orgs(request).remove(await _org(request, org_id, actor), actor, user_id)
+
+
+@router.post("/organizations/{org_id}/leave", status_code=204)
+async def leave_organization(
+    org_id: str, request: Request, actor: Actor = _ALLOW[Action.MEMBER_LEAVE]
+) -> None:
+    await _orgs(request).leave(await _org(request, org_id, actor), actor)
+
+
+@router.get("/organizations/{org_id}/invitations")
+async def list_invitations(
+    org_id: str, request: Request, actor: Actor = _ALLOW[Action.INVITATION_MANAGE]
+) -> dict[str, Any]:
+    tenant = await _org(request, org_id, actor)
+    return {"invitations": await _orgs(request).list_invitations(tenant)}
+
+
+@router.post("/organizations/{org_id}/invitations", status_code=201)
+async def create_invitation(
+    org_id: str,
+    body: InvitationCreate,
+    request: Request,
+    actor: Actor = _ALLOW[Action.INVITATION_MANAGE],
+) -> dict[str, Any]:
+    """The link's secret is in the response once (``token``) and stored as a hash only."""
+
+    return await _orgs(request).invite(await _org(request, org_id, actor), actor, body)
+
+
+@router.delete("/organizations/{org_id}/invitations/{invitation_id}")
+async def revoke_invitation(
+    org_id: str,
+    invitation_id: uuid.UUID,
+    request: Request,
+    actor: Actor = _ALLOW[Action.INVITATION_MANAGE],
+) -> dict[str, Any]:
+    return await _orgs(request).revoke(await _org(request, org_id, actor), invitation_id)
+
+
+@router.post("/organizations/{org_id}/invitations/{invitation_id}/resend", status_code=201)
+async def resend_invitation(
+    org_id: str,
+    invitation_id: uuid.UUID,
+    request: Request,
+    actor: Actor = _ALLOW[Action.INVITATION_MANAGE],
+) -> dict[str, Any]:
+    tenant = await _org(request, org_id, actor)
+    return await _orgs(request).resend(tenant, actor, invitation_id)
+
+
+@router.post("/invitations/accept")
+async def accept_invitation(
+    body: InvitationAccept, request: Request, actor: Actor = _ALLOW[Action.INVITATION_ACCEPT]
+) -> dict[str, Any]:
+    return await _orgs(request).accept(actor, body.organization, body.token)
+
+
 def create_app(
     settings: Settings | None = None, *, detector: EntityDetector | None = None
 ) -> FastAPI:
@@ -421,6 +571,28 @@ def create_app(
             engine,
             signing_key,
         )
+        service = app.state.service
+        app.state.organizations = OrganizationService(
+            tenants,
+            UserRepository(db),
+            MembershipRepository(db),
+            InvitationRepository(db),
+            region=cfg.region,
+            default_tenant=cfg.default_tenant_id,
+            max_owned_community=cfg.max_owned_community_organizations,
+            max_pending_invitations=cfg.max_pending_invitations,
+            disposable_domains=DISPOSABLE_EMAIL_DOMAINS
+            | {d.strip().lower() for d in cfg.disposable_email_domains},
+            starter=(
+                (
+                    lambda tenant, actor: service.install_starter(
+                        tenant, cfg.starter_guardrail, actor
+                    )
+                )
+                if cfg.starter_guardrail
+                else None
+            ),
+        )
         try:
             yield
         finally:
@@ -436,6 +608,12 @@ def create_app(
         if exc.details is not None:
             body["details"] = exc.details
         return JSONResponse(body, status_code=exc.status)
+
+    @app.exception_handler(OrganizationError)
+    async def _organization_error(_request: Request, exc: OrganizationError) -> JSONResponse:
+        return JSONResponse(
+            {"detail": {"error": exc.code, "detail": str(exc)}}, status_code=exc.status
+        )
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:

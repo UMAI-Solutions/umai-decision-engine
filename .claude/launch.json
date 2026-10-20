@@ -6,6 +6,30 @@
       "runtimeExecutable": ".venv/Scripts/python.exe",
       "runtimeArgs": ["-m", "uvicorn", "umai_decision_engine.api.app:app", "--port", "9100"],
       "port": 9100
+    },
+    {
+      "name": "policy-service",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": ["-m", "uvicorn", "umai_decision_engine.control_plane.app:app", "--port", "9200"],
+      "port": 9200
+    },
+    {
+      "name": "engine-api (console tenant)",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": ["dev/local_stack.py", "engine"],
+      "port": 9100
+    },
+    {
+      "name": "policy-service (console tenant)",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": ["dev/local_stack.py", "policy-service"],
+      "port": 9200
+    },
+    {
+      "name": "console",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": ["dev/local_stack.py", "console"],
+      "port": 3100
     }
   ]
 }

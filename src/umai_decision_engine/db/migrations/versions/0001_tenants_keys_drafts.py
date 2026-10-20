@@ -9,7 +9,7 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 
-from umai_decision_engine.db.rls import TENANT_TABLES, enable_rls_sql, grant_app_role_sql
+from umai_decision_engine.db.rls import enable_rls_sql, grant_app_role_sql
 
 revision = "0001"
 down_revision = None
@@ -17,6 +17,8 @@ branch_labels = None
 depends_on = None
 
 APP_ROLE = "umai_app"  # created by deploy/postgres-init.sql; grants skipped when absent
+# The tenant tables this revision creates (fixed: later revisions add their own).
+TENANT_TABLES = ("api_keys", "drafts")
 
 
 def upgrade() -> None:

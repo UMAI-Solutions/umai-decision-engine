@@ -32,6 +32,9 @@ evals/reports/**
 # Local event/history stores
 .data/
 
+# Organizations' guardrails written by a local policy service (policy-bundle 0.8); runtime data
+/policies/tenants/
+
 # Model caches
 .cache/
 *.onnx

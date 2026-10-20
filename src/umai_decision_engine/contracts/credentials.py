@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from umai_decision_engine.contracts.organizations import Role
 
-CONTRACT_VERSION = "0.1"  # key-registry snapshot payload version (unchanged in 0.2)
+CONTRACT_VERSION = "0.1"  # key-registry snapshot payload version (unchanged in 0.2, 0.3)
 
 KeyEnv = Literal["live", "test"]
 KeyRegion = Literal["eu", "us", "sh"]
@@ -109,7 +109,10 @@ class ActorAssertion(BaseModel):
     aud: str = Field(min_length=1, max_length=200)
     sub: str = Field(min_length=1, max_length=255)
     email: str | None = Field(None, max_length=254)
+    email_verified: bool = False  # the ID token's claim (0.3); organizations need it true
+    name: str | None = Field(None, max_length=200)  # display name (0.3)
     tenant_id: str | None = Field(None, min_length=1, max_length=128)
+    # Informational since 0.3: the policy service reads roles from its own store (ADR-0033 §1).
     roles: list[Role] = Field(default_factory=list)
     session_id: str = Field(min_length=1, max_length=128)
     iat: int

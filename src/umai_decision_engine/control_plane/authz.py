@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Coroutine
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import Any, Literal
 
@@ -42,7 +42,11 @@ class Action(StrEnum):
     KEY_CREATE = "key.create"
     KEY_REVOKE = "key.revoke"
     KEY_PUBLISH = "key.publish"
-    # organizations contract 0.1 (routes arrive with slice (b) of the sign-in rework)
+    # organizations contract (ADR-0033); self-service actions need a person, no tenant role
+    ME_ORGANIZATIONS = "me.organizations"
+    ORGANIZATION_CREATE = "organization.create"
+    INVITATION_ACCEPT = "invitation.accept"
+    MEMBER_LEAVE = "member.leave"
     ORGANIZATION_READ = "organization.read"
     ORGANIZATION_UPDATE = "organization.update"
     MEMBER_READ = "member.read"
@@ -56,10 +60,14 @@ class Action(StrEnum):
 class Rule:
     roles: frozenset[Role]
     operator: bool  # may the control token alone run it when assertions are required?
+    self_service: bool = False  # any person, acting for themselves; never the operator
 
 
 def _r(*roles: Role, operator: bool = False) -> Rule:
     return Rule(frozenset(roles), operator)
+
+
+_SELF = Rule(frozenset(), operator=False, self_service=True)
 
 
 _O, _A, _E, _P, _V, _B = (
@@ -86,6 +94,10 @@ MATRIX: dict[Action, Rule] = {
     Action.KEY_CREATE: _r(_O, _A, operator=True),
     Action.KEY_REVOKE: _r(_O, _A, operator=True),
     Action.KEY_PUBLISH: _r(operator=True),
+    Action.ME_ORGANIZATIONS: _SELF,
+    Action.ORGANIZATION_CREATE: _SELF,
+    Action.INVITATION_ACCEPT: _SELF,
+    Action.MEMBER_LEAVE: _SELF,
     Action.ORGANIZATION_READ: _r(_O, _A, _E, _P, _V, _B),
     Action.ORGANIZATION_UPDATE: _r(_O, _A),
     Action.MEMBER_READ: _r(_O, _A),
@@ -114,13 +126,23 @@ def allowed(action: Action, roles: frozenset[Role], *, rbac: bool) -> bool:
     return bool(rule.roles & effective_roles(roles, rbac=rbac))
 
 
+ASSIGNABLE_WITHOUT_RBAC = frozenset({_O, _A, _V})  # Community roles (Q39 answered, A14)
+
+
+def assignable_roles(*, rbac: bool) -> frozenset[Role]:
+    return frozenset(Role) if rbac else ASSIGNABLE_WITHOUT_RBAC
+
+
 @dataclass(frozen=True)
 class Actor:
     kind: Literal["person", "operator"]
     sub: str | None = None
     session_id: str | None = None
     tenant_id: str | None = None
-    roles: frozenset[Role] = frozenset()
+    roles: frozenset[Role] = frozenset()  # filled from the tenant store, never from the claim
+    email: str | None = None
+    email_verified: bool = False
+    name: str | None = None
 
     def record(self) -> dict[str, str]:
         """How the change log and key records name the actor (no e-mail, no content)."""
@@ -167,7 +189,9 @@ def actor_of(request: Request) -> Actor:
             sub=claims.sub,
             session_id=claims.session_id,
             tenant_id=claims.tenant_id,
-            roles=frozenset(claims.roles),
+            email=claims.email,
+            email_verified=claims.email_verified,
+            name=claims.name,
         )
     request.state.actor = actor
     return actor
@@ -184,10 +208,16 @@ def authorize(action: Action) -> Callable[[Request], Coroutine[Any, Any, Actor]]
         actor = actor_of(request)
         mode = request.app.state.settings.actor_assertion
         if actor.kind == "operator":
+            if rule.self_service:
+                raise _error(403, "actor_required", f"{action} is done by a person, not a token")
             if mode == "optional" or rule.operator:
                 return actor
             log.warning("authz.denied action=%s actor=operator reason=actor_required", action)
             raise _error(403, "actor_required", f"{action} needs an on-behalf-of assertion")
+        if rule.self_service:
+            return actor
+        # Roles come from the tenant store, for the assertion's tenant (ADR-0033 §1).
+        actor = await with_roles(request, actor)
         # Until entitlements reach the control plane (ADR-0019), every tenant is treated as
         # without rbac: admins hold every non-owner permission (ADR-0029 §2).
         if not allowed(action, actor.roles, rbac=False):
@@ -199,6 +229,21 @@ def authorize(action: Action) -> Callable[[Request], Coroutine[Any, Any, Actor]]
 
     dependency.umai_action = action  # type: ignore[attr-defined]  # read by the route test
     return dependency
+
+
+async def with_roles(request: Request, actor: Actor) -> Actor:
+    """The person with their roles in the assertion's tenant, read from the tenant store once
+    per request. No membership, no roles."""
+
+    if actor.kind != "person" or actor.tenant_id is None:
+        return actor
+    cached = getattr(request.state, "actor_with_roles", None)
+    if cached is not None:
+        return cached
+    roles = await request.app.state.organizations.roles_of(actor)
+    actor = replace(actor, roles=roles)
+    request.state.actor = request.state.actor_with_roles = actor
+    return actor
 
 
 def check_tenant(actor: Actor, tenant_id: str) -> None:

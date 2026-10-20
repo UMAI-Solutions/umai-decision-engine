@@ -87,6 +87,7 @@ python -m pytest -q                      # unit + integration tests, no network
 ruff check . ; ruff format --check .
 uvicorn umai_decision_engine.api.app:app --reload --port 9100   # reads policies/ and .env
 uvicorn umai_decision_engine.control_plane.app:app --port 9200  # policy service (ADR-0022)
+python dev/local_stack.py engine | policy-service | console      # local stack with the console (shared dev settings)
 python -m umai_decision_engine.policy.cli validate policies/<bundle_id>/<version>
 python -m umai_decision_engine.policy.cli test policies --require-tests   # golden tests (ADR-0015)
 python -m umai_decision_engine.policy.cli keygen | sign | verify  # bundle signing (ADR-0012)
@@ -122,7 +123,10 @@ against a Postgres service container). Slice (b) groundwork (2026-10-19): bundle
 `policies/tenants/<tenant>/`, signed `manifest.tenant_id`, unowned bundles belong to the default
 tenant; evaluation API 0.7 reads one tenant), the policy service verifies on-behalf-of assertions
 (credentials 0.2, `control_plane/actors.py`) and authorizes every route with the permission
-matrix (`control_plane/authz.py`, ADR-0029); contract `organizations` 0.1 (models only). Bundles
+matrix (`control_plane/authz.py`, ADR-0029). Organizations (2026-10-19, ADR-0033 store first):
+contract `organizations` 0.2, `db/organizations.py` (users, memberships with `member_self`,
+invitations; migration 0002), policy-service routes `/v1/organizations`, `/v1/me/organizations`,
+`/v1/invitations/accept`; roles read from the store; starter guardrail per organization. Bundles
 move into the tenant store with `http_pull` later (ADR-0025 §8).
 Deployment (2026-10-17): single-VM starter on Azure (ADR-0032: `Dockerfile`, `deploy/vm/` Docker
 Compose with Caddy, `deploy/azure/main.bicep`); the console image lives in `umai-control-center`.

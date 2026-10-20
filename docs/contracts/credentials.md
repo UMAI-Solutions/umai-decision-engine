@@ -1,6 +1,6 @@
 # Contract: credentials
 
-**Version:** 0.2 · **Producer → consumer:** control plane → engines (key-registry snapshot), control plane ↔ console (key records), console → policy service (on-behalf-of assertion) · **Decisions:** [ADR-0023](../adr/0023-identity-planes-and-api-keys.md), [ADR-0029](../adr/0029-authorization-roles-and-four-eyes.md)
+**Version:** 0.3 · **Producer → consumer:** control plane → engines (key-registry snapshot), control plane ↔ console (key records), console → policy service (on-behalf-of assertion) · **Decisions:** [ADR-0023](../adr/0023-identity-planes-and-api-keys.md), [ADR-0029](../adr/0029-authorization-roles-and-four-eyes.md)
 
 Three shapes: the **API key record** the console manages, the **key-registry snapshot** the
 control plane publishes per tenant and every engine loads like a bundle (verify → validate →
@@ -101,8 +101,9 @@ JWS header (exact): `{"alg": "ES256", "typ": "umai-actor+jwt", "kid": "<key id>"
   "aud": "umai-policy-service",
   "sub": "auth0|6512f0c0a1b2c3d4e5f60718",
   "email": "ada@example.com",
+  "email_verified": true,
+  "name": "Ada Example",
   "tenant_id": "tenant-demo",
-  "roles": ["policy_editor"],
   "session_id": "s_8f2c1e",
   "iat": 1792390000,
   "exp": 1792390120,
@@ -116,7 +117,8 @@ JWS header (exact): `{"alg": "ES256", "typ": "umai-actor+jwt", "kid": "<key id>"
 | Keys | `UMAI_DE_ACTOR_PUBLIC_KEYS` = `{"<kid>": "<base64 SubjectPublicKeyInfo DER>"}`; the private key stays with the console (Key Vault in SaaS, ADR-0027) |
 | Issuer, audience | `UMAI_DE_ACTOR_ISSUER` (default `umai-console`), `UMAI_DE_ACTOR_AUDIENCE` (default `umai-policy-service`) |
 | Lifetime | `exp - iat` 1–300 s; 30 s clock skew either way; `jti` unique per assertion (not stored: the lifetime bounds replay) |
-| Tenant, roles | `tenant_id` absent before the person chose an organization; `roles` (organizations contract roles) only with a `tenant_id` and only for that tenant |
+| Tenant, roles | `tenant_id` absent before the person chose an organization. The person's roles are read from the tenant store (ADR-0033 §1); a `roles` claim, if sent, is ignored (0.3) |
+| Person | `email`, `email_verified` and `name` come from the console's ID token; organizations need `email_verified` true, and the store keeps the person's e-mail and name up to date from them |
 | Mode | `UMAI_DE_ACTOR_ASSERTION`: `required` (default in production) — tenant actions need an assertion, the control token alone runs operator actions only (tenants, API keys, reads); `optional` (default elsewhere) — without an assertion the control token acts as the operator for every action |
 
 A key pair for development: `openssl ecparam -name prime256v1 -genkey -noout -out actor.pem`;
@@ -140,6 +142,8 @@ assertion names no tenant); 403 `tenant_mismatch` (the target tenant is not the 
 
 ## Changelog
 
+- 0.3 (2026-10-19): assertion claims `email_verified` and `name`; roles are read from the
+  tenant store and the `roles` claim is ignored (ADR-0033 §1).
 - 0.2 (2026-10-19): on-behalf-of assertion (ES256 JWS from the console to the policy service,
   ADR-0023 §1) and its errors. Key records and snapshots unchanged (snapshot payloads keep
   `contract_version` 0.1).

@@ -374,6 +374,29 @@ class PolicyService:
             "tests": {"total": len(report.cases)},
         }
 
+    def install_starter(self, tenant: TenantInfo, template_id: str, actor: dict) -> dict | None:
+        """Copy the default tenant's active ``template_id`` into ``tenant`` as its version 1,
+        signed for the new owner, and activate it (ADR-0033 §7). None when there is no template."""
+
+        source = self.guardrails.for_tenant(self.guardrails.default_tenant)
+        active = source.active(template_id)
+        if active is None:
+            return None
+        target = self.guardrails.for_tenant(tenant.slug)
+        if target.versions(template_id):
+            return {"id": template_id, "version": target.active(template_id)}
+        tests = source.version_dir(template_id, active) / TESTS_DIR
+        version = target.publish(
+            source.load(template_id, active),
+            base_version=active,
+            tests_dir=tests if tests.is_dir() else None,
+            note="starter guardrail",
+            signing_key=self.signing_key,
+            actor=actor,
+        )
+        target.activate(template_id, version, "starter guardrail", actor)
+        return {"id": template_id, "version": version}
+
     def activate(
         self, tenant: TenantInfo, bundle_id: str, version: int, note: str | None, actor: dict
     ) -> dict:
