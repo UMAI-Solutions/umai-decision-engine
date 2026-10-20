@@ -24,13 +24,14 @@ class Scope(StrEnum):
     cannot hold (ADR-0023 §3)."""
 
     EVALUATE = "evaluate"
+    GATEWAY = "gateway"  # the UMAI gateway's OpenAI-compatible surface (credentials 0.4, ADR-0034)
     BUNDLES_READ = "bundles:read"
     USAGE_READ = "usage:read"
     BUNDLES_RELOAD = "bundles:reload"
 
 
 CUSTOMER_SCOPES: frozenset[Scope] = frozenset(
-    {Scope.EVALUATE, Scope.BUNDLES_READ, Scope.USAGE_READ}
+    {Scope.EVALUATE, Scope.GATEWAY, Scope.BUNDLES_READ, Scope.USAGE_READ}
 )
 DEFAULT_SCOPES: tuple[Scope, ...] = (Scope.EVALUATE,)
 

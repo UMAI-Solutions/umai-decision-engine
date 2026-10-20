@@ -1,6 +1,6 @@
 # ADR-0014 — An L0 detection is terminal: L0 decides, L1 does not run
 
-- **Status:** Accepted
+- **Status:** Accepted; §1 and §5 amended by ADR-0036 (only `BLOCK` and `STEP_UP_APPROVAL` are terminal; other L0 outcomes are a floor for L1)
 - **Date:** 2026-10-16
 - **Deciders:** product owner (UMAI)
 - **Supersedes:** ADR-0011 (L0 detects, it does not decide)

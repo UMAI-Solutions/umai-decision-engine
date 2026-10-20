@@ -11,11 +11,12 @@ context scoring, hashing and redaction. Library facts and pitfalls:
 
 - Detect, validate and score entities in the evaluated content.
 - Produce the redacted view and per-entity HMAC hashes.
-- **Decide when it detects something (the L0 gate).** A detection is terminal: the action
-  comes from `l0.on_detect` per entity type (default `BLOCK`), deterministic exceptions may
-  relax it, and **L1 does not run** — no decision-model call, no tokens
-  ([ADR-0014](../adr/0014-l0-detection-is-terminal.md)). With no detection, the input goes
-  to L1.
+- **Decide when it detects something (the L0 gate).** The action comes from `l0.on_detect`
+  per entity type (default `BLOCK`) and deterministic exceptions may relax it
+  ([ADR-0014](../adr/0014-l0-detection-is-terminal.md)). A `BLOCK` is terminal: **L1 does not
+  run**, no decision-model call, no tokens. A masking or exception outcome is a floor: L1 runs on
+  the masked text and can only make it stricter ([ADR-0036](../adr/0036-checks-continue-after-masking.md);
+  effective once L1 exists). With no detection, the input goes to L1.
 
 L0 is the only layer that holds raw content. Everything it returns is safe to pass on.
 
@@ -185,6 +186,10 @@ in code (AGENTS.md rule 8).
 | NER | Off by default. If enabled: `HuggingFaceNerRecognizer`, ideally run only when patterns or policy require it; budget 30–80 ms (hypothesis). |
 | Pattern-only budget | p95 < 20 ms for a 4 kB input. Measured 2026-10-17 (dev machine, one thread, all 27 types): business text 4 kB p95 11 ms, 16 kB p95 41 ms; entity-dense text (≈160 entities per 4 kB) 4 kB p95 25 ms. The six core types alone: 4 kB p95 6 ms (business) / 16 ms (dense). Cost drivers were libphonenumber parsing of national-format candidates and per-candidate context scoring — fixed by `requires_context` and cached context windows. |
 | Long inputs | Inputs above `l0.max_chars` are chunked with overlap; offsets are re-based. |
+| Conversations | A target of several messages or attachment parts is scanned one part at a time and spans re-based onto the parts joined with `"
+
+"`; a match or context word does not cross a message boundary (ADR-0037). |
+| Detection cache | Per process, `UMAI_DE_L0_CACHE_ENTRIES` (default 20 000, `0` off): per scanned part, the types, spans, scores and value hashes found, keyed by an HMAC of tenant hashing key, phase configuration, language and text; never the text or values. A resent conversation costs its new messages: measured on the pilot VM, a full scan costs ≈ 2.9 ms per 1 000 characters (ADR-0037). |
 | Concurrency | `analyze()` is synchronous and CPU-bound, thread-safety undocumented: process pool or one engine per worker thread, never on the event loop. |
 | Regex safety | `REGEX_TIMEOUT_SECONDS=1` (integer only). Tenant regexes are validated at bundle load. |
 | Offline | No runtime model downloads: models vendored in the image, `HF_HUB_OFFLINE=1` (required for on-prem). |

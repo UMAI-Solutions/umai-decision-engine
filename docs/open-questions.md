@@ -40,6 +40,13 @@ to the ADR or report. Mark questions that block a phase.
 | Q42 | Pilot users (real people) in the non-production EU `umai-beta` Auth0 tenant before Q35, or pilots keep basic auth and only synthetic test users sign in there? | Slice (c) | product | Design §7, §11 point 8 |
 | Q43 | Target for time from sign-up to the first successful evaluate call (proposal: median under 10 minutes, nobody over 20)? | Onboarding done-criteria | product | Design §9.7 |
 | Q44 | Hosted sign-up: may it say "account already exists" (Auth0's default) or must it answer neutrally (no account enumeration)? | Slice (a) | product + eng | Design S1 |
+| Q46 | When does gateway work start relative to the SaaS launch plan (platform-first priority of 2026-10-18)? UMAI in the customer's availability path needs the regional stack, not the single-VM starter | Gateway G1 | product | `security/launch-plan.md`, ADR-0031, ADR-0032. 2026-10-19: a first customer asks for it (cloud in the EU or on-prem, no timeline); WP1 (ADRs 0034–0036, gateway-api 0.1) done the same day; build plan in design §8 |
+| Q47 | Provider keys: pass-through only at first, or stored per tenant (BYOK, Key Vault envelope) from the start? | Gateway G1 / G3 | product + eng | Design §6.8, ADR-0027 |
+| Q48 | Refusal on the wire: OpenAI-style error (HTTP 400) or a 200 refusal message, and which default? | Gateway contract | product | Design §6.4 |
+| Q49 | Metering: is a gateway call one Community "request", or one per evaluation it causes (input, output, tool)? | Gateway G1, ADR-0028 | product | Design §6.10 |
+| Q50 | Streaming default: `window` (hold-back L0 checks) or `buffer`; is detection-only (`after`) offered? | Gateway G2 | product + eng | Design §6.6; needs the window-scan benchmark |
+| Q51 | Reversible masking: may UMAI claim anything about KVKK / GDPR cross-border transfer when only pseudonymised text reaches the provider? | Gateway G2 marketing | legal | Design §6.5; related Q4 |
+| Q52 | Is prompt-injection / jailbreak screening (L1b, not built) required before a gateway launch, or does it launch as a data-leakage gateway? | Gateway launch | product | Design §4; `architecture/l1-policy-decision.md` |
 
 ## Answered
 
@@ -61,3 +68,4 @@ to the ADR or report. Mark questions that block a phase.
 | A14 | Community roles (was Q39) | `owner`, `admin`, `viewer`; an admin holds every non-owner permission; only an owner grants or removes ownership | 2026-10-19 | ADR-0029 §2, ADR-0033 amendment (product owner) |
 | A15 | Community organizations per person (was Q40) | One (setting `UMAI_DE_MAX_OWNED_COMMUNITY_ORGANIZATIONS`) | 2026-10-19 | ADR-0033 §4 and amendment (product owner) |
 | A16 | Prompt size: tokens or characters, and over what (was Q19) | Characters (Unicode code points) over all message and artifact content; Community 32 000 (`max_input_chars`), enforced as a deployment-wide cap (`UMAI_DE_MAX_INPUT_CHARS`) until entitlements carry it; 413 `input_too_large`, never a partial scan | 2026-10-19 | ADR-0019 amendment, evaluation API 0.9 (engineering choice, reversible) |
+| A17 | AI gateway positioning (was Q45) | UMAI's own secure gateway (option B) for a first customer, cloud (EU) and on-prem; integrations into other gateways (A) later; no full LLMOps gateway (C); no embedded gateway product (LiteLLM, Kong, Envoy): FastAPI + httpx in this repository, pipeline in-process | 2026-10-19 | ADR-0034, `architecture/ai-gateway.md` |

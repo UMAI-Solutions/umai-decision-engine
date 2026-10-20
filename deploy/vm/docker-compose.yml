@@ -5,6 +5,7 @@
 #   engine :9100     /v1, /healthz, /readyz      (internal network only)
 #   policy :9200     policy service, console only (internal network only)
 #   console :3100    umai-control-center         (internal network only)
+#   gateway :9300    UMAI gateway, OpenAI-compatible (profile "gateway": UMAI_GATEWAY=true)
 #   postgres :5432   tenant store with row-level security (ADR-0025); internal only
 
 name: umai
@@ -91,15 +92,47 @@ services:
       # The console signs an on-behalf-of assertion for every person (credentials 0.3); the
       # control token alone may only run operator actions. Public key: policy.env (umai.sh).
       UMAI_DE_ACTOR_ASSERTION: ${UMAI_ACTOR_ASSERTION:-required}
-    env_file: ["${UMAI_RUN_DIR:-/run/umai}/policy.env"]  # tokens, database URLs, actor public key
+      UMAI_DE_GATEWAY_ROUTES_DIR: /data/gateway-routes  # written by PUT /v1/gateway/routes
+    env_file:
+      - "${UMAI_RUN_DIR:-/run/umai}/policy.env"  # tokens, database URLs, actor public key
+      - "${UMAI_RUN_DIR:-/run/umai}/routes.env"  # upstream allow-list for route validation
     volumes:
       - policies:/data/policies
+      - "${UMAI_GATEWAY_ROUTES:-/opt/umai/gateway-routes}:/data/gateway-routes"
       - "${UMAI_RUN_DIR:-/run/umai}/signing.key:/run/secrets/signing.key:ro"
     depends_on:
       seed: { condition: service_completed_successfully }
       postgres: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:9200/healthz',timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      start_period: 60s
+    read_only: true
+    tmpfs: [/tmp]
+    mem_limit: 900m
+    restart: unless-stopped
+    logging: *logging
+
+  gateway:
+    # Optional (ADR-0034): umai.sh adds the profile when UMAI_GATEWAY=true in config.env.
+    profiles: ["gateway"]
+    image: umai-decision-engine:current
+    command: ["uvicorn", "umai_decision_engine.gateway.app:app", "--host", "0.0.0.0", "--port", "9300", "--no-server-header"]
+    environment:
+      <<: *engine-env
+      UMAI_DE_GATEWAY_ROUTES_DIR: /data/gateway-routes  # <tenant>.yaml, hot-reloaded
+    env_file:
+      - "${UMAI_RUN_DIR:-/run/umai}/engine.env"   # operator token, tenant HMAC keys
+      - "${UMAI_RUN_DIR:-/run/umai}/gateway.env"  # provider keys (gateway only)
+      - "${UMAI_RUN_DIR:-/run/umai}/routes.env"   # upstream allow-list (also the policy service)
+    volumes:
+      - policies:/data/policies:ro
+      - "${UMAI_GATEWAY_ROUTES:-/opt/umai/gateway-routes}:/data/gateway-routes:ro"
+    depends_on:
+      seed: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:9300/readyz',timeout=3)"]
       interval: 15s
       timeout: 5s
       start_period: 60s

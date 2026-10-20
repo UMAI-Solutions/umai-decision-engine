@@ -147,7 +147,42 @@ tenant's starter guardrail there automatically, signed with the deployment key. 
 service requires the console's on-behalf-of assertion (`UMAI_ACTOR_ASSERTION=required`); the
 control token alone runs operator actions only.
 
-## 7. What this deployment does not have
+## 7. The UMAI gateway (optional, ADR-0034)
+
+The gateway answers OpenAI-compatible calls on the same hostname: `/v1/chat/completions`,
+`/v1/responses`, `/v1/embeddings`, `/v1/models` (contract `docs/contracts/gateway-api.md`).
+
+1. Provider keys the deployment holds for `credential: secret` routes, as one JSON object
+   (`{}` if every route passes the caller's key through):
+
+   ```bash
+   echo '{"openai": "<provider key>"}' | sudo /opt/umai/umai.sh set-secret UMAI_GATEWAY_PROVIDER_KEYS
+   ```
+
+   With Key Vault: secret `umai-gateway-provider-keys`.
+2. Routes: `PUT /v1/gateway/routes` on the policy service (the console, or the control token
+   with `X-Umai-Tenant`), or by hand in `/opt/umai/gateway-routes/<tenant>.yaml` (the
+   operator token acts as the tenant `UMAI_CONSOLE_TENANT_ID`; API keys need the `gateway`
+   scope). Reloaded within 5 seconds:
+
+   ```yaml
+   routes:
+     - route_id: gpt-eu
+       upstream: { kind: openai, base_url: https://api.openai.com/v1, model: gpt-4.1-mini }
+       credential: secret
+       secret: openai
+       guardrail: gr-demo-data-protection
+   ```
+3. `UMAI_GATEWAY=true` in `config.env`, then `sudo /opt/umai/umai.sh up`.
+4. Check: `curl https://$UMAI_HOSTNAME/v1/models -H "Authorization: Bearer <key or token>"`.
+   Clients use `base_url=https://<hostname>/v1` with the official OpenAI SDKs.
+
+Caddy caps request bodies at 4 MB on the gateway paths (a whole conversation per call, up to
+`UMAI_DE_GATEWAY_MAX_INPUT_CHARS`, default 256 000 characters) and 512 KB elsewhere. Switching the gateway off later: set
+`UMAI_GATEWAY=false` and run `docker compose -p umai stop gateway` once (a profiled container is
+not removed by `up`).
+
+## 8. What this deployment does not have
 
 No WAF, no HA, no DR region, one shared API token (body `tenant_id` not bound to the credential,
 readiness T1), tenant HMAC keys derived from one master key, software-protected keys, no central log store;

@@ -8,13 +8,16 @@ provider default, changing thresholds, adding a dependency for accuracy reasons.
 
 Implemented (2026-10-17): the harness (`python -m evals.run`), the `l0-pii-tr` suite with
 dataset v2 ([`evals/datasets/l0-pii-tr/`](../../evals/datasets/l0-pii-tr/README.md); every type
-of the [L0 entity catalog](../architecture/l0-entity-catalog.md)) and the `leak` suite. The
-other suites below are planned.
+of the [L0 entity catalog](../architecture/l0-entity-catalog.md)) and the `leak` suite.
+Gateway (2026-10-19): `gateway-latency` and the live `masking-survival` suite. The other suites
+below are planned.
 
 ```powershell
 python -m evals.run --suite l0-pii-tr --split dev --tag <label>   # [--bundle policies/<id>/<v>]
 python -m evals.run --suite leak --split dev --tag <label>        # [--bundle-id <id>]
 python -m evals.datasets.generate_l0_pii_tr                       # regenerate dataset v2
+python -m evals.run --suite gateway-latency --tag <label>         # gateway cost per call, no network
+python -m evals.run --suite masking-survival --model gpt-4.1-mini --tag <label>  # live: UMAI_EVAL_OPENAI_API_KEY
 ```
 
 ## Suites
@@ -29,6 +32,9 @@ python -m evals.datasets.generate_l0_pii_tr                       # regenerate d
 | `l2-chains` | L2 | Do reviews of synthetic sessions find multi-step leaks, without fabricating findings? With vs without history? | L2 without history |
 | `pipeline-e2e` | L0 + L1 | Final decision accuracy, runtime latency, review rate | `umai-engine` |
 | `l2-worker` | L2 | Queue age and processing time under load; redelivery idempotency | — |
+| `gateway-latency` | gateway | What the gateway adds per call (admission, input check over every message, masking, answer check, restoration, streaming modes) and when `window` streams release their first text | budget: well under the upstream's own latency |
+| `pi-tr` | L1 (paused) | Prompt-attack detectors on Turkish-first attacks, paraphrases and look-alike benign text; `holdout` split written after the heuristic was frozen. Groundwork for L1 | — |
+| `masking-survival` | gateway | Do models write the gateway's placeholders back intact, so restoration works (kept, altered, dropped, restored per type and task)? Live | — |
 | `leak` | all | Does any raw value appear in responses, logs, traces, history, provider payloads? Also: which values an allowed decision would forward unmasked | must be 0 |
 
 ## Datasets

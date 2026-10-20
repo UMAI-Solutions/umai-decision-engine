@@ -1,0 +1,12 @@
+{"id": "tr-mail", "task": "draft", "prompt": "{EMAIL} adresine, IBAN {IBAN} hesabına ödeme yapıldığını bildiren kısa bir e-posta yaz. Adresi ve IBAN'ı metinde aynen kullan."}
+{"id": "tr-sms", "task": "draft", "prompt": "{PHONE} numaralı müşteriye randevu hatırlatma SMS'i yaz, numarayı mesajın sonuna ekle."}
+{"id": "tr-kyc", "task": "draft", "prompt": "TC kimlik numarası {TCKN} olan müşteri için kimlik doğrulama tamamlandı notu yaz; numarayı aynen yaz."}
+{"id": "tr-json", "task": "json", "prompt": "Şu bilgileri JSON olarak döndür (alanlar: tckn, iban, email, phone): TC kimlik {TCKN}, IBAN {IBAN}, e-posta {EMAIL}, telefon {PHONE}."}
+{"id": "en-json", "task": "json", "prompt": "Return JSON with fields email and phone for: email {EMAIL}, phone {PHONE}. Values exactly as given."}
+{"id": "tr-table", "task": "table", "prompt": "Markdown tablo yap: Müşteri 1 e-posta {EMAIL}, telefon {PHONE}; Müşteri 2 TC kimlik {TCKN}."}
+{"id": "tr-translate", "task": "translate", "prompt": "İngilizceye çevir: 'Ödemeniz {IBAN} hesabına yapıldı, sorularınız için {EMAIL} adresine yazın.'"}
+{"id": "en-translate", "task": "translate", "prompt": "Translate to Turkish: 'Please call {PHONE} or write to {EMAIL} about national id {TCKN}.'"}
+{"id": "tr-summary", "task": "summary", "prompt": "Özetle ve iletişim bilgilerini koru: Müşteri ({EMAIL}, {PHONE}) faturasının yanlış IBAN'a ({IBAN}) gönderildiğini söyledi, iade istiyor."}
+{"id": "en-summary", "task": "summary", "prompt": "Summarise in one sentence and keep the contact details: The customer at {EMAIL} reported a failed transfer from {IBAN} and asked for a call on {PHONE}."}
+{"id": "tr-reply", "task": "draft", "prompt": "Müşteri şunu yazdı: 'Kimlik numaram {TCKN}, telefonum {PHONE}'. Bilgileri teyit eden nazik bir yanıt yaz."}
+{"id": "tr-form", "task": "json", "prompt": "Başvuru formunu doldur (ad: Ayşe Demir, tckn: {TCKN}, iletişim: {EMAIL}). Sadece JSON ver."}

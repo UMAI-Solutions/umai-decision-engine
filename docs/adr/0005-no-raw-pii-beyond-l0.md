@@ -1,6 +1,6 @@
 # ADR-0005 — Raw PII never leaves L0
 
-- **Status:** Proposed
+- **Status:** Proposed; amended by ADR-0035 (the gateway forwarder is part of the raw-content zone)
 - **Date:** 2026-10-12
 
 ## Context

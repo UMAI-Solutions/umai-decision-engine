@@ -36,6 +36,7 @@ umai-decision-engine/
 │   │   │   └── catalog.py         # core entity specs, tag codes; extended types go here
 │   │   ├── validators.py          # checksum functions (pure, heavily tested)
 │   │   ├── hashing.py             # HMAC per tenant
+│   │   ├── cache.py               # ADR-0037: per-message detection cache (no text, no values)
 │   │   └── redact.py              # placeholder generation
 │   ├── rules/                     # deterministic, shared by the L0 gate and L1a
 │   │   ├── facts.py               # request + L0 summary → facts (no content, no values)
@@ -86,6 +87,20 @@ umai-decision-engine/
 │   │   ├── limits.py              # compares a size (measured by l0/size.py, Q19) with the limit
 │   │   └── quota.py               # monthly usage counter (memory; Redis or Postgres, Q23)
 │   ├── export/                    # planned (F6): SIEM exporter, off the request path
+│   ├── routefiles.py              # gateway route files: allow-list, validation, atomic write
+│   ├── gateway/                   # ADR-0034: OpenAI-compatible secure gateway, own port (9300)
+│   │   ├── app.py                 # FastAPI app factory: chat, responses, embeddings routers; health
+│   │   ├── routing.py             # per-tenant route files, hot reload, last-known-good
+│   │   ├── chat.py                # /v1/chat/completions, /v1/models; admission, fallback, refusals
+│   │   ├── responses.py           # /v1/responses (JSON and typed SSE events)
+│   │   ├── embeddings.py          # /v1/embeddings (input checks only)
+│   │   ├── content.py             # message parts ↔ scanned text segments
+│   │   ├── guard.py               # one check = EvaluationRequest → Evaluator, strictest decision
+│   │   ├── tools.py               # TOOL_OUTPUT / TOOL_INPUT checks, tool-call restoration
+│   │   ├── streaming.py           # SSE parsing, buffer / window / after, tool-call buffering
+│   │   ├── masking.py             # per-call placeholder map, exact-match restoration (memory only)
+│   │   ├── upstream.py            # httpx client per upstream kind, explicit timeouts, credentials
+│   │   └── errors.py              # OpenAI-shaped errors
 │   └── telemetry/
 │       ├── logging.py             # structured logs, raw-content guard
 │       └── metrics.py             # Prometheus-style counters/histograms
@@ -118,10 +133,13 @@ umai-decision-engine/
 | `control_plane` | `golden`, `policy`, `contracts`, `l0` (detector for tests), `settings` | `api`; the engine never imports it |
 | `tenancy` (planned) | `contracts`, `policy` (signature verification), `settings` | `l0`, `l1`, `l2`, `pipeline`; it receives a content size, never content (the size is measured in `l0/size.py`) |
 | `export` (planned) | `contracts`, `events` | `l0`, `l1`, `pipeline`, `api` |
+| `gateway` (ADR-0034) | `pipeline`, `contracts`, `tenancy`, `settings`, `routefiles` | `l1`, `l2`, `api`, `control_plane`; nothing imports `gateway` |
+| `routefiles` (gateway route files) | `contracts` | everything else; shared by `gateway` (reads) and `control_plane` (writes) |
 
-Only `l0` receives raw content. Layers communicate through `contracts` models; a raw
-`str` of user content must not appear in any `l1`, `l2`, `session` or `telemetry`
-function signature.
+Only `l0` and `gateway` receive raw content (ADR-0035): the gateway forwards it only to the
+caller and the route's upstream, after the guardrail allowed it. Layers communicate through
+`contracts` models; a raw `str` of user content must not appear in any `l1`, `l2`, `session` or
+`telemetry` function signature.
 
 ## Settings vs bundle
 

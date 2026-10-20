@@ -31,5 +31,5 @@ COPY --chown=umai policies /app/seed-policies
 WORKDIR /app
 USER umai
 
-EXPOSE 9100 9200
+EXPOSE 9100 9200 9300
 CMD ["uvicorn", "umai_decision_engine.api.app:app", "--host", "0.0.0.0", "--port", "9100", "--no-server-header"]

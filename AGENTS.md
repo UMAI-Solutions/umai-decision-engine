@@ -37,7 +37,10 @@ The contract the engine must eventually honour is recorded in
 1. **Raw PII never leaves L0.** Downstream layers, logs, metrics, traces, exceptions, eval
    reports and provider calls receive redacted text, entity types, spans and salted hashes
    only. If you are about to pass `text` to anything outside `l0/`, stop and use the
-   redacted form. See [ADR-0005](docs/adr/0005-no-raw-pii-beyond-l0.md).
+   redacted form. See [ADR-0005](docs/adr/0005-no-raw-pii-beyond-l0.md). The one other
+   raw-content zone is the gateway forwarder (`gateway/`): it sends raw content only back to
+   the caller and to the route's upstream, after the guardrail allowed it, and keeps it in
+   memory for one call ([ADR-0035](docs/adr/0035-raw-content-zone-l0-and-gateway.md)).
 2. **Synthetic data only.** Never commit real customer data, real personal data or real
    identifiers. Test vectors for Turkish IDs come from
    [`docs/reference/turkish-identifiers.md`](docs/reference/turkish-identifiers.md).
@@ -87,13 +90,15 @@ python -m pytest -q                      # unit + integration tests, no network
 ruff check . ; ruff format --check .
 uvicorn umai_decision_engine.api.app:app --reload --port 9100   # reads policies/ and .env
 uvicorn umai_decision_engine.control_plane.app:app --port 9200  # policy service (ADR-0022)
-python dev/local_stack.py engine | policy-service | console      # local stack with the console (shared dev settings)
+uvicorn umai_decision_engine.gateway.app:app --port 9300        # UMAI gateway (ADR-0034); routes: gateway-routes/<tenant>.yaml
+python dev/local_stack.py engine | policy-service | console | gateway  # local stack (shared dev settings)
 python -m umai_decision_engine.policy.cli validate policies/<bundle_id>/<version>
 python -m umai_decision_engine.policy.cli test policies --require-tests   # golden tests (ADR-0015)
 python -m umai_decision_engine.policy.cli keygen | sign | verify  # bundle signing (ADR-0012)
 python -m umai_decision_engine.db.migrate <database url>         # tenant store migrations (ADR-0025)
 python -m evals.run --suite l0-pii-tr --split dev --tag <label>  # L0 accuracy (also: --suite leak)
-docker build -t umai-decision-engine .                            # one image: engine API + policy service
+python -m evals.run --suite gateway-latency --tag <label>        # gateway cost per call (also: masking-survival, live)
+docker build -t umai-decision-engine .                            # one image: engine API, policy service, gateway
 az deployment group create -g <rg> -f deploy/azure/main.bicep -p deploy/azure/main.bicepparam  # starter VM (ADR-0032)
 deploy/vm/ship.sh <user@host>                                    # build locally, ship images to the VM
 deploy/vm/umai.sh init | up | backup | status                     # on the VM; runbook: deploy/vm/README.md
@@ -139,6 +144,15 @@ with `umai.sh set-secret`; Caddy's basic auth is a switch (`UMAI_CONSOLE_BASIC_A
 SaaS readiness (2026-10-17): threat model, gap analysis, launch plan and eight proposed ADRs in
 `docs/security/` and `docs/adr/0023`–`0031` (0031: UMAI Cloud runs on Azure); `tests/readiness/`
 measures the open gaps (xfail).
+UMAI gateway (2026-10-19/20, ADR-0034 to ADR-0036, contract `gateway-api` 0.7): `gateway/` on port
+9300 speaks OpenAI Chat Completions, the Responses API, embeddings and `/v1/models`; per-tenant
+routes (YAML files, also managed through the policy service's `/v1/gateway/routes`) with
+`pass_through` / `secret` / `none` credentials and fallbacks; input, tool-result, answer and
+tool-call checks through the in-process pipeline, per-call placeholders restored for the caller,
+streaming modes `window` / `buffer` / `after`; Compose profile `gateway` on the single VM
+(`docs/workflow/gateway.md`). Prompt-attack detection (gateway WP4) is paused until L1: groundwork
+in `l1/attacks/` (not wired in) and the `pi-tr` eval suite. `umai-beta` runs the gateway since
+2026-10-20 (enforcing; OpenAI routes with the caller's provider key).
 Tenants are organizations created in the console; API keys, bundles and HMAC keys are per tenant.
 The console signs people in with OIDC (Auth0 development tenant, `umai-control-center`, locally
 since 2026-10-18 and on `umai-beta` since 2026-10-19).
@@ -153,6 +167,7 @@ since 2026-10-18 and on `umai-beta` since 2026-10-19).
 | Work on L2 | [`docs/architecture/l2-llm-analyst.md`](docs/architecture/l2-llm-analyst.md) |
 | Change a request/response/tag shape | [`docs/contracts/`](docs/contracts/), skill `change-contract` |
 | Sign-in, onboarding, organizations, invitations, login branding | [`docs/architecture/sign-in-and-onboarding.md`](docs/architecture/sign-in-and-onboarding.md), ADR-0033, ADR-0024 |
+| UMAI secure gateway, guardrail hooks in other gateways | [`docs/architecture/ai-gateway.md`](docs/architecture/ai-gateway.md), [`docs/contracts/gateway-api.md`](docs/contracts/gateway-api.md), ADR-0034 to ADR-0036, [`docs/reference/ai-gateways.md`](docs/reference/ai-gateways.md) |
 | SaaS vs self-hosted, editions, quotas, tenancy | [`docs/architecture/deployment-and-editions.md`](docs/architecture/deployment-and-editions.md), ADR-0018, ADR-0019 |
 | Policy bundles, loading, hot reload | [`docs/contracts/policy-bundle.md`](docs/contracts/policy-bundle.md), [`docs/architecture/policy-lifecycle.md`](docs/architecture/policy-lifecycle.md) |
 | Change a policy, write golden cases | [`docs/workflow/policy-authoring.md`](docs/workflow/policy-authoring.md), [`docs/contracts/policy-tests.md`](docs/contracts/policy-tests.md) |

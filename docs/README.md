@@ -21,10 +21,12 @@ docs/
 │   ├── policy-lifecycle.md       edit in a dashboard → publish → live (design constraint)
 │   ├── deployment-and-editions.md  SaaS vs self-hosted, Community vs Enterprise, entitlements
 │   ├── sign-in-and-onboarding.md  sign-up → organization → invitation → first key; surfaces, branding, tests
+│   ├── ai-gateway.md             UMAI secure gateway: fit, options, design, build plan (ADR-0034)
 │   └── code-layout.md            target package layout and module boundaries
 ├── contracts/                    versioned data shapes (the source of truth for code)
 │   ├── README.md                 versioning rules
 │   ├── evaluation-api.md         request / response of the engine
+│   ├── gateway-api.md            the UMAI gateway's OpenAI-compatible surface (draft)
 │   ├── policy-bundle.md          guardrail configuration consumed by the engine
 │   ├── entity-detection.md       L0 output
 │   ├── decision-questions.md     provider-agnostic question schema for L1b
@@ -38,7 +40,8 @@ docs/
 ├── platform-context/             background: what umai-engine (the engine this may replace) does
 ├── evals/                        eval strategy, datasets, metrics
 └── workflow/                     how to develop, test and ship changes here
-    └── policy-authoring.md       how the team changes, tests and activates a policy
+    ├── policy-authoring.md       how the team changes, tests and activates a policy
+    └── gateway.md                using the UMAI gateway: routes, SDK calls, refusals, errors
 ```
 
 ## Reading order for a newcomer

@@ -24,8 +24,15 @@
 	header ?Content-Security-Policy "frame-ancestors 'none'"
 	header -Server
 
-	# Ingress body cap (ADR-0019 §4) until the engine enforces its own prompt-size limit.
-	request_body {
+	# Ingress body cap (ADR-0019 §4) until the engine enforces its own prompt-size limit. Gateway
+	# calls carry a whole conversation (up to 256 000 scanned characters, gateway-api 0.8), JSON-
+	# escaped, plus tool definitions: 4 MB for those paths.
+	@gateway path /v1/chat/completions /v1/responses /v1/embeddings /v1/models
+	request_body @gateway {
+		max_size 4MB
+	}
+	@not_gateway not path /v1/chat/completions /v1/responses /v1/embeddings /v1/models
+	request_body @not_gateway {
 		max_size 512KB
 	}
 
@@ -33,6 +40,16 @@
 	@docs path /docs /docs/* /redoc /openapi.json
 	handle @docs {
 		respond 404
+	}
+
+	# UMAI gateway (ADR-0034; Compose profile "gateway"): the OpenAI-compatible paths. Before
+	# @engine, which owns the rest of /v1. Streams are flushed as they arrive. Without the profile
+	# these paths answer 502. (@gateway is defined with the body caps above.)
+	handle @gateway {
+		header Cache-Control "no-store"
+		reverse_proxy gateway:9300 {
+			flush_interval -1
+		}
 	}
 
 	@engine path /v1/* /healthz /readyz

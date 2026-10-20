@@ -29,6 +29,8 @@ EXPECTED = {
     Action.TENANT_CREATE: set(),
     Action.MEMBER_UPDATE: {OWN, A},
     Action.ORGANIZATION_READ: {OWN, A, E, P, V, B},
+    Action.GATEWAY_ROUTE_READ: {OWN, A, E, P, V},
+    Action.GATEWAY_ROUTE_WRITE: {OWN, A},
 }
 
 

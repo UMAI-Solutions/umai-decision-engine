@@ -26,8 +26,13 @@ set -a; . "$CONFIG"; set +a
 UMAI_KEY_VAULT="${UMAI_KEY_VAULT:-}"
 UMAI_CONSOLE_BASIC_AUTH="${UMAI_CONSOLE_BASIC_AUTH:-true}"  # unset keeps the gate of earlier releases
 UMAI_ACTOR_KEY_ID="${UMAI_ACTOR_KEY_ID:-console-1}"
+UMAI_GATEWAY="${UMAI_GATEWAY:-false}"  # true: run the UMAI gateway (Compose profile "gateway")
 
-compose() { docker compose --project-directory "$HERE" --env-file "$CONFIG" "$@"; }
+compose() {
+  local profiles=()
+  [[ "$UMAI_GATEWAY" == "true" ]] && profiles=(--profile gateway)
+  docker compose --project-directory "$HERE" --env-file "$CONFIG" "${profiles[@]}" "$@"
+}
 
 # ship.sh replaces the Caddyfile by extracting a new file, and umai.sh rewrites the console gate,
 # but Caddy's single-file bind mounts keep the old files open, so a change only takes effect after
@@ -90,6 +95,26 @@ console_gate() {
   chmod 0444 "$RUN/console-gate.caddy"  # read by the caddy user inside its container
 }
 
+# Gateway files. routes.env (not secret): the upstream allow-list, for the gateway and for the
+# policy service that validates routes. gateway.env: the provider keys of credential "secret"
+# routes, a JSON object name -> key, from Key Vault (umai-gateway-provider-keys) or
+# `umai.sh set-secret UMAI_GATEWAY_PROVIDER_KEYS`; empty while the gateway is off. The routes
+# directory belongs to the app user: the policy service writes it, the gateway reads it.
+gateway_env() {
+  install -d -m 0755 -o "$APP_UID" -g "$APP_UID" "${UMAI_GATEWAY_ROUTES:-/opt/umai/gateway-routes}"
+  if [[ -n "${UMAI_GATEWAY_UPSTREAM_ALLOWLIST:-}" ]]; then
+    printf 'UMAI_DE_GATEWAY_UPSTREAM_ALLOWLIST=%s\n' "$UMAI_GATEWAY_UPSTREAM_ALLOWLIST"
+  fi | put "$RUN/routes.env" 0
+  if [[ "$UMAI_GATEWAY" != "true" ]]; then
+    : | put "$RUN/gateway.env" 0
+    return
+  fi
+  local keys
+  keys="$(secret umai-gateway-provider-keys)"
+  printf 'UMAI_DE_GATEWAY_PROVIDER_KEYS=%s\n' "$keys" | put "$RUN/gateway.env" 0
+  unset keys
+}
+
 secrets() {
   : "${UMAI_HOSTNAME:?}" "${UMAI_OIDC_ISSUER:?set UMAI_OIDC_ISSUER in $CONFIG (console sign-in, README §3a)}"
   : "${UMAI_OIDC_CLIENT_ID:?set UMAI_OIDC_CLIENT_ID in $CONFIG (console sign-in, README §3a)}"
@@ -127,6 +152,7 @@ secrets() {
     printf 'UMAI_ENGINE_TOKEN=%s\nUMAI_CONTROL_TOKEN=%s\n' "$api" "$control"
     printf 'UMAI_SESSION_SECRET=%s\nUMAI_OIDC_CLIENT_SECRET=%s\n' "$session" "$oidc_secret"
   } | put "$RUN/console.env" 0
+  gateway_env
   console_gate
   unset KV_TOKEN api control hmac hmac_master db_owner db_app session oidc_secret
   echo "secrets: written to $RUN"

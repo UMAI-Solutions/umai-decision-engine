@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     # Cloud generates and wraps one key per tenant instead (ADR-0027 §5).
     tenant_hmac_master_key: SecretStr | None = None  # base64, at least 32 bytes
     l0_threads: int = Field(4, ge=1, le=64)
+    # Per-process cache of per-message L0 results (ADR-0037): a resent conversation is not
+    # rescanned. Types, spans and value hashes only, never text. 0 disables it.
+    l0_cache_entries: int = Field(20_000, ge=0, le=1_000_000)
 
     # API access. Shared operator token (ADR-0016; self-hosted) and/or per-tenant API keys
     # from signed registry snapshots (ADR-0023). Outside development at least one of the two
@@ -78,6 +81,32 @@ class Settings(BaseSettings):
     max_pending_invitations: int = Field(20, ge=1)  # per tenant, §5
     starter_guardrail: str | None = "gr-demo-data-protection"  # copied into new organizations
     disposable_email_domains: list[str] = Field(default_factory=list)  # added to the built-in list
+
+    # Gateway (ADR-0034, contract gateway-api). Routes: one YAML file per tenant,
+    # <gateway_routes_dir>/<tenant_id>.yaml, hot-reloaded. Upstream base URLs must match an
+    # allow-list entry: scheme://host-glob[:port]; http only where an entry says so.
+    gateway_routes_dir: Path = Path("gateway-routes")
+    gateway_routes_poll_interval_s: float = Field(5.0, ge=0)  # 0 disables polling
+    gateway_upstream_allowlist: list[str] = Field(
+        default_factory=lambda: [
+            "https://api.openai.com",
+            "https://*.openai.azure.com",
+            "https://*.services.ai.azure.com",
+            "https://*.cognitiveservices.azure.com",
+        ]
+    )
+    # Provider keys the deployment holds for routes with credential "secret" (name → key).
+    # Never logged; never sent anywhere but the route's upstream (ADR-0035 §4).
+    gateway_provider_keys: dict[str, SecretStr] = Field(default_factory=dict)
+    gateway_max_request_bytes: int = Field(16_000_000, ge=10_000, le=200_000_000)
+    # Characters the gateway scans per call: the whole history, resent every turn (gateway-api
+    # 0.8). Larger than max_input_chars because a conversation grows; the L0 cache keeps a
+    # turn's cost to its new messages (ADR-0037).
+    gateway_max_input_chars: int = Field(256_000, ge=1_000, le=4_000_000)
+    # Streaming "window" mode: characters held back so an entity or placeholder split across
+    # chunks is never released half-checked (contract gateway-api, Streaming).
+    gateway_stream_holdback_chars: int = Field(128, ge=32, le=4096)
+    gateway_stream_step_chars: int = Field(32, ge=1, le=4096)
 
     # development endpoints
     expose_detect_endpoint: bool | None = None  # None → True only in development
