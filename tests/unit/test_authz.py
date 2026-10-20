@@ -64,9 +64,14 @@ def test_no_roles_no_access() -> None:
     assert not any(allowed(action, frozenset(), rbac=False) for action in Action)
 
 
-def test_publish_and_activate_need_a_person() -> None:
-    assert not MATRIX[Action.GUARDRAIL_PUBLISH].operator
-    assert not MATRIX[Action.GUARDRAIL_ACTIVATE].operator
+def test_changing_policy_needs_a_person() -> None:
+    for action in (
+        Action.DRAFT_WRITE,
+        Action.DRAFT_TEST,
+        Action.GUARDRAIL_PUBLISH,
+        Action.GUARDRAIL_ACTIVATE,
+    ):
+        assert not MATRIX[action].operator, action
 
 
 def _actions(dependant) -> list[Action]:

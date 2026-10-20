@@ -85,13 +85,14 @@ _O, _A, _E, _P, _V, _B = (
     Role.BILLING,
 )
 
-# The permission matrix (ADR-0029 §2–§3). Publishing and activating always need a person
-# (ADR-0023 §1: a service credential alone cannot name an actor).
+# The permission matrix (ADR-0029 §2–§3). Changing policy (drafts, tests, publishing,
+# activating) always needs a person (ADR-0023 §1: a service credential alone cannot name an
+# actor); the control token alone runs tenants, API keys and reads (credentials contract).
 MATRIX: dict[Action, Rule] = {
     Action.CATALOG_READ: _r(_O, _A, _E, _P, _V, _B, operator=True),
     Action.GUARDRAIL_READ: _r(_O, _A, _E, _P, _V, operator=True),
-    Action.DRAFT_WRITE: _r(_O, _E, operator=True),
-    Action.DRAFT_TEST: _r(_O, _E, operator=True),
+    Action.DRAFT_WRITE: _r(_O, _E),
+    Action.DRAFT_TEST: _r(_O, _E),
     Action.GUARDRAIL_PUBLISH: _r(_O, _E),
     Action.GUARDRAIL_ACTIVATE: _r(_O, _P),
     Action.TENANT_READ: _r(operator=True),

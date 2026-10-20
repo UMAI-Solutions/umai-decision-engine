@@ -160,7 +160,7 @@ policy-service route: the person's tenant, or `X-Umai-Tenant` with the control t
 | Route | Action (ADR-0029) | Roles |
 |---|---|---|
 | `GET /v1/applications` → `{"tenant_id", "applications": [...]}` | `application.read` | owner, admin, policy editor, approver, viewer; operator |
-| `PUT /v1/applications/{application_id}` with one application → `{"tenant_id", "application"}` (201 when created) | `application.write` | owner, admin; operator |
+| `PUT /v1/applications/{application_id}` with one application → `{"tenant_id", "application"}` (201 when created) | `application.write`; changing an existing application's `guardrail` also `guardrail.activate` (ADR-0029 approver step, 0.12) | owner, admin; operator (not for a guardrail change) |
 | `DELETE /v1/applications/{application_id}` → `{"tenant_id", "deleted"}` | `application.write` | owner, admin; operator |
 | `GET /v1/providers` → `{"tenant_id", "providers": [...]}`; each with `default` and `builtin` | `gateway.read` | owner, admin, policy editor, approver, viewer; operator |
 | `PUT /v1/providers/{provider_id}` → `{"tenant_id", "provider"}` (201 when created); `default: true` moves the default; re-saving the default without `default` keeps it the default, only `default: false` unmarks it (0.12) | `gateway.write` | owner, admin; operator |
@@ -421,6 +421,7 @@ latency. No record carries prompt, answer, provider key or mask map (ADR-0035).
 
 - 0.12 (2026-10-20, review fixes after merging): the default provider never moves silently:
   `PUT` without `default` keeps it, `DELETE` is refused while an application relies on it.
+  Changing an existing application's guardrail also needs `guardrail.activate`.
   Only checked content reaches the caller: answer text first seen in a final Responses event,
   Chat answers made of text parts, and every tool-call shape (Chat `custom` and the deprecated
   `function_call`; Responses `custom_tool_call`, MCP, shell, apply-patch and computer calls) are

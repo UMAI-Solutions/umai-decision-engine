@@ -534,7 +534,9 @@ async def put_application(
     tenant: TenantInfo = _TENANT,
     actor: Actor = _ALLOW[Action.APPLICATION_WRITE],
 ) -> JSONResponse:
-    """Create or replace one application; its guardrail must exist for this tenant."""
+    """Create or replace one application; its guardrail must exist for this tenant. Changing
+    an existing application's guardrail changes what protects its live traffic: it also needs
+    ``guardrail.activate`` (ADR-0029 approver step; a person, never the control token alone)."""
 
     if not _APPLICATION_ID.match(application_id):
         raise HTTPException(
@@ -545,6 +547,9 @@ async def put_application(
         data = await _read_file(request, tenant)
         apps = _entries(data, "applications")
         created = not any(_is(a, "application_id", application_id) for a in apps)
+        previous = next((a for a in apps if _is(a, "application_id", application_id)), None)
+        if previous is not None and previous.get("guardrail") != body.get("guardrail"):
+            await authorize(Action.GUARDRAIL_ACTIVATE)(request)
         apps = [body if _is(a, "application_id", application_id) else a for a in apps]
         data["applications"] = apps + ([body] if created else [])
         guardrail = body.get("guardrail")

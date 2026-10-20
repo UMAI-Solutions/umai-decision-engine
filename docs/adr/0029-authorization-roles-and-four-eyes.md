@@ -1,6 +1,6 @@
 # ADR-0029 — Authorization: tenant roles enforced in the services, four-eyes for production activation
 
-- **Status:** Proposed (awaits product-owner approval). Implemented 2026-10-19: §1 roles from the on-behalf-of assertion, §3 permission matrix (`control_plane/authz.py`, route test), §2 admin-without-rbac rule, §6 deny by default; §4 four-eyes and §5 break-glass open
+- **Status:** Proposed (awaits product-owner approval). Implemented 2026-10-19: §1 roles from the on-behalf-of assertion, §3 permission matrix (`control_plane/authz.py`, route test), §2 admin-without-rbac rule, §6 deny by default; §4 four-eyes and §5 break-glass open. 2026-10-20: changing an application's guardrail (ADR-0039) counts as an activation and needs `guardrail.activate`; drafts and draft tests need a person like publishing
 - **Date:** 2026-10-17
 - **Deciders:** engineering proposal; product owner (role names and which edition gets RBAC are product decisions)
 - **Builds on:** ADR-0018 (RBAC is an Enterprise capability), ADR-0021 (company → project → guardrail), ADR-0022 (publish, activate), ADR-0023 (on-behalf-of assertion), policy-lifecycle "Approve" stage
