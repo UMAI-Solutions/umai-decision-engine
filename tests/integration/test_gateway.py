@@ -622,6 +622,33 @@ def test_history_tool_call_arguments_are_masked(make_gateway, upstream) -> None:
     assert sent[2]["content"] == "Bulundu: TC kimlik <TR_TCKN_1>"
 
 
+def test_a_custom_tool_call_in_the_history_is_masked_again(make_gateway, upstream) -> None:
+    # Answers get the caller's values back in custom tool calls; when the agent resends that
+    # message, the value must not reach the provider raw (review of PR #12, ADR-0005).
+    client = make_gateway(guardrail=AGENT_GUARDRAIL)
+    body = {
+        "model": "gpt-eu",
+        "messages": [
+            {"role": "user", "content": "Müşteriyi bul"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "custom",
+                        "custom": {"name": "lookup", "input": f"kimlik {TCKN} ve {EMAIL}"},
+                    }
+                ],
+            },
+            {"role": "tool", "tool_call_id": "call_1", "content": "Bulundu."},
+        ],
+    }
+    assert client.post("/v1/chat/completions", json=body).status_code == 200
+    sent = upstream.last_body["messages"][1]["tool_calls"][0]["custom"]["input"]
+    assert EMAIL not in sent and TCKN not in sent and "<EMAIL_ADDRESS_1>" in sent
+
+
 def test_size_and_shape_limits(make_gateway) -> None:
     client = make_gateway(gateway_max_input_chars=1_000)
     assert ask(client, "x" * 1_001).status_code == 413

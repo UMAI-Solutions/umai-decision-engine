@@ -120,6 +120,9 @@ class ToolCall:
     text: str
     json_text: bool  # JSON source: restored JSON-escaped, masked value by value
     write: Callable[[str], None]
+    # Only where the input side scans and masks the same field again on the next turn: a value
+    # restored anywhere else would go back to the provider raw (ADR-0005, review of PR #12).
+    restorable: bool = True
 
     def update(self, text: str) -> None:
         self.text = text
@@ -149,7 +152,7 @@ def _structured(name: str, holder: dict[str, Any], key: str) -> ToolCall:
     JSON text, written back as the masked structure."""
 
     text = json.dumps(holder[key], ensure_ascii=False)
-    return ToolCall(name, text, True, _put_json(holder, key))
+    return ToolCall(name, text, True, _put_json(holder, key), restorable=False)
 
 
 def chat_tool_calls(message: dict[str, Any]) -> list[ToolCall]:
@@ -189,6 +192,9 @@ _RESPONSES_TEXT_INPUT = {
     "mcp_call": ("arguments", True),
     "mcp_approval_request": ("arguments", True),
 }
+# The items whose input the request side scans again (responses_segments): only these get the
+# caller's values back.
+_RESPONSES_RESCANNED = frozenset({"function_call", "custom_tool_call"})
 _RESPONSES_STRUCTURED_INPUT = {
     "shell_call": ("action",),
     "local_shell_call": ("action",),
@@ -214,7 +220,9 @@ def responses_tool_calls(item: dict[str, Any]) -> list[ToolCall]:
         key, json_text = _RESPONSES_TEXT_INPUT[kind]
         if not isinstance(item.get(key), str):
             return []
-        return [_text_call(item, key, json_text=json_text)]
+        tool_call = _text_call(item, key, json_text=json_text)
+        tool_call.restorable = kind in _RESPONSES_RESCANNED
+        return [tool_call]
     if kind in _RESPONSES_STRUCTURED_INPUT:
         name = kind.removesuffix("_call")
         return [
@@ -231,6 +239,8 @@ def restore_tool_calls(call: Call, calls: list[ToolCall]) -> None:
     if not call.route.restore_placeholders:
         return
     for tool_call in calls:
+        if not tool_call.restorable:
+            continue
         restored = call.session.restore(tool_call.text, json_string=tool_call.json_text)
         if restored != tool_call.text:
             tool_call.update(restored)

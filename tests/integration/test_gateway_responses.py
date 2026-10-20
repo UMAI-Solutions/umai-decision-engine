@@ -421,7 +421,10 @@ def test_every_tool_call_shape_is_checked(make_gateway, responses_upstream, item
     assert response.json()["error"]["umai"]["phase"] == "TOOL_INPUT"
 
 
-def test_tool_inputs_are_restored_and_masked_in_place(make_gateway, responses_upstream) -> None:  # noqa: F811
+def test_tool_inputs_restored_only_where_rescanned(make_gateway, responses_upstream) -> None:  # noqa: F811
+    # A custom tool call comes back with the caller's value (the request side scans it again on
+    # the next turn); MCP and shell inputs keep the placeholder, since the request side does not
+    # scan those items and a restored value would go back to the provider raw.
     output = [
         _custom_item(f"bul <TR_TCKN_1> ve {EMAIL}"),
         _mcp_item(json.dumps({"tckn": "<TR_TCKN_1>"})),
@@ -431,8 +434,8 @@ def test_tool_inputs_are_restored_and_masked_in_place(make_gateway, responses_up
     client = make_gateway(guardrail=AGENT_GUARDRAIL)
     custom, mcp, shell = post(client, input=f"TC kimlik {TCKN} bul").json()["output"]
     assert custom["input"] == f"bul {TCKN} ve <EMAIL_ADDRESS_1>"
-    assert json.loads(mcp["arguments"]) == {"tckn": TCKN}
-    assert shell["action"] == {"commands": [f"lookup {TCKN}"], "timeout_ms": 1000}
+    assert json.loads(mcp["arguments"]) == {"tckn": "<TR_TCKN_1>"}
+    assert shell["action"] == {"commands": ["lookup <TR_TCKN_1>"], "timeout_ms": 1000}
 
 
 def _tool_stream(item: dict[str, Any], empty: dict[str, Any], *middle: dict[str, Any]) -> bytes:
@@ -469,9 +472,9 @@ def test_stream_custom_mcp_and_shell_inputs_are_held(make_gateway, responses_ups
     )
     events = read_events(post(client, input=f"TC kimlik {TCKN} ara", stream=True))
     deltas = [e for e in events if e["type"] == "response.mcp_call_arguments.delta"]
-    assert len(deltas) == 1 and json.loads(deltas[0]["delta"]) == {"tckn": TCKN}
+    assert len(deltas) == 1 and json.loads(deltas[0]["delta"]) == {"tckn": "<TR_TCKN_1>"}
     done = next(e for e in events if e["type"] == "response.output_item.done")["item"]
-    assert json.loads(done["arguments"]) == {"tckn": TCKN}
+    assert json.loads(done["arguments"]) == {"tckn": "<TR_TCKN_1>"}  # not restored: see above
 
     shell = _shell_item(f"pay --card {CARD.replace(' ', '')}")
     command = shell["action"]["commands"][0]

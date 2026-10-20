@@ -103,6 +103,11 @@ def _tool_call_segments(message: dict[str, Any], index: int) -> list[Segment]:
                         json_string=True,
                     )
                 )
+            custom = call.get("custom") if isinstance(call, dict) else None
+            if isinstance(custom, dict) and isinstance(custom.get("input"), str):
+                # restored in answers (tools.chat_tool_calls), so masked again here
+                path = ("tool_calls", k, "custom", "input")
+                found.append(Segment(index, path, "assistant", custom["input"]))
     legacy = message.get("function_call")
     if isinstance(legacy, dict) and isinstance(legacy.get("arguments"), str):
         found.append(

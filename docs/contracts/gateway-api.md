@@ -193,7 +193,7 @@ policy-service route: the person's tenant, or `X-Umai-Tenant` with the control t
 | `model` | Resolved by the application's aliases and the provider prefix ([Applications](#applications-providers-and-model-010-adr-0039)) |
 | `messages[].role` | `system`, `developer` → evaluated as `system`; `user`; `assistant`; `tool` and the deprecated `function` → evaluated as input from the caller |
 | `messages[].content` | A string, or an array of parts: `text` (and `refusal`) parts are scanned and may be rewritten in place; other part types follow `unscanned_parts` |
-| `messages[].tool_calls[].function.arguments`, `messages[].function_call.arguments` | Assistant tool calls in the history; scanned with the input and masked value by value, so the arguments stay valid JSON: a number holding an entity becomes a string (`{"tckn": 10000000146}` → `{"tckn": "<TR_TCKN_1>"}`, 0.12) |
+| `messages[].tool_calls[].function.arguments`, `messages[].tool_calls[].custom.input`, `messages[].function_call.arguments` | Assistant tool calls in the history; scanned with the input and masked value by value, so the arguments stay valid JSON: a number holding an entity becomes a string (`{"tckn": 10000000146}` → `{"tckn": "<TR_TCKN_1>"}`, 0.12) |
 | `stream` | `true`: streaming (below) |
 | `stream_options.include_usage` | For `openai` and `azure_openai` upstreams the gateway sets it for its usage record and removes the usage-only chunk when the caller did not ask for it |
 | `n` | Each choice is checked on its own |
@@ -343,10 +343,13 @@ that serve Responses).
 | everything else (`tools`, `previous_response_id`, `store`, `reasoning`, `text`, …) | Forwarded unchanged |
 
 Answer: each `output_text` part of a `message` item is checked (`POST_LLM`), masked and restored;
-the input of each tool item is restored, then checked (`TOOL_INPUT`) and masked in place:
-`function_call` and `mcp_call` / `mcp_approval_request` `arguments`, `custom_tool_call` `input`,
-and the structured input of `shell_call` / `local_shell_call` (`action`), `apply_patch_call`
-(`operation`) and `computer_call` (`action`, `actions`), checked as its JSON text (0.12). An MCP
+the input of each tool item is checked (`TOOL_INPUT`) and masked in place: `function_call` and
+`mcp_call` / `mcp_approval_request` `arguments`, `custom_tool_call` `input`, and the structured
+input of `shell_call` / `local_shell_call` (`action`), `apply_patch_call` (`operation`) and
+`computer_call` (`action`, `actions`), checked as its JSON text (0.12). The caller's own values
+are put back first only into `function_call` and `custom_tool_call`, the items the request side
+scans and masks again on the next turn; the others keep their placeholders, since a restored
+value there would reach the provider raw when the conversation is resent. An MCP
 call runs at the provider, so its check can only mask or refuse what the caller receives. A refusal with
 `refusal: error` is HTTP 400 as above; with `refusal: message` the response has `status:
 "incomplete"`, `incomplete_details: {"reason": "content_filter"}` and one `message` item carrying
@@ -427,7 +430,10 @@ latency. No record carries prompt, answer, provider key or mask map (ADR-0035).
   `function_call`; Responses `custom_tool_call`, MCP, shell, apply-patch and computer calls) are
   checked. Placeholder numbers start above those the input shows (and above the time for
   `previous_response_id`); tool-call arguments stay valid JSON when masked; event-stream lines
-  split only at CRLF, LF, CR.
+  split only at CRLF, LF, CR. Restored values go only into tool inputs the request side masks
+  again (Chat `function`, `custom` and `function_call`; Responses `function_call` and
+  `custom_tool_call`, whose `custom.input` / `input` the request side now scans); MCP, shell,
+  apply-patch, computer and other typed calls keep placeholders.
 - 0.11 (2026-10-20, review fixes before merging): request fields the guardrail cannot check
   are refused (`prediction`, audio answers, Responses `prompt.variables`) or left out
   (`metadata`, participant `name`, log probabilities, reasoning summaries); answers lose
