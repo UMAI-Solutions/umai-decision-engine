@@ -76,6 +76,7 @@ containers use about 240 MiB together.
 - The operator patches the OS (unattended upgrades with a 03:30 reboot window) and watches the
   stack; there is no monitoring beyond container health checks and `docker logs`.
 - Pilot tenants each need their own HMAC key (`umai-tenant-hmac-keys` / `UMAI_TENANT_HMAC_KEYS`).
+  Since organizations are created at runtime (ADR-0033), see the amendment below.
 - The operator's SSH access and the storage firewall are pinned to one IP; a changing home IP
   means updating the NSG rule (runbook §4).
 - Exit to ADR-0031: when the first paying customer, the second pilot, or any S0 readiness row
@@ -94,3 +95,28 @@ containers use about 240 MiB together.
   without and 200 with basic auth, console → engine and console → policy relays 200; `/v1/evaluate`
   with the token BLOCKs a synthetic TCKN (L0); bundles signed with the deployment key
   `vm-2026-10`; `umai.sh backup` uploaded an archive to Blob Storage.
+
+## Amendment 2026-10-19: HMAC keys for organizations created at runtime
+
+**Context.** Self-service organizations (ADR-0033) are tenants that appear at runtime. Outside
+development the engine refuses a tenant without an HMAC key (`TENANT_KEY_MISSING`), and this
+starter keeps keys in one environment map, so every new organization would need an operator
+edit and a restart before its first evaluation. ADR-0027 §5 (per-tenant keys generated at
+onboarding, wrapped by Key Vault, delivered in the key snapshot) needs Key Vault, which this
+account cannot register yet.
+
+**Decision.** On single-VM and self-hosted installs, a tenant without an explicit key gets one
+derived from a master secret: HKDF-SHA256 over `UMAI_DE_TENANT_HMAC_MASTER_KEY` (≥ 32 bytes),
+`info = "umai-tenant-hmac/v1:" + tenant id`, 32 bytes. Explicit keys in
+`UMAI_DE_TENANT_HMAC_KEYS` win, so existing tenants keep their hashes. `umai.sh` generates the
+master secret once (`umai-tenant-hmac-master-key`).
+
+**Alternatives.** Generate and store a key per tenant in the store now (an unwrapped key in
+Postgres and in the snapshot files, and a contract change, for an interim); operator edits per
+organization (breaks self-service onboarding).
+
+**Consequences.** One secret now protects every derived tenant key: no worse than the single
+map it complements, but per-tenant rotation needs an explicit key for that tenant. The exit is
+unchanged: UMAI Cloud moves to ADR-0027 §5, and derived tenants get generated keys there (hash
+continuity is not kept across that move, by design of §5).
+

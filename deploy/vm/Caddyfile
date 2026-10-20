@@ -1,5 +1,6 @@
 # One hostname (Azure DNS label or a custom domain): the engine API on /v1, /healthz, /readyz;
-# everything else is the console behind basic auth until console login (ADR-0024) lands.
+# /brand/* (public brand files for Auth0's login page and e-mails); everything else is the
+# console, which signs people in itself (OIDC, ADR-0024), optionally behind basic auth too.
 {
 	# No ACME account e-mail: Let's Encrypt does not require one (expiry mails are optional).
 	servers {
@@ -37,11 +38,21 @@
 		reverse_proxy engine:9100
 	}
 
-	handle {
-		basic_auth {
-			# "<user> <bcrypt hash>", written by umai.sh from Key Vault into tmpfs.
-			import /run/umai/console-auth.caddy
+	# Brand kit files (logos, icons, fonts) without basic auth: Auth0's hosted login page and the
+	# e-mails load them from here in the visitor's browser. Public brand files only; the console's
+	# middleware also serves them without a session. Fonts need CORS for a cross-origin page.
+	@brand path /brand/*
+	handle @brand {
+		header /brand/fonts/* Access-Control-Allow-Origin "*"
+		reverse_proxy console:3100 {
+			# Replace the console's own Cache-Control (max-age=0) instead of adding a second one.
+			header_down Cache-Control "public, max-age=86400"
 		}
+	}
+
+	handle {
+		# basic_auth when UMAI_CONSOLE_BASIC_AUTH=true, else a no-op; written by umai.sh into tmpfs.
+		import /run/umai/console-gate.caddy
 		reverse_proxy console:3100
 	}
 

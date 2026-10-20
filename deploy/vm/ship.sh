@@ -16,8 +16,8 @@ ssh_opts=(-o ConnectTimeout=20)
 [[ -n "${SSH_KEY:-}" ]] && ssh_opts+=(-i "$SSH_KEY")
 remote_dir=/opt/umai/src/umai-decision-engine/deploy
 
-engine_rev="$(git -C "$engine_repo" rev-parse --short HEAD)"
-console_rev="$(git -C "$console_repo" rev-parse --short HEAD)"
+engine_rev="$(git -C "$engine_repo" describe --always --dirty --abbrev=7)"  # -dirty: uncommitted changes shipped
+console_rev="$(git -C "$console_repo" describe --always --dirty --abbrev=7)"
 echo "ship: engine $engine_rev, console $console_rev -> $target"
 
 docker build --platform linux/amd64 -t umai-decision-engine:current \

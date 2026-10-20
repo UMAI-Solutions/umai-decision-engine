@@ -6,6 +6,7 @@
 #   umai.sh up        secrets + start the shipped images (also used by umai.service at boot)
 #   umai.sh backup    policy volume + policy-service database -> Blob Storage
 #   umai.sh status    container status and health
+#   umai.sh set-secret NAME   store a secret read from stdin in secrets.env (local-file mode)
 #
 # Non-secret settings: /opt/umai/config.env (see config.env.example). Secrets come from Key Vault
 # (UMAI_KEY_VAULT set; managed identity) or, until Key Vault is available, from the root-only file
@@ -17,13 +18,27 @@ CONFIG=/opt/umai/config.env
 SECRETS=/opt/umai/secrets.env
 RUN=/run/umai
 APP_UID=10001  # user in the engine image (Dockerfile)
+CONSOLE_UID=1001  # user in the console image (umai-control-center Dockerfile)
 
 # shellcheck source=/dev/null
 set -a; . "$CONFIG"; set +a
-: "${UMAI_BACKUP_ACCOUNT:?}" "${UMAI_CONSOLE_USER:?}"
+: "${UMAI_BACKUP_ACCOUNT:?}"
 UMAI_KEY_VAULT="${UMAI_KEY_VAULT:-}"
+UMAI_CONSOLE_BASIC_AUTH="${UMAI_CONSOLE_BASIC_AUTH:-true}"  # unset keeps the gate of earlier releases
+UMAI_ACTOR_KEY_ID="${UMAI_ACTOR_KEY_ID:-console-1}"
 
 compose() { docker compose --project-directory "$HERE" --env-file "$CONFIG" "$@"; }
+
+# ship.sh replaces the Caddyfile by extracting a new file, and umai.sh rewrites the console gate,
+# but Caddy's single-file bind mounts keep the old files open, so a change only takes effect after
+# a restart (seconds of downtime).
+caddy_follow_config() {
+  if ! compose exec -T caddy cat /etc/caddy/Caddyfile </dev/null 2>/dev/null | cmp -s - "$HERE/Caddyfile" ||
+    ! compose exec -T caddy cat /run/umai/console-gate.caddy </dev/null 2>/dev/null | cmp -s - "$RUN/console-gate.caddy"; then
+    echo "umai: Caddy configuration changed, restarting caddy"
+    compose restart caddy >/dev/null
+  fi
+}
 
 imds_token() {  # $1 = resource
   curl -sf -H Metadata:true \
@@ -43,10 +58,15 @@ secret() {  # $1 = Key Vault secret name; in secrets.env: upper case, '-' -> '_'
   fi
 }
 
-ensure_local_secret() {  # $1 = name; local-file mode only: generate once, append
+new_hex() { openssl rand -hex 24; }
+new_key32() { openssl rand -base64 32; }
+# The console's P-256 key for on-behalf-of assertions (credentials 0.3): PKCS#8 PEM, base64 on one line.
+new_actor_key() { openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 2>/dev/null | base64 -w0; }
+
+ensure_local_secret() {  # $1 = name, $2 = generator (default new_hex); local-file mode: generate once
   [[ -n "$UMAI_KEY_VAULT" ]] && return 0
   grep -q "^$1=" "$SECRETS" 2>/dev/null && return 0
-  printf "%s='%s'\n" "$1" "$(openssl rand -hex 24)" >>"$SECRETS"
+  printf "%s='%s'\n" "$1" "$("${2:-new_hex}")" >>"$SECRETS"
 }
 
 put() {  # $1 = file, $2 = owner uid, stdin = content
@@ -54,34 +74,61 @@ put() {  # $1 = file, $2 = owner uid, stdin = content
   cat >"$1"
 }
 
+# Caddy snippet in front of the console: basic auth (earlier releases, or an extra gate), or
+# nothing, because the console signs people in itself (OIDC, ADR-0024).
+# Secrets are assigned to variables before use: a failing $(secret …) inside an argument list
+# would not stop the script (set -e), and an empty value would be written.
+console_gate() {
+  if [[ "$UMAI_CONSOLE_BASIC_AUTH" == "true" ]]; then
+    : "${UMAI_CONSOLE_USER:?set UMAI_CONSOLE_USER in $CONFIG, or UMAI_CONSOLE_BASIC_AUTH=false}"
+    local hash
+    hash="$(secret umai-console-password-hash)"
+    printf 'basic_auth {\n\t%s %s\n}\n' "$UMAI_CONSOLE_USER" "$hash"
+  else
+    printf '# UMAI_CONSOLE_BASIC_AUTH=false: the console signs people in (OIDC)\nvars console_gate oidc\n'
+  fi | put "$RUN/console-gate.caddy" 0
+  chmod 0444 "$RUN/console-gate.caddy"  # read by the caddy user inside its container
+}
+
 secrets() {
+  : "${UMAI_HOSTNAME:?}" "${UMAI_OIDC_ISSUER:?set UMAI_OIDC_ISSUER in $CONFIG (console sign-in, README §3a)}"
+  : "${UMAI_OIDC_CLIENT_ID:?set UMAI_OIDC_CLIENT_ID in $CONFIG (console sign-in, README §3a)}"
   mkdir -p "$RUN"
   chmod 0711 "$RUN"
   if [[ -n "$UMAI_KEY_VAULT" ]]; then KV_TOKEN="$(imds_token https://vault.azure.net)"; fi
   ensure_local_secret UMAI_DB_OWNER_PASSWORD  # added after the first release: generated once
   ensure_local_secret UMAI_DB_APP_PASSWORD
-  local api control hmac db_owner db_app
+  ensure_local_secret UMAI_TENANT_HMAC_MASTER_KEY new_key32  # organizations (ADR-0032 amendment)
+  ensure_local_secret UMAI_SESSION_SECRET                    # console session cookie key
+  ensure_local_secret UMAI_CONSOLE_ACTOR_KEY new_actor_key   # console -> policy service assertions
+  local api control hmac hmac_master db_owner db_app actor_public session oidc_secret
   db_owner="$(secret umai-db-owner-password)"
   db_app="$(secret umai-db-app-password)"
   api="$(secret umai-api-token)"
   control="$(secret umai-control-token)"
   hmac="$(secret umai-tenant-hmac-keys)"
+  hmac_master="$(secret umai-tenant-hmac-master-key)"
+  session="$(secret umai-session-secret)"
+  oidc_secret="$(secret umai-oidc-client-secret)"  # README §3a: set-secret from Terraform's output
   secret umai-signing-key | put "$RUN/signing.key" "$APP_UID"
-  printf 'UMAI_DE_API_TOKEN=%s\nUMAI_DE_TENANT_HMAC_KEYS=%s\n' "$api" "$hmac" |
-    put "$RUN/engine.env" 0
+  printf 'UMAI_DE_API_TOKEN=%s\nUMAI_DE_TENANT_HMAC_KEYS=%s\nUMAI_DE_TENANT_HMAC_MASTER_KEY=%s\n' \
+    "$api" "$hmac" "$hmac_master" | put "$RUN/engine.env" 0
+  secret umai-console-actor-key | base64 -d | put "$RUN/actor.pem" "$CONSOLE_UID"
+  actor_public="$(openssl pkey -in "$RUN/actor.pem" -pubout -outform DER | base64 -w0)"
   printf 'UMAI_DE_CONTROL_API_TOKEN=%s\n' "$control" | put "$RUN/policy.env" 0
   {
     printf 'UMAI_DE_DATABASE_URL=postgresql+asyncpg://umai_app:%s@postgres:5432/umai\n' "$db_app"
     printf 'UMAI_DE_DATABASE_ADMIN_URL=postgresql+asyncpg://umai_owner:%s@postgres:5432/umai\n' "$db_owner"
+    printf 'UMAI_DE_ACTOR_PUBLIC_KEYS={"%s":"%s"}\n' "$UMAI_ACTOR_KEY_ID" "$actor_public"
   } >>"$RUN/policy.env"
   printf 'POSTGRES_PASSWORD=%s\nUMAI_DB_APP_PASSWORD=%s\n' "$db_owner" "$db_app" |
     put "$RUN/postgres.env" 0
-  printf 'UMAI_ENGINE_TOKEN=%s\nUMAI_CONTROL_TOKEN=%s\n' "$api" "$control" |
-    put "$RUN/console.env" 0
-  printf '%s %s\n' "$UMAI_CONSOLE_USER" "$(secret umai-console-password-hash)" |
-    put "$RUN/console-auth.caddy" 0
-  chmod 0444 "$RUN/console-auth.caddy"  # read by the caddy user inside its container
-  unset KV_TOKEN
+  {
+    printf 'UMAI_ENGINE_TOKEN=%s\nUMAI_CONTROL_TOKEN=%s\n' "$api" "$control"
+    printf 'UMAI_SESSION_SECRET=%s\nUMAI_OIDC_CLIENT_SECRET=%s\n' "$session" "$oidc_secret"
+  } | put "$RUN/console.env" 0
+  console_gate
+  unset KV_TOKEN api control hmac hmac_master db_owner db_app session oidc_secret
   echo "secrets: written to $RUN"
 }
 
@@ -117,6 +164,18 @@ init() {  # secrets.env for the no-Key-Vault mode; never overwrites
   echo "init: secrets in $SECRETS, console password in /root/console-password.txt, key id $key_id"
 }
 
+set_secret() {  # $1 = NAME; the value comes on stdin, never on the command line
+  [[ -z "$UMAI_KEY_VAULT" ]] || { echo "set-secret: Key Vault mode; put it in the vault" >&2; exit 1; }
+  [[ "${1:-}" =~ ^UMAI_[A-Z0-9_]+$ ]] || { echo "usage: umai.sh set-secret UMAI_NAME < value" >&2; exit 2; }
+  local value
+  IFS= read -r value || true
+  [[ -n "$value" && "$value" != *"'"* ]] || { echo "set-secret: empty value, or a value with a quote" >&2; exit 1; }
+  sed -i "/^$1=/d" "$SECRETS"
+  printf "%s='%s'\n" "$1" "$value" >>"$SECRETS"
+  unset value
+  echo "set-secret: $1 stored in $SECRETS (applied by the next umai.sh up)"
+}
+
 backup() {
   local stamp name file url token
   stamp="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -144,8 +203,9 @@ backup() {
 case "${1:-}" in
   init) init ;;
   secrets) secrets ;;
-  up) secrets; compose up -d --no-build --remove-orphans; docker image prune -f >/dev/null ;;
+  up) secrets; compose up -d --no-build --remove-orphans; caddy_follow_config; docker image prune -f >/dev/null ;;
   backup) backup ;;
   status) compose ps ;;
-  *) sed -n '2,9p' "$0"; exit 2 ;;
+  set-secret) set_secret "${2:-}" ;;
+  *) sed -n '2,10p' "$0"; exit 2 ;;
 esac

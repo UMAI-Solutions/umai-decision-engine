@@ -6,7 +6,7 @@ few pilot tenants, not paid SaaS. About $45/month at list price.
 ```text
 Internet ──443──▶ Caddy ──/v1, /healthz, /readyz──▶ engine :9100 ──reads──▶ policies volume (+ .keys/)
                    │                                                         ▲ signs + writes
-                   └──everything else (basic auth)──▶ console :3100 ──▶ policy service :9200 ──▶ postgres :5432
+                   └──everything else (sign-in)────▶ console :3100 ──▶ policy service :9200 ──▶ postgres :5432
 secrets: Key Vault or /opt/umai/secrets.env ──(umai.sh, at start)──▶ /run/umai (tmpfs)        (tenants, keys, drafts; RLS)
 nightly backup (policies + pg_dump) ──▶ Blob Storage          images: built on the workstation, ship.sh
 ```
@@ -50,7 +50,7 @@ sudo -i
 D=/opt/umai/src/umai-decision-engine/deploy/vm
 docker pull caddy:2.10-alpine && docker pull alpine
 install -m 600 $D/config.env.example /opt/umai/config.env
-vi /opt/umai/config.env        # UMAI_HOSTNAME, UMAI_BACKUP_ACCOUNT, UMAI_CONSOLE_USER; vault empty
+vi /opt/umai/config.env        # UMAI_HOSTNAME, UMAI_BACKUP_ACCOUNT, UMAI_OIDC_* (§3a); vault empty
 $D/umai.sh init                # tokens, tenant HMAC keys, DB passwords, signing key + public key in config.env
 cat /root/console-password.txt # store it in your password manager, then:
 shred -u /root/console-password.txt
@@ -75,11 +75,34 @@ unset key sas
 The SAS expires after a year; renew it the same way.
 
 In Key Vault mode put the secrets into the vault instead (names: `umai-api-token`,
-`umai-control-token`, `umai-tenant-hmac-keys`, `umai-signing-key`, `umai-console-password-hash`),
-set `UMAI_KEY_VAULT` and `UMAI_SIGNING_KEY_ID` / `UMAI_BUNDLE_PUBLIC_KEYS` by hand; `umai.sh init`
-is not used.
+`umai-control-token`, `umai-tenant-hmac-keys`, `umai-tenant-hmac-master-key`, `umai-signing-key`,
+`umai-console-password-hash`, `umai-session-secret`, `umai-console-actor-key` (base64 of a P-256
+PKCS#8 PEM), `umai-oidc-client-secret`), set `UMAI_KEY_VAULT` and `UMAI_SIGNING_KEY_ID` /
+`UMAI_BUNDLE_PUBLIC_KEYS` by hand; `umai.sh init` is not used.
+
+In local-file mode `umai.sh up` generates the newer secrets once, on first use: the database
+passwords, the tenant HMAC master key (ADR-0032 amendment), the console's session secret and its
+assertion key (the policy service gets the matching public key automatically).
 
 Caddy obtains the TLS certificate on the first HTTPS request.
+
+### 3a. Console sign-in (Auth0)
+
+The console signs people in with OIDC (ADR-0024; `umai-control-center` docs/sign-in.md). Its
+Auth0 application is Terraform in `umai-control-center/identity/auth0` (`console_url` in the
+workspace's tfvars). After `terraform apply` there, on the workstation:
+
+```bash
+# the secret goes from Terraform straight into the VM file, never onto the screen
+terraform output -raw console_client_secret |
+  ssh -i ~/.ssh/umai_beta_ed25519 umaiops@<hostname> "sudo $D/umai.sh set-secret UMAI_OIDC_CLIENT_SECRET"
+terraform output -raw console_client_id      # not secret: UMAI_OIDC_CLIENT_ID in config.env
+```
+
+Set `UMAI_OIDC_ISSUER` (`https://<tenant domain>/`) and `UMAI_OIDC_CLIENT_ID` in
+`/opt/umai/config.env`; `umai.sh up` refuses to start without them. `UMAI_CONSOLE_BASIC_AUTH=true`
+keeps Caddy's basic auth in front as well (default for installs that had it); set `false` to
+let people sign up and onboard on their own.
 
 ## 4. Day-to-day
 
@@ -89,8 +112,8 @@ Caddy obtains the TLS certificate on the first HTTPS request.
 | Status | VM, root | `$D/umai.sh status` |
 | Logs | VM, root | `docker compose -p umai logs -f engine` (no raw content is logged, ADR-0005) |
 | API token for a pilot client | VM, root | `grep UMAI_API_TOKEN /opt/umai/secrets.env`; hand over on a secure channel |
-| Add a pilot tenant | VM, root | `curl -X POST -H "Authorization: Bearer $CONTROL" http://127.0.0.1:9200/v1/tenants -d '{"id":"pilot-1"}'` then `POST /v1/tenants/pilot-1/keys` (ADR-0023; the secret is in the response once). Also add its HMAC key to `UMAI_TENANT_HMAC_KEYS` and `$D/umai.sh up`. The policy service port is not published; run the curl inside the network: `docker compose -p umai exec policy python -c …` or add a temporary `docker run --network umai_default` |
-| Rotate a secret | VM, root | edit `/opt/umai/secrets.env` (or the vault), then `$D/umai.sh up` |
+| Add a pilot tenant | VM, root | Prefer an organization created in the console (ADR-0033): its owner makes keys on Get started. By hand: `curl -X POST -H "Authorization: Bearer $CONTROL" http://127.0.0.1:9200/v1/tenants -d '{"id":"pilot-1"}'` then `POST /v1/tenants/pilot-1/keys` (ADR-0023; the secret is in the response once). Its HMAC key is derived from the master key; an explicit key in `UMAI_TENANT_HMAC_KEYS` overrides it. The policy service port is not published; run the curl inside the network: `docker compose -p umai exec policy python -c …` or add a temporary `docker run --network umai_default` |
+| Rotate a secret | VM, root | `printf %s "$new" \| $D/umai.sh set-secret UMAI_NAME` (or the vault), then `$D/umai.sh up`. Rotating `UMAI_SESSION_SECRET` signs everyone out; `UMAI_CONSOLE_ACTOR_KEY` takes effect for both sides at once; never rotate `UMAI_TENANT_HMAC_MASTER_KEY` casually: hashes of derived tenants change |
 | Backup now | VM, root | `$D/umai.sh backup` |
 | Restore | VM, root | `systemctl stop umai`; fetch the archive (`az storage blob download` on the workstation, then `scp`); `tar -xzf <archive> db/umai.sql.gz` and `docker run --rm -v umai_policies:/p -v $PWD/p:/in:ro alpine sh -c 'rm -rf /p/* && cp -a /in/. /p/'`; `systemctl start umai`, then `gunzip -c db/umai.sql.gz \| docker compose -p umai exec -T postgres psql -U umai_owner -d umai` into a freshly initialised database |
 | Your IP changed (SSH times out) | workstation | `az network nsg rule update -g <rg> --nsg-name umaibeta-nsg -n ssh-operator --source-address-prefixes <ip>/32`; storage: `az storage account network-rule add/remove … --ip-address` |
@@ -102,12 +125,14 @@ H=https://<hostname>
 curl -s -o /dev/null -w '%{http_code}\n' $H/healthz              # 200
 curl -s -o /dev/null -w '%{http_code}\n' $H/v1/bundles           # 401 (no token)
 curl -s -o /dev/null -w '%{http_code}\n' $H/openapi.json         # 404
-curl -s -o /dev/null -w '%{http_code}\n' $H/                     # 401 (basic auth)
+curl -s -o /dev/null -w '%{http_code}\n' $H/brand/umai-wordmark.svg  # 200 (public brand files, no basic auth)
+curl -s -o /dev/null -w '%{http_code}\n' $H/                     # 401 with basic auth; else 307 to /auth/login
 curl -sI $H/healthz | grep -i strict-transport-security
 ```
 
-Then sign in to the console at `$H/`, open the playground with synthetic data, and publish a
-guardrail change: the engine's `/v1/bundles` shows the new version, signed with your key id.
+Then sign in to the console at `$H/` with a synthetic test user, create an organization (it
+gets the starter guardrail), create a key on Get started and send its sample request: `BLOCK`
+with `TR_TCKN`. Invite a second synthetic address and accept from a fresh browser.
 
 ## 6. Tenants and their bundles (policy-bundle 0.8)
 
@@ -117,12 +142,14 @@ only bundles under `tenants/<tenant id>/` on the volume: a pilot tenant with its
 `CONFIG_MISSING` until it has one. Give it a guardrail by publishing through the policy service
 with `X-Umai-Tenant: <tenant id>`, or by copying a signed version into
 `/data/policies/tenants/<tenant id>/<bundle id>/` and re-signing it there (the manifest's
-`tenant_id` must name the tenant). The policy service keeps the control token as the operator
-(`UMAI_ACTOR_ASSERTION=optional`) until the console signs on-behalf-of assertions.
+`tenant_id` must name the tenant). Organizations created in the console get the default
+tenant's starter guardrail there automatically, signed with the deployment key. The policy
+service requires the console's on-behalf-of assertion (`UMAI_ACTOR_ASSERTION=required`); the
+control token alone runs operator actions only.
 
 ## 7. What this deployment does not have
 
 No WAF, no HA, no DR region, one shared API token (body `tenant_id` not bound to the credential,
-readiness T1), console basic auth instead of login, software-protected keys, no central log store;
+readiness T1), tenant HMAC keys derived from one master key, software-protected keys, no central log store;
 in local-file mode the secrets sit on the VM disk (root only, encrypted at rest by Azure). Moving
 on to the ADR-0031 stack is triggered by the conditions in ADR-0032 "Consequences".

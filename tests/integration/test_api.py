@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import os
 
 import pytest
@@ -316,6 +317,17 @@ def test_tenant_key_required_outside_development(write_bundle, make_client) -> N
     body = client.post("/v1/evaluate", json=_request()).json()
     assert body["decision"]["action"] == "BLOCK"
     assert body["errors"][0] == {"layer": "L0", "type": "TENANT_KEY_MISSING", "retryable": False}
+
+
+def test_tenant_key_derived_from_the_master_key(write_bundle, make_client) -> None:
+    # A tenant created at runtime (an organization) has no explicit key (ADR-0032 amendment).
+    write_bundle(bundle_yaml(), active=1)
+    master = base64.b64encode(bytes(range(32))).decode()
+    client = make_client(
+        own_detector=True, env="test", require_signed_bundles=False, tenant_hmac_master_key=master
+    )
+    body = client.post("/v1/evaluate", json=_request()).json()
+    assert not body.get("errors") and body["decision"]["action"] == "BLOCK"
 
 
 def test_detect_endpoint(write_bundle, make_client) -> None:

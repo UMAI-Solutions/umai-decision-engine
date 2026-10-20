@@ -1,7 +1,7 @@
 # Single-VM starter stack (ADR-0032). Run through ./umai.sh, which fetches secrets from Key Vault
 # into /run/umai (tmpfs) first; never start it with a hand-written .env holding secrets.
 #
-#   caddy  :80/:443  TLS (Let's Encrypt), basic auth on the console, body cap, security headers
+#   caddy  :80/:443  TLS (Let's Encrypt), optional basic auth on the console, body cap, headers
 #   engine :9100     /v1, /healthz, /readyz      (internal network only)
 #   policy :9200     policy service, console only (internal network only)
 #   console :3100    umai-control-center         (internal network only)
@@ -88,10 +88,10 @@ services:
       <<: *engine-env
       UMAI_DE_SIGNING_KEY_FILE: /run/secrets/signing.key
       UMAI_DE_SIGNING_KEY_ID: ${UMAI_SIGNING_KEY_ID:?set in config.env}
-      # The console does not sign on-behalf-of assertions yet (credentials 0.2): until it does,
-      # the control token acts as the operator. Set required once the console signs.
-      UMAI_DE_ACTOR_ASSERTION: ${UMAI_ACTOR_ASSERTION:-optional}
-    env_file: ["${UMAI_RUN_DIR:-/run/umai}/policy.env"]  # tokens + database URLs
+      # The console signs an on-behalf-of assertion for every person (credentials 0.3); the
+      # control token alone may only run operator actions. Public key: policy.env (umai.sh).
+      UMAI_DE_ACTOR_ASSERTION: ${UMAI_ACTOR_ASSERTION:-required}
+    env_file: ["${UMAI_RUN_DIR:-/run/umai}/policy.env"]  # tokens, database URLs, actor public key
     volumes:
       - policies:/data/policies
       - "${UMAI_RUN_DIR:-/run/umai}/signing.key:/run/secrets/signing.key:ro"
@@ -117,7 +117,17 @@ services:
       UMAI_CONTROL_URL: http://policy:9200
       UMAI_ENGINE_TIMEOUT_MS: "10000"
       UMAI_CONSOLE_TENANT_ID: ${UMAI_CONSOLE_TENANT_ID:-console}
+      # Sign-in (ADR-0024) and organizations (ADR-0033); secrets in console.env (umai.sh).
+      UMAI_CONSOLE_URL: https://${UMAI_HOSTNAME:-localhost}
+      UMAI_OIDC_ISSUER: ${UMAI_OIDC_ISSUER:-}
+      UMAI_OIDC_CLIENT_ID: ${UMAI_OIDC_CLIENT_ID:-}
+      UMAI_CONSOLE_REGION: ${UMAI_REGION:-sh}
+      UMAI_PUBLIC_API_URL: https://${UMAI_HOSTNAME:-localhost}
+      UMAI_CONSOLE_ACTOR_KEY_FILE: /run/secrets/actor.pem
+      UMAI_CONSOLE_ACTOR_KID: ${UMAI_ACTOR_KEY_ID:-console-1}
     env_file: ["${UMAI_RUN_DIR:-/run/umai}/console.env"]
+    volumes:
+      - "${UMAI_RUN_DIR:-/run/umai}/actor.pem:/run/secrets/actor.pem:ro"
     depends_on:
       engine: { condition: service_healthy }
       policy: { condition: service_healthy }
@@ -134,7 +144,7 @@ services:
       UMAI_HOSTNAME: ${UMAI_HOSTNAME:?set in config.env}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - "${UMAI_RUN_DIR:-/run/umai}/console-auth.caddy:/run/umai/console-auth.caddy:ro"
+      - "${UMAI_RUN_DIR:-/run/umai}/console-gate.caddy:/run/umai/console-gate.caddy:ro"
       - caddy_data:/data
       - caddy_config:/config
     depends_on: [engine, console]
