@@ -15,8 +15,8 @@ in the same commit (skill `change-contract`).
 | [l2-analysis](l2-analysis.md) | 0.1 | L2 model → worker → findings |
 | [tag-taxonomy](tag-taxonomy.md) | 0.1 | all layers |
 | [policy-tests](policy-tests.md) | 0.2 | policy author → golden-test runner, CI (ADR-0015) |
-| [credentials](credentials.md) | 0.4 | control plane → engines (key registry), control plane ↔ console (key records), console → policy service (on-behalf-of assertion) (ADR-0023) |
-| [gateway-api](gateway-api.md) | 0.8 | caller ↔ UMAI gateway: OpenAI Chat Completions surface, routes, refusals, streaming modes (ADR-0034) |
+| [credentials](credentials.md) | 0.5 | control plane → engines (key registry), control plane ↔ console (key records), console → policy service (on-behalf-of assertion) (ADR-0023) |
+| [gateway-api](gateway-api.md) | 0.9 | caller ↔ UMAI gateway: OpenAI Chat Completions, Responses and embeddings surfaces, gateways (provider connection + guardrail), refusals, streaming modes (ADR-0034, ADR-0038) |
 | [organizations](organizations.md) | 0.2 | policy service ↔ console: organizations, memberships, invitations, verified domains (ADR-0033) |
 
 ## Versioning rules

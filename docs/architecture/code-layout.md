@@ -87,11 +87,12 @@ umai-decision-engine/
 │   │   ├── limits.py              # compares a size (measured by l0/size.py, Q19) with the limit
 │   │   └── quota.py               # monthly usage counter (memory; Redis or Postgres, Q23)
 │   ├── export/                    # planned (F6): SIEM exporter, off the request path
-│   ├── routefiles.py              # gateway route files: allow-list, validation, atomic write
+│   ├── gatewayfiles.py            # gateway files (ADR-0038): allow-list, validation, atomic write
 │   ├── gateway/                   # ADR-0034: OpenAI-compatible secure gateway, own port (9300)
 │   │   ├── app.py                 # FastAPI app factory: chat, responses, embeddings routers; health
-│   │   ├── routing.py             # per-tenant route files, hot reload, last-known-good
-│   │   ├── chat.py                # /v1/chat/completions, /v1/models; admission, fallback, refusals
+│   │   ├── gateways.py            # per-tenant gateway files, hot reload, last-known-good
+│   │   ├── chat.py                # /v1/chat/completions, /v1/models; admission, gateway selection,
+│   │   │                          # fallback, refusals
 │   │   ├── responses.py           # /v1/responses (JSON and typed SSE events)
 │   │   ├── embeddings.py          # /v1/embeddings (input checks only)
 │   │   ├── content.py             # message parts ↔ scanned text segments
@@ -133,8 +134,8 @@ umai-decision-engine/
 | `control_plane` | `golden`, `policy`, `contracts`, `l0` (detector for tests), `settings` | `api`; the engine never imports it |
 | `tenancy` (planned) | `contracts`, `policy` (signature verification), `settings` | `l0`, `l1`, `l2`, `pipeline`; it receives a content size, never content (the size is measured in `l0/size.py`) |
 | `export` (planned) | `contracts`, `events` | `l0`, `l1`, `pipeline`, `api` |
-| `gateway` (ADR-0034) | `pipeline`, `contracts`, `tenancy`, `settings`, `routefiles` | `l1`, `l2`, `api`, `control_plane`; nothing imports `gateway` |
-| `routefiles` (gateway route files) | `contracts` | everything else; shared by `gateway` (reads) and `control_plane` (writes) |
+| `gateway` (ADR-0034) | `pipeline`, `contracts`, `tenancy`, `settings`, `gatewayfiles` | `l1`, `l2`, `api`, `control_plane`; nothing imports `gateway` |
+| `gatewayfiles` (gateway files) | `contracts` | everything else; shared by `gateway` (reads) and `control_plane` (writes) |
 
 Only `l0` and `gateway` receive raw content (ADR-0035): the gateway forwards it only to the
 caller and the route's upstream, after the guardrail allowed it. Layers communicate through

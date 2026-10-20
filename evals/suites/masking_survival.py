@@ -76,24 +76,20 @@ def run(args: argparse.Namespace) -> Path:
     bundle.mkdir(parents=True)
     (bundle / "bundle.yaml").write_text(GUARDRAIL, encoding="utf-8")
     (work / "policies" / "gr-mask" / "active").write_text("1", encoding="utf-8")
-    routes = work / "routes"
-    routes.mkdir()
-    route_list = [
-        {
-            "route_id": f"m{i}",
-            "upstream": {"kind": "openai", "base_url": "https://api.openai.com/v1", "model": m},
-            "credential": "secret",
-            "secret": "openai",
-            "guardrail": "gr-mask",
-        }
-        for i, m in enumerate(models)
-    ]
-    (routes / "default.yaml").write_text(json.dumps({"routes": route_list}), encoding="utf-8")
+    gateways = work / "gateways"
+    gateways.mkdir()
+    gateway = {
+        "gateway_id": "eval",
+        "provider": {"kind": "openai", "credential": "secret", "secret": "openai"},
+        "guardrail": "gr-mask",
+        "aliases": [{"name": f"m{i}", "model": m} for i, m in enumerate(models)],
+    }
+    (gateways / "default.yaml").write_text(json.dumps({"gateways": [gateway]}), encoding="utf-8")
     settings = Settings(
         env="development",
         policy_dir=work / "policies",
-        gateway_routes_dir=routes,
-        gateway_routes_poll_interval_s=0,
+        gateways_dir=gateways,
+        gateways_poll_interval_s=0,
         bundle_poll_interval_s=0,
         l0_threads=2,
         log_level="WARNING",

@@ -96,12 +96,12 @@ console_gate() {
 }
 
 # Gateway files. routes.env (not secret): the upstream allow-list, for the gateway and for the
-# policy service that validates routes. gateway.env: the provider keys of credential "secret"
-# routes, a JSON object name -> key, from Key Vault (umai-gateway-provider-keys) or
-# `umai.sh set-secret UMAI_GATEWAY_PROVIDER_KEYS`; empty while the gateway is off. The routes
+# policy service that validates gateways. gateway.env: the provider keys of credential "secret"
+# gateways, a JSON object name -> key, from Key Vault (umai-gateway-provider-keys) or
+# `umai.sh set-secret UMAI_GATEWAY_PROVIDER_KEYS`; empty while the gateway is off. The gateways
 # directory belongs to the app user: the policy service writes it, the gateway reads it.
 gateway_env() {
-  install -d -m 0755 -o "$APP_UID" -g "$APP_UID" "${UMAI_GATEWAY_ROUTES:-/opt/umai/gateway-routes}"
+  install -d -m 0755 -o "$APP_UID" -g "$APP_UID" "${UMAI_GATEWAYS:-/opt/umai/gateways}"
   if [[ -n "${UMAI_GATEWAY_UPSTREAM_ALLOWLIST:-}" ]]; then
     printf 'UMAI_DE_GATEWAY_UPSTREAM_ALLOWLIST=%s\n' "$UMAI_GATEWAY_UPSTREAM_ALLOWLIST"
   fi | put "$RUN/routes.env" 0

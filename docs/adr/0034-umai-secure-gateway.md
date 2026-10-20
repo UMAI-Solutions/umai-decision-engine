@@ -1,7 +1,8 @@
 # ADR-0034 — UMAI secure gateway: an OpenAI-compatible pass-through proxy in this repository, guardrails in and out
 
 - **Status:** Accepted (product owner, 2026-10-19: a first customer, UMAI's own gateway, the
-  technology below). Nothing implemented yet; build plan WP2–WP5 in the design
+  technology below). Nothing implemented yet; build plan WP2–WP5 in the design. §6 amended by
+  ADR-0038 (gateways instead of per-model routes, 2026-10-20)
 - **Date:** 2026-10-19
 - **Deciders:** product owner; engineering proposal
 - **Builds on:** ADR-0004 (decision models), ADR-0009 (Python stack), ADR-0012 (signed bundles),

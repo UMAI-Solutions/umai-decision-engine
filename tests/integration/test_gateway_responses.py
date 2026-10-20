@@ -19,8 +19,8 @@ from tests.integration.test_gateway import (  # noqa: F401  (fixtures)
     CARD,
     EMAIL,
     TCKN,
+    gateway_yaml,
     make_gateway,
-    route_yaml,
     upstream,
 )
 
@@ -204,7 +204,7 @@ def test_unscannable_items_follow_the_route(make_gateway, responses_upstream) ->
     client = make_gateway()
     response = post(client, input=items)
     assert response.status_code == 400 and response.json()["error"]["code"] == "unsupported_content"
-    client = make_gateway(routes=route_yaml(unscanned_parts="pass_unscanned"))
+    client = make_gateway(gateways=gateway_yaml(unscanned_parts="pass_unscanned"))
     assert post(client, input=items).status_code == 200
 
 
@@ -220,7 +220,7 @@ def test_blocked_input_and_answer(make_gateway, responses_upstream) -> None:  # 
     assert response.status_code == 400
     assert response.json()["error"]["umai"]["phase"] == "POST_LLM"
 
-    client = make_gateway(routes=route_yaml(refusal="message", refusal_text="Engellendi."))
+    client = make_gateway(gateways=gateway_yaml(refusal="message", refusal_text="Engellendi."))
     body = post(client, input="Bir kart yaz").json()
     assert body["status"] == "incomplete"
     assert body["incomplete_details"] == {"reason": "content_filter"}
@@ -246,7 +246,7 @@ def test_function_call_arguments(make_gateway, responses_upstream) -> None:  # n
 
 @pytest.mark.parametrize("mode", ["window", "buffer", "after"])
 def test_stream_restores_split_placeholders(make_gateway, responses_upstream, mode) -> None:  # noqa: F811
-    client = make_gateway(routes=route_yaml(stream_mode=mode))
+    client = make_gateway(gateways=gateway_yaml(stream_mode=mode))
     responses_upstream.stream = text_events("Kimlik ", "<TR_", "TCKN_1> kayıtlı.")
     events = read_events(post(client, input=f"TC kimlik {TCKN}", stream=True))
     expected = f"Kimlik {TCKN} kayıtlı."
@@ -281,7 +281,7 @@ def test_stream_block_ends_incomplete(make_gateway, responses_upstream) -> None:
 
 
 def test_stream_buffer_mode_can_refuse_with_an_error(make_gateway, responses_upstream) -> None:  # noqa: F811
-    client = make_gateway(routes=route_yaml(stream_mode="buffer"))
+    client = make_gateway(gateways=gateway_yaml(stream_mode="buffer"))
     responses_upstream.stream = text_events("Kart ", CARD)
     response = post(client, input="Bir kart yaz", stream=True)
     assert response.status_code == 400
@@ -299,7 +299,7 @@ def test_stream_function_call_is_released_whole(make_gateway, responses_upstream
 
 
 def test_stream_refused_input_with_message_style(make_gateway, responses_upstream) -> None:  # noqa: F811
-    client = make_gateway(routes=route_yaml(refusal="message", refusal_text="Engellendi."))
+    client = make_gateway(gateways=gateway_yaml(refusal="message", refusal_text="Engellendi."))
     events = read_events(post(client, input=f"Kart {CARD}", stream=True))
     assert delta_text(events) == "Engellendi."
     assert events[-1]["type"] == "response.incomplete"

@@ -1,4 +1,4 @@
-"""Calls to the route's upstream: URL, credential header, explicit timeouts (ADR-0034 §4–§5).
+"""Calls to the gateway's provider: URL, credential header, explicit timeouts (ADR-0034 §4–§5).
 
 The provider credential is used for this request only and never logged (ADR-0035 §4). Connection
 failures and timeouts become gateway errors; provider error responses are passed through.
@@ -79,6 +79,23 @@ class UpstreamClient:
             ),
         )
 
+    async def get(self, route: Route, key: str | None, *, path: str) -> httpx.Response:
+        """``GET <base_url>/<path>`` (the provider's model list), same timeouts and errors."""
+
+        timeouts = route.timeouts_ms
+        request = self._client.build_request(
+            "GET",
+            upstream_url(route, path),
+            headers={"Accept": "application/json", **credential_headers(route, key)},
+            timeout=httpx.Timeout(
+                connect=timeouts.connect / 1000,
+                read=timeouts.first_byte / 1000,
+                write=30.0,
+                pool=timeouts.connect / 1000,
+            ),
+        )
+        return await self._deliver(request, stream=False)
+
     async def send(
         self,
         route: Route,
@@ -89,6 +106,9 @@ class UpstreamClient:
         path: str = "chat/completions",
     ) -> httpx.Response:
         request = self._request(route, key, body, stream=stream, path=path)
+        return await self._deliver(request, stream=stream)
+
+    async def _deliver(self, request: httpx.Request, *, stream: bool) -> httpx.Response:
         try:
             return await self._client.send(request, stream=stream)
         except httpx.TimeoutException as exc:

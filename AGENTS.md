@@ -90,7 +90,7 @@ python -m pytest -q                      # unit + integration tests, no network
 ruff check . ; ruff format --check .
 uvicorn umai_decision_engine.api.app:app --reload --port 9100   # reads policies/ and .env
 uvicorn umai_decision_engine.control_plane.app:app --port 9200  # policy service (ADR-0022)
-uvicorn umai_decision_engine.gateway.app:app --port 9300        # UMAI gateway (ADR-0034); routes: gateway-routes/<tenant>.yaml
+uvicorn umai_decision_engine.gateway.app:app --port 9300        # UMAI gateway (ADR-0034); gateways: gateways/<tenant>.yaml
 python dev/local_stack.py engine | policy-service | console | gateway  # local stack (shared dev settings)
 python -m umai_decision_engine.policy.cli validate policies/<bundle_id>/<version>
 python -m umai_decision_engine.policy.cli test policies --require-tests   # golden tests (ADR-0015)
@@ -144,15 +144,17 @@ with `umai.sh set-secret`; Caddy's basic auth is a switch (`UMAI_CONSOLE_BASIC_A
 SaaS readiness (2026-10-17): threat model, gap analysis, launch plan and eight proposed ADRs in
 `docs/security/` and `docs/adr/0023`–`0031` (0031: UMAI Cloud runs on Azure); `tests/readiness/`
 measures the open gaps (xfail).
-UMAI gateway (2026-10-19/20, ADR-0034 to ADR-0036, contract `gateway-api` 0.7): `gateway/` on port
+UMAI gateway (2026-10-19/20, ADR-0034 to ADR-0038, contract `gateway-api` 0.9): `gateway/` on port
 9300 speaks OpenAI Chat Completions, the Responses API, embeddings and `/v1/models`; per-tenant
-routes (YAML files, also managed through the policy service's `/v1/gateway/routes`) with
-`pass_through` / `secret` / `none` credentials and fallbacks; input, tool-result, answer and
+gateways (ADR-0038: one provider connection and one guardrail each, models pass through, optional
+aliases and allow-list; YAML files, also managed through the policy service's `/v1/gateways`)
+with `pass_through` / `secret` / `none` credentials and fallbacks; keys bind to a gateway
+(credentials 0.5, tenant-store migration 0003); input, tool-result, answer and
 tool-call checks through the in-process pipeline, per-call placeholders restored for the caller,
 streaming modes `window` / `buffer` / `after`; Compose profile `gateway` on the single VM
 (`docs/workflow/gateway.md`). Prompt-attack detection (gateway WP4) is paused until L1: groundwork
 in `l1/attacks/` (not wired in) and the `pi-tr` eval suite. `umai-beta` runs the gateway since
-2026-10-20 (enforcing; OpenAI routes with the caller's provider key).
+2026-10-20 (enforcing; OpenAI with the caller's provider key).
 Tenants are organizations created in the console; API keys, bundles and HMAC keys are per tenant.
 The console signs people in with OIDC (Auth0 development tenant, `umai-control-center`, locally
 since 2026-10-18 and on `umai-beta` since 2026-10-19).

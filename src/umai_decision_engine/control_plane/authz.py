@@ -54,9 +54,9 @@ class Action(StrEnum):
     MEMBER_REMOVE = "member.remove"
     INVITATION_MANAGE = "invitation.manage"
     DOMAIN_MANAGE = "domain.manage"
-    # gateway routes (gateway-api 0.7, ADR-0034 §6): tenant configuration, not policy
-    GATEWAY_ROUTE_READ = "gateway.route.read"
-    GATEWAY_ROUTE_WRITE = "gateway.route.write"
+    # gateways (gateway-api 0.9, ADR-0038): tenant configuration, not policy
+    GATEWAY_READ = "gateway.read"
+    GATEWAY_WRITE = "gateway.write"
 
 
 @dataclass(frozen=True)
@@ -108,8 +108,8 @@ MATRIX: dict[Action, Rule] = {
     Action.MEMBER_REMOVE: _r(_O, _A),
     Action.INVITATION_MANAGE: _r(_O, _A),
     Action.DOMAIN_MANAGE: _r(_O, _A),
-    Action.GATEWAY_ROUTE_READ: _r(_O, _A, _E, _P, _V, operator=True),
-    Action.GATEWAY_ROUTE_WRITE: _r(_O, _A, operator=True),
+    Action.GATEWAY_READ: _r(_O, _A, _E, _P, _V, operator=True),
+    Action.GATEWAY_WRITE: _r(_O, _A, operator=True),
 }
 
 _ADMIN_WITHOUT_RBAC = frozenset({_A, _E, _P, _V, _B})

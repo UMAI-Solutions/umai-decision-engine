@@ -1,8 +1,8 @@
-"""Gateway route files, shared by the gateway (reads) and the policy service (writes).
+"""Gateway files, shared by the gateway (reads) and the policy service (writes).
 
-One YAML file per tenant, ``<gateway_routes_dir>/<tenant_id>.yaml`` (contract gateway-api). Kept
-outside ``gateway/`` so the policy service can validate and write routes without importing the
-raw-content zone (ADR-0035, code layout).
+One YAML file per tenant, ``<gateways_dir>/<tenant_id>.yaml`` (contract gateway-api 0.9,
+ADR-0038). Kept outside ``gateway/`` so the policy service can validate and write gateways
+without importing the raw-content zone (ADR-0035, code layout).
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from urllib.parse import urlsplit
 
 import yaml
 
-from umai_decision_engine.contracts.gateway import TENANT_FILE, RouteFile
+from umai_decision_engine.contracts.gateway import TENANT_FILE, GatewayFile
 
 _TENANT = re.compile(TENANT_FILE)
 
@@ -73,37 +73,37 @@ def _is_ip(host: str) -> bool:
     return True
 
 
-def validate_route_file(data: Any, allowlist: AllowList) -> RouteFile:
+def validate_gateway_file(data: Any, allowlist: AllowList) -> GatewayFile:
     """Schema, fallback rules and upstream allow-list (raises ValueError / ValidationError)."""
 
-    parsed = RouteFile.model_validate(data or {})
-    for route in parsed.routes:
-        if not allowlist.permits(route.upstream.base_url):
+    parsed = GatewayFile.model_validate(data or {})
+    for gateway in parsed.gateways:
+        if not allowlist.permits(gateway.provider.base_url or ""):
             raise ValueError(
-                f"route {route.route_id}: upstream base_url is not on the gateway allow-list"
+                f"gateway {gateway.gateway_id}: provider base_url is not on the gateway allow-list"
             )
     return parsed
 
 
-def route_file_path(root: Path, tenant_id: str) -> Path:
+def gateway_file_path(root: Path, tenant_id: str) -> Path:
     if not _TENANT.match(tenant_id):
-        raise ValueError(f"{tenant_id!r} cannot name a route file")
+        raise ValueError(f"{tenant_id!r} cannot name a gateway file")
     return root / f"{tenant_id}.yaml"
 
 
-def read_route_file(root: Path, tenant_id: str) -> dict[str, Any]:
-    path = route_file_path(root, tenant_id)
+def read_gateway_file(root: Path, tenant_id: str) -> dict[str, Any]:
+    path = gateway_file_path(root, tenant_id)
     if not path.is_file():
-        return {"routes": []}
-    return yaml.safe_load(path.read_text(encoding="utf-8")) or {"routes": []}
+        return {"gateways": []}
+    return yaml.safe_load(path.read_text(encoding="utf-8")) or {"gateways": []}
 
 
-def write_route_file(root: Path, tenant_id: str, routes: RouteFile) -> Path:
+def write_gateway_file(root: Path, tenant_id: str, gateways: GatewayFile) -> Path:
     """Replace a tenant's file atomically (the gateway never reads a half-written file)."""
 
-    path = route_file_path(root, tenant_id)
+    path = gateway_file_path(root, tenant_id)
     root.mkdir(parents=True, exist_ok=True)
-    document = routes.model_dump(mode="json", exclude_none=True)
+    document = gateways.model_dump(mode="json", exclude_none=True)
     text = yaml.safe_dump(document, sort_keys=False, allow_unicode=True)
     handle, temporary = tempfile.mkstemp(dir=root, prefix=f".{tenant_id}.", suffix=".tmp")
     try:
