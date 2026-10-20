@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 900" width="1200" height="900">
+<rect x="0" y="0" width="1200" height="900" rx="0" fill="#f7f8fa" stroke="#f7f8fa" stroke-width="1"/>
+<rect x="0" y="0" width="1200" height="48" rx="0" fill="#111" stroke="#111" stroke-width="1"/>
+<text x="20" y="30" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#fff" text-anchor="start">UMAI</text>
+<text x="1180" y="30" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#d1d5db" text-anchor="end">Smarttech · Owner   ·   batu</text>
+<rect x="0" y="48" width="200" height="852" rx="0" fill="#f7f8fa" stroke="#f7f8fa" stroke-width="1"/>
+<line x1="200" y1="48" x2="200" y2="900" stroke="#d9dbe0"/>
+<text x="20" y="80" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" font-weight="700" fill="#9ca3af" text-anchor="start"></text>
+<text x="28" y="102" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">Overview</text>
+<text x="20" y="136" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" font-weight="700" fill="#9ca3af" text-anchor="start">PROTECT</text>
+<text x="28" y="158" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">Guardrails</text>
+<rect x="10" y="172" width="180" height="30" rx="6" fill="#fff" stroke="#d9dbe0" stroke-width="1"/>
+<text x="28" y="192" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#111111" text-anchor="start">Applications</text>
+<text x="28" y="226" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">Playground</text>
+<text x="20" y="260" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" font-weight="700" fill="#9ca3af" text-anchor="start">INVESTIGATE</text>
+<text x="28" y="282" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">Detections</text>
+<text x="28" y="316" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">Reports</text>
+<text x="20" y="350" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" font-weight="700" fill="#9ca3af" text-anchor="start">CONNECT</text>
+<text x="28" y="372" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">AI Gateway</text>
+<text x="28" y="406" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">API &amp; SDKs</text>
+<text x="28" y="440" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">Integrations</text>
+<text x="20" y="474" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" font-weight="700" fill="#9ca3af" text-anchor="start">ORGANIZATION</text>
+<text x="28" y="496" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">Members</text>
+<text x="28" y="530" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">Settings</text>
+<text x="232" y="76" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#6b7280" text-anchor="start">Applications  ›  HR assistant</text>
+<text x="232" y="116" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="24" font-weight="600" fill="#111111" text-anchor="start">HR assistant</text>
+<text x="232" y="140" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13.5" font-weight="400" fill="#6b7280" text-anchor="start">Protected by HR strict · connected through the AI Gateway</text>
+<rect x="1112" y="98" width="56" height="34" rx="6" fill="#fff" stroke="#d9dbe0" stroke-width="1"/>
+<text x="1140.0" y="120" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="500" fill="#111111" text-anchor="middle">Edit</text>
+<rect x="232" y="164" width="360" height="230" rx="10" fill="#fff" stroke="#d9dbe0" stroke-width="1"/>
+<text x="252" y="194" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#111111" text-anchor="start">Protection</text>
+<text x="252" y="214" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="500" fill="#6b7280" text-anchor="start">Guardrail</text>
+<text x="252" y="234" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#111111" text-anchor="start">HR strict · v3 · Enforcing</text>
+<text x="252" y="264" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="500" fill="#6b7280" text-anchor="start">Blocks</text>
+<text x="252" y="284" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#111111" text-anchor="start">Identity and financial data</text>
+<text x="252" y="314" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="500" fill="#6b7280" text-anchor="start">Masks</text>
+<text x="252" y="334" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#111111" text-anchor="start">Contact data</text>
+<text x="252" y="370" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="500" fill="#0f62fe" text-anchor="start">Change guardrail ›</text>
+<circle cx="600" cy="180" r="11" fill="#fef3c7" stroke="#92400e"/>
+<text x="600" y="184" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#92400e" text-anchor="middle">1</text>
+<rect x="612" y="164" width="556" height="400" rx="10" fill="#fff" stroke="#d9dbe0" stroke-width="1"/>
+<text x="632" y="194" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#111111" text-anchor="start">Connection</text>
+<text x="632" y="214" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#6b7280" text-anchor="start">How this application reaches UMAI.</text>
+<text x="632" y="214" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="500" fill="#6b7280" text-anchor="start"></text>
+<rect x="632" y="222" width="300" height="34" rx="6" fill="#fff" stroke="#d9dbe0" stroke-width="1"/>
+<rect x="634.0" y="224" width="146.0" height="30" rx="5" fill="#eef0f3" stroke="#eef0f3" stroke-width="1"/>
+<text x="707.0" y="244" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="600" fill="#111111" text-anchor="middle">AI Gateway</text>
+<line x1="782.0" y1="228" x2="782.0" y2="250" stroke="#d9dbe0"/>
+<text x="857.0" y="244" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#6b7280" text-anchor="middle">API &amp; SDK</text>
+<rect x="632" y="270" width="516" height="150" rx="6" fill="#f3f4f6" stroke="#f3f4f6" stroke-width="1"/>
+<text x="646" y="296" font-family="Consolas, Menlo, monospace" font-size="11.5" font-weight="400" fill="#1f2937" text-anchor="start">client = OpenAI(</text>
+<text x="646" y="318" font-family="Consolas, Menlo, monospace" font-size="11.5" font-weight="400" fill="#1f2937" text-anchor="start">    base_url=&quot;https://gateway.umai.example/v1&quot;,</text>
+<text x="646" y="340" font-family="Consolas, Menlo, monospace" font-size="11.5" font-weight="400" fill="#1f2937" text-anchor="start">    api_key=UMAI_KEY,   # a key of this application</text>
+<text x="646" y="362" font-family="Consolas, Menlo, monospace" font-size="11.5" font-weight="400" fill="#1f2937" text-anchor="start">    default_headers={&quot;X-Umai-Provider-Key&quot;: AZURE_KEY})</text>
+<text x="646" y="384" font-family="Consolas, Menlo, monospace" font-size="11.5" font-weight="400" fill="#1f2937" text-anchor="start">client.chat.completions.create(model=&quot;@contoso-hr/hr-gpt41&quot;, ...)</text>
+<text x="632" y="446" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="600" fill="#6b7280" text-anchor="start">Gateway options</text>
+<text x="632" y="470" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#111111" text-anchor="start">Providers it may use:  contoso-hr only     Models: any</text>
+<text x="632" y="494" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start">Providers are managed in Connect › AI Gateway.</text>
+<text x="632" y="538" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#6b7280" text-anchor="start">API &amp; SDK: the same key calls /v1/evaluate; this guardrail applies there too.</text>
+<circle cx="1185" cy="230" r="11" fill="#fef3c7" stroke="#92400e"/>
+<text x="1185" y="234" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#92400e" text-anchor="middle">2</text>
+<rect x="232" y="414" width="360" height="150" rx="10" fill="#fff" stroke="#d9dbe0" stroke-width="1"/>
+<text x="252" y="444" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#111111" text-anchor="start">Keys</text>
+<text x="252" y="470" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13.5" font-weight="600" fill="#111111" text-anchor="start">hr-bot-prod</text>
+<text x="252" y="490" font-family="Consolas, Menlo, monospace" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="start">umai_live_eu_WnEZ…</text>
+<text x="572" y="470" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="500" fill="#b91c1c" text-anchor="end">Revoke</text>
+<text x="252" y="540" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="500" fill="#0f62fe" text-anchor="start">Create key ›</text>
+<rect x="232" y="584" width="936" height="280" rx="10" fill="#fff" stroke="#d9dbe0" stroke-width="1"/>
+<text x="252" y="614" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#111111" text-anchor="start">Recent detections</text>
+<text x="252" y="634" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#6b7280" text-anchor="start">What UMAI caught for this application; values are never stored.</text>
+<text x="252" y="664" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#6b7280" text-anchor="start">14:02</text>
+<rect x="320" y="651" width="58" height="20" rx="5" fill="#fdecec" stroke="#fdecec" stroke-width="1"/>
+<text x="327" y="665" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" font-weight="600" fill="#b91c1c" text-anchor="start">Blocked</text>
+<text x="420" y="664" font-family="Consolas, Menlo, monospace" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="start">TR_TCKN</text>
+<text x="760" y="664" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#111111" text-anchor="start">Input</text>
+<line x1="232" y1="680" x2="1168" y2="680" stroke="#d9dbe0"/>
+<text x="252" y="704" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#6b7280" text-anchor="start">13:58</text>
+<rect x="320" y="691" width="52" height="20" rx="5" fill="#e8effe" stroke="#e8effe" stroke-width="1"/>
+<text x="327" y="705" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" font-weight="600" fill="#0f62fe" text-anchor="start">Masked</text>
+<text x="420" y="704" font-family="Consolas, Menlo, monospace" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="start">EMAIL_ADDRESS, PERSON</text>
+<text x="760" y="704" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#111111" text-anchor="start">Input</text>
+<line x1="232" y1="720" x2="1168" y2="720" stroke="#d9dbe0"/>
+<text x="252" y="744" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#6b7280" text-anchor="start">13:40</text>
+<rect x="320" y="731" width="52" height="20" rx="5" fill="#e8effe" stroke="#e8effe" stroke-width="1"/>
+<text x="327" y="745" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" font-weight="600" fill="#0f62fe" text-anchor="start">Masked</text>
+<text x="420" y="744" font-family="Consolas, Menlo, monospace" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="start">TR_PHONE</text>
+<text x="760" y="744" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#111111" text-anchor="start">Answer</text>
+<line x1="232" y1="760" x2="1168" y2="760" stroke="#d9dbe0"/>
+<rect x="252" y="800" width="600" height="30" rx="6" fill="#fef3c7" stroke="#f59e0b" stroke-width="1" stroke-dasharray="5 4"/>
+<text x="264" y="820" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="600" fill="#92400e" text-anchor="start">Needs detection records (WP6): hidden until then</text>
+</svg>

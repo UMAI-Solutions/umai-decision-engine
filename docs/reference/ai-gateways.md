@@ -211,3 +211,141 @@ measured by us.
 - The LiteLLM decision-model guardrail consumes `/v1/decisions` models (Jev, OpenAI, Foundry):
   relevant to [`typesafe-jev.md`](typesafe-jev.md) and [`openai-decisions-api.md`](openai-decisions-api.md)
   as a competing consumer of the same providers.
+
+## 8. Console object models (checked 2026-10-20)
+
+How administrators configure each gateway, from the vendors' own documentation; used by the
+[console information architecture](../architecture/console-information-architecture.md) and ADR-0039. "Unverified" means
+the documentation did not show it.
+
+**Portkey** (docs now carry the "Prisma AIRS AI Gateway" banner; some pages are outdated):
+
+- **Objects.** Organization → workspaces. Provider credentials live in an **Integration** at
+  organization level and are provisioned as **AI Providers** with a slug
+  ([model catalog](https://portkey.ai/docs/product/model-catalog)). Virtual keys were migrated to
+  AI Providers ([upgrade](https://portkey.ai/docs/support/upgrade-to-model-catalog)).
+- **Selecting a provider.** Requests name `@provider-slug/model`.
+- **Keys and policy.** API keys are per workspace. A key can enforce a **default config**; with
+  overrides off, any other config is refused
+  ([default config](https://portkey.ai/docs/product/administration/enforce-default-config)).
+- **Guardrails** attach at the organization
+  ([org](https://portkey.ai/docs/product/administration/enforce-orgnization-level-guardrails)),
+  the workspace and the config ([guardrails](https://portkey.ai/docs/product/guardrails)). The
+  order between levels is unverified.
+- **Logs** have filters by model, provider, config, API key, status and trace
+  ([filters](https://portkey.ai/docs/product/observability/filters)). PII redaction uses
+  placeholders, but the log shows the original request next to the redacted one
+  ([use case](https://portkey.ai/docs/guides/use-cases/guardrail-pii-use-case)).
+- **Retention:** 3 days (Developer) or 30 days (Production) ([pricing](https://portkey.ai/pricing)).
+
+**LiteLLM proxy:**
+
+- **Objects.** Organization → team → user → virtual key; organizations and team admins are
+  Enterprise ([access control](https://docs.litellm.ai/docs/proxy/access_control)).
+- **Selecting a provider.** Public `model_name` over `provider/deployment` targets
+  ([configs](https://docs.litellm.ai/docs/proxy/configs)).
+- **Guardrails** are defined once, then attached globally, per request, or through guardrail
+  policies on teams, keys, models or tags (team and key are Enterprise)
+  ([policies](https://docs.litellm.ai/docs/proxy/guardrails/guardrail_policies)).
+- **Errors and logs.** A blocked call gets 400 and `x-litellm-applied-guardrails`. Logs have a
+  guardrail panel ([logs](https://docs.litellm.ai/docs/proxy/ui_logs)).
+- **Retention:** none by default ([deletion](https://docs.litellm.ai/docs/proxy/spend_logs_deletion)).
+
+**Kong AI Gateway 2.x** (private beta, 2026-07-16):
+
+- **Objects.** AI Model Provider (credentials), AI Model (a virtual model over provider targets),
+  AI Consumer and consumer group, AI Policy
+  ([concepts](https://developer.konghq.com/ai-gateway/ai-gateway-v2-concepts/)).
+- **Policies** attach to a consumer, a group, a model or globally; the most specific wins
+  ([policy](https://developer.konghq.com/ai-gateway/entities/ai-policy/)).
+- **Audit events** keep the original values in `sanitized_items`
+  ([audit](https://developer.konghq.com/ai-gateway/ai-audit-log-reference/)).
+
+**Cloudflare AI Gateway:**
+
+- **Objects.** Account → gateways. Guardrails, DLP and provider keys are configured per gateway, so
+  a different policy needs another gateway
+  ([DLP](https://developers.cloudflare.com/ai-gateway/features/dlp/),
+  [BYOK](https://developers.cloudflare.com/ai-gateway/configuration/bring-your-own-keys/)).
+- **Selecting a provider.** The model field is `provider/model` or a dynamic route
+  ([chat completion](https://developers.cloudflare.com/ai-gateway/usage/chat-completion/)).
+- **Retention and residency.** Logs are kept 7 days by default for gateways created since
+  2026-09-24 ([datasets](https://developers.cloudflare.com/observability/logs/datasets/)). Requests
+  can't be kept in one region
+  ([localization](https://developers.cloudflare.com/data-localization/compatibility/)).
+
+**Azure API Management:**
+
+- **Objects.** APIs, backends, products with subscription keys, and XML policies at global,
+  workspace, product, API or operation scope
+  ([policies](https://learn.microsoft.com/en-us/azure/api-management/api-management-howto-policies)).
+- **Content safety** attaches at those scopes; a block is 403
+  ([content safety](https://learn.microsoft.com/en-us/azure/api-management/llm-content-safety-policy)).
+- **Unified model API** (preview) has model aliases and `/models`
+  ([unified](https://learn.microsoft.com/en-us/azure/api-management/unified-model-api)).
+
+## 9. AI runtime security consoles (checked 2026-10-20)
+
+How runtime security products organize their consoles, from their own documentation; used by
+the [console information architecture](../architecture/console-information-architecture.md)
+and ADR-0039.
+
+**Palo Alto Networks Prisma AIRS** (Strata Cloud Manager, AI Security menu):
+
+- **Four peer pillars:** AI runtime security (API and network intercept), supply chain, red
+  teaming, and the AI gateway
+  ([architecture](https://docs.paloaltonetworks.com/prisma-airs/getting-started/prisma-airs-platform-architecture)).
+- **API intercept:**
+  - An **Application** is bound to a deployment profile, holds one API key and is linked to an
+    AI security profile
+    ([onboard](https://docs.paloaltonetworks.com/prisma-airs/ai-runtime-security/airs-api/onboard-api-runtime-security-api-intercept-in-scm),
+    [manage](https://docs.paloaltonetworks.com/prisma-airs/ai-runtime-security/airs-api/airs-apirs-manage-api-keys-profile-apps)).
+  - *API Violations* shows blocked transactions by content type, detector and severity, with a
+    per-request panel; DLP snippets can be masked
+    ([violations](https://docs.paloaltonetworks.com/ai-runtime-security/administration/using-violations-view)).
+- **AI gateway** (formerly Portkey, GA 2026-07-16):
+  - It has its own workspaces, keys, policies and logs
+    ([overview](https://docs.paloaltonetworks.com/prisma-airs/ai-gateway/ai-gateway-overview)).
+  - LLM provider connections live only on its Integrations page
+    ([integrations](https://docs.paloaltonetworks.com/prisma-airs/ai-gateway/ai-gateway-integrations)).
+  - The documentation says it is available in the Americas only
+    ([activate](https://docs.paloaltonetworks.com/prisma-airs/ai-gateway/activate-ai-gateway)).
+
+**Lakera Guard** (now Check Point AI Guardrails):
+
+- **Sidebar:** Analytics, Logs, Policies, Projects, Playground, API Access, Settings
+  ([platform](https://docs.lakera.ai/docs/platform)).
+- **Project:** one policy, mode Enforce or Detect, tags; the request carries `project_id`
+  ([projects](https://docs.lakera.ai/docs/projects)).
+- **Policy impact simulator:** replays 30 days of traffic
+  ([policies](https://docs.lakera.ai/docs/policies/saas-policies)).
+- **Integration:** no proxy of its own; existing gateways call the Guard API
+  ([integration](https://docs.lakera.ai/docs/integration)).
+
+**CrowdStrike Falcon AIDR** (formerly Pangea AI Guard; end of support 2026-11-30, continuing in
+Falcon Guardian):
+
+- **Collector:** one policy, a token, an install snippet and a playground
+  ([collectors](https://pangea.cloud/docs/aidr/collectors/application)).
+- **One Collectors page by type:** application (SDK/API), gateway (Apigee, Azure APIM, Kong,
+  LiteLLM, Portkey), agentic (MCP proxy), browser, endpoint
+  ([types](https://aidr-docs.crowdstrike.com/docs/aidr/collectors)).
+- **Entry page:** *Visibility*, a user → application → provider → model flow that drills down into
+  *Findings*; a finding can be marked benign
+  ([visibility](https://aidr-docs.crowdstrike.com/docs/aidr/visibility/data-flows-and-dashboards)).
+
+**HiddenLayer AISec Platform:**
+
+- **Project** ("an AI use case"): exactly one policy and a project id header
+  ([projects](https://docs.hiddenlayer.ai/docs/products/runtime/console/runtime_security_projects.md)).
+- **Detections** by threat level and category
+  ([detections](https://docs.hiddenlayer.ai/docs/products/runtime/console/runtime_security_detections.md)).
+- **Providers:** no provider setup in the console; the client passes its provider key through the
+  proxy.
+
+**Prompt Security** (SentinelOne since 2025-09-05):
+
+- "Homegrown apps" with policies inside the Singularity console; the details are not public
+  ([product](https://www.sentinelone.com/platform/prompt-security-ai-application-security/)).
+
+**Noma, Lasso:** documentation behind a login; not verified.

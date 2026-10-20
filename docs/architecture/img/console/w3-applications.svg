@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 780" width="1200" height="780">
+<rect x="0" y="0" width="1200" height="780" rx="0" fill="#f7f8fa" stroke="#f7f8fa" stroke-width="1"/>
+<rect x="0" y="0" width="1200" height="48" rx="0" fill="#111" stroke="#111" stroke-width="1"/>
+<text x="20" y="30" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#fff" text-anchor="start">UMAI</text>
+<text x="1180" y="30" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#d1d5db" text-anchor="end">Smarttech · Owner   ·   batu</text>
+<rect x="0" y="48" width="200" height="732" rx="0" fill="#f7f8fa" stroke="#f7f8fa" stroke-width="1"/>
+<line x1="200" y1="48" x2="200" y2="780" stroke="#d9dbe0"/>
+<text x="20" y="80" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" font-weight="700" fill="#9ca3af" text-anchor="start"></text>
+<text x="28" y="102" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">Overview</text>
+<text x="20" y="136" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" font-weight="700" fill="#9ca3af" text-anchor="start">PROTECT</text>
+<text x="28" y="158" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">Guardrails</text>
+<rect x="10" y="172" width="180" height="30" rx="6" fill="#fff" stroke="#d9dbe0" stroke-width="1"/>
+<text x="28" y="192" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#111111" text-anchor="start">Applications</text>
+<text x="28" y="226" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">Playground</text>
+<text x="20" y="260" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" font-weight="700" fill="#9ca3af" text-anchor="start">INVESTIGATE</text>
+<text x="28" y="282" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">Detections</text>
+<text x="28" y="316" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">Reports</text>
+<text x="20" y="350" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" font-weight="700" fill="#9ca3af" text-anchor="start">CONNECT</text>
+<text x="28" y="372" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">AI Gateway</text>
+<text x="28" y="406" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">API &amp; SDKs</text>
+<text x="28" y="440" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">Integrations</text>
+<text x="20" y="474" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" font-weight="700" fill="#9ca3af" text-anchor="start">ORGANIZATION</text>
+<text x="28" y="496" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">Members</text>
+<text x="28" y="530" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">Settings</text>
+<text x="232" y="76" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#6b7280" text-anchor="start">Applications</text>
+<text x="232" y="116" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="24" font-weight="600" fill="#111111" text-anchor="start">Applications</text>
+<text x="232" y="140" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13.5" font-weight="400" fill="#6b7280" text-anchor="start">The AI applications and agents UMAI protects. Each has a guardrail and its own keys.</text>
+<rect x="1032" y="98" width="136" height="34" rx="6" fill="#0f62fe" stroke="#0f62fe" stroke-width="1"/>
+<text x="1100.0" y="120" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#fff" text-anchor="middle">Add application</text>
+<rect x="232" y="164" width="936" height="290" rx="10" fill="#fff" stroke="#d9dbe0" stroke-width="1"/>
+<text x="252" y="194" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="600" fill="#6b7280" text-anchor="start">Application</text>
+<text x="460" y="194" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="600" fill="#6b7280" text-anchor="start">Guardrail</text>
+<text x="660" y="194" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="600" fill="#6b7280" text-anchor="start">Connected through</text>
+<text x="880" y="194" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="600" fill="#6b7280" text-anchor="start">Detections · 7 days</text>
+<text x="1040" y="194" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="600" fill="#6b7280" text-anchor="start">Keys</text>
+<line x1="232" y1="206" x2="1168" y2="206" stroke="#d9dbe0"/>
+<text x="252" y="236" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#111111" text-anchor="start">HR assistant</text>
+<text x="252" y="256" font-family="Consolas, Menlo, monospace" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="start">hr-assistant</text>
+<text x="460" y="244" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#111111" text-anchor="start">HR strict</text>
+<rect x="660" y="230" width="78" height="20" rx="5" fill="#eef0f3" stroke="#eef0f3" stroke-width="1"/>
+<text x="667" y="244" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" font-weight="600" fill="#374151" text-anchor="start">AI Gateway</text>
+<text x="880" y="244" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#111111" text-anchor="start">90</text>
+<text x="1040" y="244" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#111111" text-anchor="start">1</text>
+<line x1="232" y1="274" x2="1168" y2="274" stroke="#d9dbe0"/>
+<text x="252" y="302" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#111111" text-anchor="start">CRM agent</text>
+<text x="252" y="322" font-family="Consolas, Menlo, monospace" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="start">crm-agent</text>
+<text x="460" y="310" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#111111" text-anchor="start">Data protection</text>
+<rect x="660" y="296" width="78" height="20" rx="5" fill="#eef0f3" stroke="#eef0f3" stroke-width="1"/>
+<text x="667" y="310" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" font-weight="600" fill="#374151" text-anchor="start">AI Gateway</text>
+<rect x="744" y="296" width="33" height="20" rx="5" fill="#eef0f3" stroke="#eef0f3" stroke-width="1"/>
+<text x="751" y="310" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" font-weight="600" fill="#374151" text-anchor="start">API</text>
+<text x="880" y="310" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#111111" text-anchor="start">1 102</text>
+<text x="1040" y="310" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#111111" text-anchor="start">2</text>
+<line x1="232" y1="340" x2="1168" y2="340" stroke="#d9dbe0"/>
+<text x="252" y="368" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="600" fill="#111111" text-anchor="start">Internal search</text>
+<text x="252" y="388" font-family="Consolas, Menlo, monospace" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="start">internal-search</text>
+<text x="460" y="376" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#111111" text-anchor="start">Data protection</text>
+<rect x="660" y="362" width="33" height="20" rx="5" fill="#eef0f3" stroke="#eef0f3" stroke-width="1"/>
+<text x="667" y="376" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" font-weight="600" fill="#374151" text-anchor="start">API</text>
+<text x="880" y="376" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#111111" text-anchor="start">92</text>
+<text x="1040" y="376" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#111111" text-anchor="start">1</text>
+<line x1="232" y1="406" x2="1168" y2="406" stroke="#d9dbe0"/>
+<circle cx="1185" cy="194" r="11" fill="#fef3c7" stroke="#92400e"/>
+<text x="1185" y="198" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#92400e" text-anchor="middle">1</text>
+<text x="252" y="440" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#92400e" text-anchor="start">Detections · 7 days needs detection records (WP6); hidden until then.</text>
+<rect x="232" y="476" width="936" height="150" rx="10" fill="#fff" stroke="#d9dbe0" stroke-width="1"/>
+<text x="700" y="534" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="600" fill="#111111" text-anchor="middle">Protect your first AI application</text>
+<text x="700" y="558" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#6b7280" text-anchor="middle">Give it a name and a guardrail, then connect it through the AI Gateway or the API.</text>
+<rect x="628" y="576" width="136" height="34" rx="6" fill="#0f62fe" stroke="#0f62fe" stroke-width="1"/>
+<text x="696.0" y="598" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#fff" text-anchor="middle">Add application</text>
+<text x="252" y="502" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" font-weight="600" fill="#9ca3af" text-anchor="start">Empty state</text>
+</svg>

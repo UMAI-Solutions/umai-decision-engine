@@ -47,6 +47,12 @@ to the ADR or report. Mark questions that block a phase.
 | Q50 | Streaming default: `window` (hold-back L0 checks) or `buffer`; is detection-only (`after`) offered? | Gateway G2 | product + eng | Design §6.6; needs the window-scan benchmark |
 | Q51 | Reversible masking: may UMAI claim anything about KVKK / GDPR cross-border transfer when only pseudonymised text reaches the provider? | Gateway G2 marketing | legal | Design §6.5; related Q4 |
 | Q52 | Is prompt-injection / jailbreak screening (L1b, not built) required before a gateway launch, or does it launch as a data-leakage gateway? | Gateway launch | product | Design §4; `architecture/l1-policy-decision.md` |
+| Q53 | Console structure and object model: security first (Protect, Investigate, Connect), applications as the protected unit, the AI gateway with its own providers under Connect (ADR-0039, Proposed)? | Console, gateway-api 0.10 | product | `architecture/console-information-architecture.md` §3–§4 |
+| Q54 | Is there a developer role (read access plus the keys of their own application), or do administrators hand out keys? | Console, ADR-0029 | product | `architecture/console-information-architecture.md` §2, Q-P2 |
+| Q55 | Does an application's guardrail also bind its evaluation-API calls (a bound key cannot name another guardrail)? | evaluation-api 0.10 | product + eng | `architecture/console-information-architecture.md` §4, Q-P3 |
+| Q56 | Is OpenAI the gateway's default provider for every new organization? | Console, gateway | product | `architecture/console-information-architecture.md` §5.1, Q-P4 |
+| Q57 | A per-application *Monitor only* mode (watch a new application before enforcing), or monitor stays a guardrail property? | evaluation-api, gateway-api | product + eng | `architecture/console-information-architecture.md` §8, Q-P5 |
+| Q58 | Hide console sections that need detection records (WP6) until the records exist, or show them as "coming"? | Console | product | `architecture/console-information-architecture.md` §3.4, Q-P6 |
 
 ## Answered
 
