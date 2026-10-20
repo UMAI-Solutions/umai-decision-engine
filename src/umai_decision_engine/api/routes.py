@@ -107,7 +107,20 @@ def _bind_application(
             },
         )
     version = body.bundle.version if body.bundle is not None else None
-    return body.model_copy(update={"bundle": BundleRef(id=app.guardrail, version=version)})
+    if version is not None and version != request.app.state.store.state.active.get(
+        (tenant, app.guardrail)
+    ):
+        # The application's guardrail is its active version (gateway-api, ADR-0012): a pinned
+        # older version would let the key's holder pick a weaker policy (evaluation API 0.11).
+        raise HTTPException(
+            403,
+            {
+                "error": "guardrail_mismatch",
+                "detail": "this key's application is evaluated with its guardrail's active "
+                "version; leave bundle.version out",
+            },
+        )
+    return body.model_copy(update={"bundle": BundleRef(id=app.guardrail)})
 
 
 @router.get("/healthz")

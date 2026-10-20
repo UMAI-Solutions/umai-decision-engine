@@ -69,3 +69,15 @@ async def user_session(engine: AsyncEngine, user_id: uuid.UUID) -> AsyncIterator
                     {"name": name, "value": str(value)},
                 )
         yield session
+
+
+async def enter_tenant(session: AsyncSession, tenant_id: uuid.UUID) -> None:
+    """Switch an open transaction to ``tenant_id`` (``SET LOCAL`` semantics). Only for the one
+    transaction that creates a tenant together with its first membership (ADR-0033 §4); every
+    other tenant access opens :func:`tenant_session`."""
+
+    if session.bind.dialect.name == "postgresql":
+        await session.execute(
+            text("SELECT set_config(:name, :value, true)"),
+            {"name": TENANT_SETTING, "value": str(tenant_id)},
+        )

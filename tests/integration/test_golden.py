@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import textwrap
 from collections.abc import Callable
@@ -412,3 +413,33 @@ def test_compare_passes_and_handles_missing_modifications() -> None:
     assert compare(
         Expectation(action=Action.ALLOW_WITH_MODIFICATIONS, redacted_text="cep"), blocked
     ) == ["redacted_text: expected a masked text, got no output modifications"]
+
+
+def test_root_bundles_belong_to_the_deployments_default_tenant(
+    gated, write_bundle, monkeypatch, capsys
+) -> None:
+    """A deployment whose default tenant is not "default" publishes root-level bundles whose
+    manifests name it; the runner must own them the same way the engine does."""
+
+    directory = gated()
+    _tests(directory, PASSING)
+    content = (directory / "bundle.yaml").read_bytes()
+    manifest = {
+        "bundle_id": "gr-test",
+        "version": 1,
+        "tenant_id": "acme",
+        "contract_version": "0.4",
+        "engine": ">=0.1",
+        "created_at": "2026-10-20T09:00:00Z",
+        "sha256": hashlib.sha256(content).hexdigest(),
+    }
+    (directory / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    assert cli.main(["test", str(write_bundle.root), "--default-tenant", "acme"]) == 0
+    assert "2 passed, 0 failed" in capsys.readouterr().out
+    monkeypatch.setenv("UMAI_DE_DEFAULT_TENANT_ID", "acme")
+    assert cli.main(["test", str(write_bundle.root)]) == 0  # from the settings
+    capsys.readouterr()
+    monkeypatch.setenv("UMAI_DE_DEFAULT_TENANT_ID", "default")
+    assert cli.main(["test", str(write_bundle.root)]) == 1
+    assert "does not match the owner 'default'" in capsys.readouterr().out

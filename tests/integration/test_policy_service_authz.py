@@ -235,3 +235,40 @@ def test_only_the_operator_points_a_provider_at_a_deployment_key(gateway_client)
         gateway_client.put("/v1/providers/shared", json=provider, headers=operator).status_code
         == 201
     )
+
+
+def test_drafts_need_a_person_when_assertions_are_required(client) -> None:
+    """credentials contract: the control token alone runs tenants, API keys and reads."""
+
+    operator = client.post("/v1/guardrails/gr-test/draft", json={})
+    assert operator.status_code == 403
+    assert operator.json()["detail"]["error"] == "actor_required"
+    editor = _as(_assertion(roles=("policy_editor",)))
+    assert client.post("/v1/guardrails/gr-test/draft", json={}, headers=editor).status_code == 201
+    tested = client.post("/v1/guardrails/gr-test/draft/test")
+    assert tested.status_code == 403 and tested.json()["detail"]["error"] == "actor_required"
+
+
+def test_switching_an_applications_guardrail_is_an_activation(gateway_client, write_bundle):
+    """ADR-0029: what protects live traffic changes only with guardrail.activate, by a person."""
+
+    write_bundle(bundle_yaml("gr-other"), "gr-other", active=1)
+    operator = {"X-Umai-Tenant": "default"}
+    app = {"guardrail": "gr-test"}
+    created = gateway_client.put("/v1/applications/hr-bot", json=app, headers=operator)
+    assert created.status_code == 201
+    same = gateway_client.put(
+        "/v1/applications/hr-bot", json={**app, "name": "HR"}, headers=operator
+    )
+    assert same.status_code == 200  # other fields: application.write is enough
+    switched = gateway_client.put(
+        "/v1/applications/hr-bot", json={"guardrail": "gr-other"}, headers=operator
+    )
+    assert switched.status_code == 403
+    assert switched.json()["detail"]["error"] == "actor_required"
+    owner = _as(_assertion(roles=("owner",), sub="auth0|lin"))
+    switched = gateway_client.put(
+        "/v1/applications/hr-bot", json={"guardrail": "gr-other"}, headers=owner
+    )
+    assert switched.status_code == 200
+    assert switched.json()["application"]["guardrail"] == "gr-other"

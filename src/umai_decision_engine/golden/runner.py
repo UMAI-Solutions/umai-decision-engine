@@ -340,8 +340,11 @@ async def run_golden(
     *,
     detector: EntityDetector | None = None,
     public_keys: dict[str, str] | None = None,
+    default_tenant: str = Settings.model_fields["default_tenant_id"].default,
 ) -> RunReport:
-    """Validate every bundle version under ``path`` and run the golden cases it carries."""
+    """Validate every bundle version under ``path`` and run the golden cases it carries.
+    Bundles directly under a policies root belong to ``default_tenant``, the deployment's
+    default tenant (``UMAI_DE_DEFAULT_TENANT_ID``, policy-bundle 0.8)."""
 
     path = Path(path)
     root, bundle_id, version = _select(path)
@@ -354,7 +357,7 @@ async def run_golden(
 
     # Scanning inside policies/tenants/<tenant>/ sees that tenant's bundles as unowned; their
     # manifests name the tenant, so it becomes the store's default owner for this run.
-    owner = root.name if root.parent.name == TENANTS_DIR else "default"
+    owner = root.name if root.parent.name == TENANTS_DIR else default_tenant
     store = BundleStore(
         SnapshotSource(selected),
         public_keys=public_keys or {},

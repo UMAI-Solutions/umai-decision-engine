@@ -48,6 +48,9 @@ alters a policy outcome.
    python -m umai_decision_engine.policy.cli test policies --require-tests             # what CI runs
    ```
 
+   Bundles directly under the root belong to the deployment's default tenant, as in the engine:
+   `UMAI_DE_DEFAULT_TENANT_ID` (default `default`), or `--default-tenant <tenant>`.
+
    To try free-form input, start the engine and send requests from
    [`dev/requests.http`](../../dev/requests.http) with `"bundle": {"id": "...", "version": 3}`:
    an explicit version is evaluated before it becomes active.

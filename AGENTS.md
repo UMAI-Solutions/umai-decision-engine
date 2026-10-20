@@ -130,7 +130,7 @@ tenant; evaluation API 0.7 reads one tenant; 0.8: 422 bodies without the caller'
 closed; 0.9: 413 `input_too_large` above 32 000 characters, gap T2 closed), the policy service verifies on-behalf-of assertions
 (credentials 0.2, `control_plane/actors.py`) and authorizes every route with the permission
 matrix (`control_plane/authz.py`, ADR-0029). Organizations (2026-10-19, ADR-0033 store first):
-contract `organizations` 0.2, `db/organizations.py` (users, memberships with `member_self`,
+contract `organizations` 0.3, `db/organizations.py` (users, memberships with `member_self`,
 invitations; migration 0002), policy-service routes `/v1/organizations`, `/v1/me/organizations`,
 `/v1/invitations/accept`; roles read from the store; starter guardrail per organization. Bundles
 move into the tenant store with `http_pull` later (ADR-0025 §8).
@@ -144,10 +144,10 @@ with `umai.sh set-secret`; Caddy's basic auth is a switch (`UMAI_CONSOLE_BASIC_A
 SaaS readiness (2026-10-17): threat model, gap analysis, launch plan and eight proposed ADRs in
 `docs/security/` and `docs/adr/0023`–`0031` (0031: UMAI Cloud runs on Azure); `tests/readiness/`
 measures the open gaps (xfail).
-UMAI gateway (2026-10-19/20, ADR-0034 to ADR-0039, contract `gateway-api` 0.10): `gateway/` on port
+UMAI gateway (2026-10-19/20, ADR-0034 to ADR-0039, contract `gateway-api` 0.12): `gateway/` on port
 9300 speaks OpenAI Chat Completions, the Responses API, embeddings and `/v1/models`. Applications
 are the protected unit (ADR-0039): one guardrail on every path, its own keys (credentials 0.6,
-tenant-store migration 0004; evaluation API 0.10 takes the guardrail from the key's application),
+tenant-store migration 0004; evaluation API 0.11 takes the active guardrail from the key's application),
 optional allowed providers, model names, aliases and a fallback target. The AI gateway has the
 organization's providers (a built-in pass-through OpenAI provider, the default unless another is
 marked; `@<provider>/<model>` picks one) with `pass_through` / `secret` / `none` credentials, and

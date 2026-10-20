@@ -42,6 +42,10 @@ class TenantInfo:
     status: str
     created_at: datetime
     edition: str = "community"  # names the plan; entitlements are data (ADR-0019)
+    # The terms the creator accepted (organizations 0.3): version, who, when.
+    terms_version: str | None = None
+    terms_accepted_by: uuid.UUID | None = None
+    terms_accepted_at: datetime | None = None
 
     def public(self) -> dict:
         return {
@@ -54,9 +58,18 @@ class TenantInfo:
         }
 
 
-def _tenant_info(row: Tenant) -> TenantInfo:
+def tenant_info(row: Tenant) -> TenantInfo:
     return TenantInfo(
-        row.id, row.slug, row.name, row.region, row.status, row.created_at, row.edition
+        row.id,
+        row.slug,
+        row.name,
+        row.region,
+        row.status,
+        row.created_at,
+        row.edition,
+        row.terms_version,
+        row.terms_accepted_by,
+        row.terms_accepted_at,
     )
 
 
@@ -89,12 +102,12 @@ class TenantRepository:
                 await session.flush()
             except IntegrityError as exc:
                 raise Conflict(f"tenant {slug} already exists") from exc
-            return _tenant_info(row)
+            return tenant_info(row)
 
     async def get(self, slug: str) -> TenantInfo | None:
         async with global_session(self.engine) as session:
             row = await session.scalar(select(Tenant).where(Tenant.slug == slug))
-            return _tenant_info(row) if row else None
+            return tenant_info(row) if row else None
 
     async def require(self, slug: str) -> TenantInfo:
         tenant = await self.get(slug)
@@ -114,7 +127,7 @@ class TenantRepository:
     async def list(self) -> list[TenantInfo]:
         async with global_session(self.engine) as session:
             rows = await session.scalars(select(Tenant).order_by(Tenant.slug))
-            return [_tenant_info(r) for r in rows]
+            return [tenant_info(r) for r in rows]
 
     async def rename(self, tenant: TenantInfo, name: str) -> TenantInfo:
         async with global_session(self.engine) as session:
@@ -122,7 +135,7 @@ class TenantRepository:
             if row is None:
                 raise NotFound(f"tenant {tenant.slug} does not exist")
             row.name = name
-            return _tenant_info(row)
+            return tenant_info(row)
 
 
 def _record(row: ApiKey, slug: str) -> ApiKeyRecord:

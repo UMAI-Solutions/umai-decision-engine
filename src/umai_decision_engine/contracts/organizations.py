@@ -13,7 +13,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-CONTRACT_VERSION = "0.2"
+CONTRACT_VERSION = "0.3"
 
 # Organization id = tenant slug = the identity organization's name (Auth0 allows 1-50 of
 # a-z 0-9 _ -); ours is stricter: 3-40, letters, digits and inner hyphens.

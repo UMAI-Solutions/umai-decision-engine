@@ -319,7 +319,11 @@ class PolicyService:
         base_tests = repository.version_dir(bundle.id, draft.base_version) / TESTS_DIR
         if base_tests.is_dir():
             shutil.copytree(base_tests, version_dir / TESTS_DIR)
-        return await run_golden(version_dir, detector=self.detector)
+        return await run_golden(
+            version_dir,
+            detector=self.detector,
+            default_tenant=repository.owner or self.guardrails.default_tenant,
+        )
 
     async def test_draft(self, tenant: TenantInfo, bundle_id: str) -> dict:
         draft, bundle = await self._valid_draft(tenant, bundle_id)

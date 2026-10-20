@@ -330,3 +330,185 @@ def test_openai_sdk_responses(make_gateway, responses_upstream) -> None:  # noqa
     with pytest.raises(openai.BadRequestError) as refused:
         sdk.responses.create(model="gpt-eu", input=f"Kart {CARD}")
     assert refused.value.code == "umai_blocked"
+
+
+# ------------------------------------------------------------------ review fixes (gateway-api 0.12)
+
+
+def _final_only_events(text: str, where: str) -> bytes:
+    """A message whose text never had a delta: it shows up first in ``where``."""
+
+    loc = {"item_id": "msg_1", "output_index": 0, "content_index": 0}
+    part = {"type": "output_text", "annotations": [], "logprobs": [], "text": text}
+    empty_item = {**message_item("", "msg_1"), "status": "in_progress", "content": []}
+    events: list[dict[str, Any]] = [
+        {"type": "response.created", "response": response_object([], status="in_progress")},
+        {"type": "response.output_item.added", "output_index": 0, "item": empty_item},
+    ]
+    if where == "content_part.done":
+        events.append({"type": "response.content_part.done", **loc, "part": part})
+    if where in ("content_part.done", "output_item.done"):
+        events.append(
+            {"type": "response.output_item.done", "output_index": 0, "item": message_item(text)}
+        )
+    events.append({"type": "response.completed", "response": response_object([message_item(text)])})
+    return sse_events(*events)
+
+
+@pytest.mark.parametrize("where", ["content_part.done", "output_item.done", "response.completed"])
+def test_stream_text_first_seen_in_a_final_event_is_checked(
+    make_gateway,  # noqa: F811
+    responses_upstream,
+    where,
+) -> None:
+    client = make_gateway()
+    responses_upstream.stream = _final_only_events(f"Yazın: {EMAIL}", where)
+    response = post(client, input="İletişim?", stream=True)
+    assert EMAIL not in response.text
+    final = read_events(response)[-1]
+    assert final["response"]["output"][0]["content"][0]["text"] == "Yazın: <EMAIL_ADDRESS_1>"
+
+    responses_upstream.stream = _final_only_events(f"Kart {CARD}", where)
+    response = post(client, input="Bir kart yaz", stream=True)
+    assert "4242" not in response.text
+    assert read_events(response)[-1]["type"] == "response.incomplete"
+
+
+def _custom_item(text: str) -> dict[str, Any]:
+    return {
+        "id": "ctc_1",
+        "type": "custom_tool_call",
+        "call_id": "c1",
+        "name": "note",
+        "input": text,
+    }
+
+
+def _mcp_item(arguments: str) -> dict[str, Any]:
+    return {
+        "id": "mcp_1",
+        "type": "mcp_call",
+        "name": "crm_search",
+        "server_label": "crm",
+        "arguments": arguments,
+        "output": None,
+    }
+
+
+def _shell_item(command: str) -> dict[str, Any]:
+    return {
+        "id": "sh_1",
+        "type": "shell_call",
+        "call_id": "c2",
+        "status": "completed",
+        "action": {"commands": [command], "timeout_ms": 1000},
+    }
+
+
+@pytest.mark.parametrize(
+    "item",
+    [
+        _custom_item(f"kart {CARD}"),
+        _mcp_item(json.dumps({"card": CARD})),
+        _shell_item(f"pay --card {CARD.replace(' ', '')}"),
+    ],
+)
+def test_every_tool_call_shape_is_checked(make_gateway, responses_upstream, item) -> None:  # noqa: F811
+    responses_upstream.reply = lambda body: response_object([item])
+    client = make_gateway(guardrail=AGENT_GUARDRAIL)
+    response = post(client, input="Devam et")
+    assert response.status_code == 400 and "4242" not in response.text
+    assert response.json()["error"]["umai"]["phase"] == "TOOL_INPUT"
+
+
+def test_tool_inputs_restored_only_where_rescanned(make_gateway, responses_upstream) -> None:  # noqa: F811
+    # A custom tool call comes back with the caller's value (the request side scans it again on
+    # the next turn); MCP and shell inputs keep the placeholder, since the request side does not
+    # scan those items and a restored value would go back to the provider raw.
+    output = [
+        _custom_item(f"bul <TR_TCKN_1> ve {EMAIL}"),
+        _mcp_item(json.dumps({"tckn": "<TR_TCKN_1>"})),
+        _shell_item("lookup <TR_TCKN_1>"),
+    ]
+    responses_upstream.reply = lambda body: response_object(output)
+    client = make_gateway(guardrail=AGENT_GUARDRAIL)
+    custom, mcp, shell = post(client, input=f"TC kimlik {TCKN} bul").json()["output"]
+    assert custom["input"] == f"bul {TCKN} ve <EMAIL_ADDRESS_1>"
+    assert json.loads(mcp["arguments"]) == {"tckn": "<TR_TCKN_1>"}
+    assert shell["action"] == {"commands": ["lookup <TR_TCKN_1>"], "timeout_ms": 1000}
+
+
+def _tool_stream(item: dict[str, Any], empty: dict[str, Any], *middle: dict[str, Any]) -> bytes:
+    return sse_events(
+        {"type": "response.created", "response": response_object([], status="in_progress")},
+        {"type": "response.output_item.added", "output_index": 0, "item": {**item, **empty}},
+        *middle,
+        {"type": "response.output_item.done", "output_index": 0, "item": item},
+        {"type": "response.completed", "response": response_object([item])},
+    )
+
+
+def test_stream_custom_mcp_and_shell_inputs_are_held(make_gateway, responses_upstream) -> None:  # noqa: F811
+    client = make_gateway(guardrail=AGENT_GUARDRAIL)
+    custom = _custom_item(f"kart {CARD}")
+    loc = {"item_id": "ctc_1", "output_index": 0}
+    responses_upstream.stream = _tool_stream(
+        custom,
+        {"input": ""},
+        {"type": "response.custom_tool_call_input.delta", **loc, "delta": custom["input"]},
+        {"type": "response.custom_tool_call_input.done", **loc, "input": custom["input"]},
+    )
+    response = post(client, input="Not al", stream=True)
+    assert "4242" not in response.text
+    assert read_events(response)[-1]["type"] == "response.incomplete"
+
+    mcp = _mcp_item(json.dumps({"tckn": "<TR_TCKN_1>"}))
+    loc = {"item_id": "mcp_1", "output_index": 0}
+    responses_upstream.stream = _tool_stream(
+        mcp,
+        {"arguments": ""},
+        {"type": "response.mcp_call_arguments.delta", **loc, "delta": mcp["arguments"]},
+        {"type": "response.mcp_call_arguments.done", **loc, "arguments": mcp["arguments"]},
+    )
+    events = read_events(post(client, input=f"TC kimlik {TCKN} ara", stream=True))
+    deltas = [e for e in events if e["type"] == "response.mcp_call_arguments.delta"]
+    assert len(deltas) == 1 and json.loads(deltas[0]["delta"]) == {"tckn": "<TR_TCKN_1>"}
+    done = next(e for e in events if e["type"] == "response.output_item.done")["item"]
+    assert json.loads(done["arguments"]) == {"tckn": "<TR_TCKN_1>"}  # not restored: see above
+
+    shell = _shell_item(f"pay --card {CARD.replace(' ', '')}")
+    command = shell["action"]["commands"][0]
+    at = {"output_index": 0, "command_index": 0}
+    responses_upstream.stream = _tool_stream(
+        shell,
+        {"action": {"commands": []}},
+        {"type": "response.shell_call_command.added", **at, "command": ""},
+        {"type": "response.shell_call_command.delta", **at, "delta": command},
+        {"type": "response.shell_call_command.done", **at, "command": command},
+    )
+    response = post(client, input="Öde", stream=True)
+    assert "4242" not in response.text
+    assert read_events(response)[-1]["type"] == "response.incomplete"
+
+
+def test_numbers_in_function_arguments_stay_json(make_gateway, responses_upstream) -> None:  # noqa: F811
+    responses_upstream.reply = lambda body: response_object(
+        [function_item(json.dumps({"tckn": int(TCKN)}))]
+    )
+    client = make_gateway()  # identity masked for tool calls too
+    out = post(client, input="Müşteriyi bul").json()["output"][0]
+    assert json.loads(out["arguments"]) == {"tckn": "<TR_TCKN_1>"}
+
+
+def test_a_stored_conversation_gets_placeholders_of_its_own(
+    make_gateway,  # noqa: F811
+    responses_upstream,
+) -> None:
+    """With ``previous_response_id`` the earlier turns' placeholders live at the provider: this
+    turn's numbering starts far above them."""
+
+    client = make_gateway()
+    post(client, input=f"E-posta {EMAIL}", previous_response_id="resp_earlier")
+    sent = json.loads(responses_upstream.requests[-1].content)["input"]
+    assert EMAIL not in sent and "<EMAIL_ADDRESS_1>" not in sent
+    assert sent.startswith("E-posta <EMAIL_ADDRESS_")

@@ -131,7 +131,7 @@ JWS header (exact): `{"alg": "ES256", "typ": "umai-actor+jwt", "kid": "<key id>"
 | Lifetime | `exp - iat` 1–300 s; 30 s clock skew either way; `jti` unique per assertion (not stored: the lifetime bounds replay) |
 | Tenant, roles | `tenant_id` absent before the person chose an organization. The person's roles are read from the tenant store (ADR-0033 §1); a `roles` claim, if sent, is ignored (0.3) |
 | Person | `email`, `email_verified` and `name` come from the console's ID token; organizations need `email_verified` true, and the store keeps the person's e-mail and name up to date from them |
-| Mode | `UMAI_DE_ACTOR_ASSERTION`: `required` (default in production) — tenant actions need an assertion, the control token alone runs operator actions only (tenants, API keys, reads); `optional` (default elsewhere) — without an assertion the control token acts as the operator for every action |
+| Mode | `UMAI_DE_ACTOR_ASSERTION`: `required` (default in production) — tenant actions need an assertion, the control token alone runs operator actions only (tenants, API keys, reads; drafts, draft tests, publishing, activating and an application's guardrail need a person); `optional` (default elsewhere) — without an assertion the control token acts as the operator for every action |
 
 A key pair for development: `openssl ecparam -name prime256v1 -genkey -noout -out actor.pem`;
 the public value for the setting: `openssl ec -in actor.pem -pubout -outform DER | base64 -w0`.

@@ -95,14 +95,16 @@ workspace's tfvars). After `terraform apply` there, on the workstation:
 ```bash
 # the secret goes from Terraform straight into the VM file, never onto the screen
 terraform output -raw console_client_secret |
-  ssh -i ~/.ssh/umai_beta_ed25519 umaiops@<hostname> "sudo $D/umai.sh set-secret UMAI_OIDC_CLIENT_SECRET"
+  ssh -i ~/.ssh/umai_beta_ed25519 umaiops@<hostname> \
+    "sudo /opt/umai/src/umai-decision-engine/deploy/vm/umai.sh set-secret UMAI_OIDC_CLIENT_SECRET"
 terraform output -raw console_client_id      # not secret: UMAI_OIDC_CLIENT_ID in config.env
 ```
 
 Set `UMAI_OIDC_ISSUER` (`https://<tenant domain>/`) and `UMAI_OIDC_CLIENT_ID` in
 `/opt/umai/config.env`; `umai.sh up` refuses to start without them. `UMAI_CONSOLE_BASIC_AUTH=true`
 keeps Caddy's basic auth in front as well (default for installs that had it); set `false` to
-let people sign up and onboard on their own.
+let people sign up and onboard on their own. Any other value stops `umai.sh` with an error, so a
+typo never switches the gate off.
 
 ## 4. Day-to-day
 
@@ -113,7 +115,7 @@ let people sign up and onboard on their own.
 | Logs | VM, root | `docker compose -p umai logs -f engine` (no raw content is logged, ADR-0005) |
 | API token for a pilot client | VM, root | `grep UMAI_API_TOKEN /opt/umai/secrets.env`; hand over on a secure channel |
 | Add a pilot tenant | VM, root | Prefer an organization created in the console (ADR-0033): its owner makes keys on Get started. By hand: `curl -X POST -H "Authorization: Bearer $CONTROL" http://127.0.0.1:9200/v1/tenants -d '{"id":"pilot-1"}'` then `POST /v1/tenants/pilot-1/keys` (ADR-0023; the secret is in the response once). Its HMAC key is derived from the master key; an explicit key in `UMAI_TENANT_HMAC_KEYS` overrides it. The policy service port is not published; run the curl inside the network: `docker compose -p umai exec policy python -c …` or add a temporary `docker run --network umai_default` |
-| Rotate a secret | VM, root | `printf %s "$new" \| $D/umai.sh set-secret UMAI_NAME` (or the vault), then `$D/umai.sh up`. Rotating `UMAI_SESSION_SECRET` signs everyone out; `UMAI_CONSOLE_ACTOR_KEY` takes effect for both sides at once; never rotate `UMAI_TENANT_HMAC_MASTER_KEY` casually: hashes of derived tenants change |
+| Rotate a secret | VM, root | `printf %s "$new" \| $D/umai.sh set-secret UMAI_NAME` (or the vault), then `$D/umai.sh up`. Rotating `UMAI_SESSION_SECRET` signs everyone out; `UMAI_CONSOLE_ACTOR_KEY` takes effect for both sides at once (`up` restarts the console when its key file changed); never rotate `UMAI_TENANT_HMAC_MASTER_KEY` casually: hashes of derived tenants change |
 | Backup now | VM, root | `$D/umai.sh backup` |
 | Restore | VM, root | `systemctl stop umai`; fetch the archive (`az storage blob download` on the workstation, then `scp`); `tar -xzf <archive> db/umai.sql.gz` and `docker run --rm -v umai_policies:/p -v $PWD/p:/in:ro alpine sh -c 'rm -rf /p/* && cp -a /in/. /p/'`; `systemctl start umai`, then `gunzip -c db/umai.sql.gz \| docker compose -p umai exec -T postgres psql -U umai_owner -d umai` into a freshly initialised database |
 | Your IP changed (SSH times out) | workstation | `az network nsg rule update -g <rg> --nsg-name umaibeta-nsg -n ssh-operator --source-address-prefixes <ip>/32`; storage: `az storage account network-rule add/remove … --ip-address` |

@@ -108,6 +108,22 @@ def test_an_applications_key_cannot_name_another_guardrail(engine) -> None:
     assert response.json()["detail"]["error"] == "guardrail_mismatch"
 
 
+def test_an_applications_key_cannot_pin_an_older_guardrail_version(engine, write_bundle) -> None:
+    """Review fix (evaluation API 0.11): the application's guardrail is its active version."""
+
+    client, keys = engine
+    write_bundle(bundle_yaml("gr-test", 2), "gr-test", 2, active=2, tenant="tenant-a")
+    client.app.state.store.reload()
+    pinned = _evaluate(client, keys["bound"], _request(bundle={"id": "gr-test", "version": 1}))
+    assert pinned.status_code == 403, pinned.text
+    assert pinned.json()["detail"]["error"] == "guardrail_mismatch"
+    active = _evaluate(client, keys["bound"], _request(bundle={"id": "gr-test", "version": 2}))
+    assert active.status_code == 200, active.text
+    assert active.json()["bundle"]["version"] == 2
+    unpinned = _evaluate(client, keys["bound"], _request())
+    assert unpinned.json()["bundle"]["version"] == 2
+
+
 def test_other_keys_name_the_guardrail_as_before(engine) -> None:
     client, keys = engine
     missing = _evaluate(client, keys["unbound"], _request())

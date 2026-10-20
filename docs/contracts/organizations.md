@@ -1,6 +1,6 @@
 # Contract: organizations
 
-**Version:** 0.2 · **Producer → consumer:** policy service ↔ console (organizations, memberships,
+**Version:** 0.3 · **Producer → consumer:** policy service ↔ console (organizations, memberships,
 invitations, verified domains) · **Decisions:** [ADR-0033](../adr/0033-organizations-and-onboarding.md),
 [ADR-0029](../adr/0029-authorization-roles-and-four-eyes.md) · **Design:**
 [`architecture/sign-in-and-onboarding.md`](../architecture/sign-in-and-onboarding.md)
@@ -22,7 +22,9 @@ identity-service identifiers appear in these shapes.
 `owner`, `admin`, `policy_editor`, `approver`, `viewer`, `billing` (ADR-0029 §2). A membership
 holds one or more. Without the `rbac` entitlement (Community) the roles that can be given are
 `owner`, `admin` and `viewer` (Q39, answered A14), and `admin` carries every permission except the
-owner-only ones. Only an owner grants, removes or invites an owner.
+owner-only ones. Only an owner grants, removes or invites an owner; the rule is checked on
+the organization's memberships after they are locked, so a concurrent grant cannot slip past it
+(0.3).
 
 ## Organization — `Organization`
 
@@ -125,7 +127,10 @@ check; the mode falls back to `off`). `mode`: `off`, `request`, `auto`; `auto` n
 ```
 
 `accept_terms` must be `true`; `region` must be the stack's region (one option per console).
-The response is `{"organization": Organization, "starter_guardrail": {"id", "version"} | null}`:
+The organization, the creator's owner membership and the accepted terms (`terms_version`, the
+person, the time; recorded with the organization, not returned) are written in one transaction
+that also enforces the Community limit, so concurrent creations cannot pass it and no
+organization exists without its owner (0.3). The response is `{"organization": Organization, "starter_guardrail": {"id", "version"} | null}`:
 the deployment's starter guardrail (`UMAI_DE_STARTER_GUARDRAIL`) is copied into the new
 organization as its version 1, signed for it. `InvitationCreate`
 (`POST /v1/organizations/{id}/invitations`):
@@ -164,7 +169,8 @@ Implemented 2026-10-19 except the domain routes (stage 1).
 
 ## Errors
 
-Bodies are `{ "error": "<code>", "detail": "<sentence>" }`.
+Bodies are `{ "detail": { "error": "<code>", "detail": "<sentence>" } }` (FastAPI's `detail`
+wrapper, like every policy-service refusal).
 
 | HTTP | `error` | When |
 |---|---|---|
@@ -185,9 +191,14 @@ Bodies are `{ "error": "<code>", "detail": "<sentence>" }`.
 | 422 | `region_unavailable` | `region` is not this stack's region |
 | 422 | `role_unavailable` | a role the tenant's edition does not offer |
 | 422 | `email_required` | the assertion carries no e-mail |
+| 422 | `email_invalid` | the assertion's e-mail is not an address the contract can show (0.3) |
 
 ## Changelog
 
+- 0.3 (2026-10-20, review fixes): error bodies documented as they are sent (`{"detail": {…}}`);
+  `email_invalid`; creation is one transaction (limit, owner membership, terms) and records the
+  accepted `terms_version` with the person and the time; ownership rules checked on the locked
+  memberships. No request or response shape changes.
 - 0.2 (2026-10-19): store first: invitations are our own single-use links
   (`InvitationAccept` = organization + token; invite response carries the token once);
   create response with the starter guardrail; `OrganizationUpdate`; leave route; Community

@@ -5,9 +5,10 @@ parts), ``function_call`` arguments, ``function_call_output`` outputs, custom to
 output. Provider-side items (reasoning, item references, hosted tool calls) pass through; any
 other item that may carry content follows the route's ``unscanned_parts``.
 
-In the answer: ``output_text`` parts (``POST_LLM``), ``function_call`` arguments (restored, then
-``TOOL_INPUT``). Streams use the Responses event types (``event:`` + ``data:`` lines, no
-``[DONE]``); the gateway re-numbers ``sequence_number`` because it holds back and rewrites text.
+In the answer: ``output_text`` parts (``POST_LLM``), the input of every tool item (restored, then
+``TOOL_INPUT``; ``tools.responses_tool_calls``). Streams use the Responses event types
+(``event:`` + ``data:`` lines, no ``[DONE]``); the gateway re-numbers ``sequence_number`` because
+it holds back and rewrites text.
 Shapes checked live against OpenAI on 2026-10-19.
 """
 
@@ -51,9 +52,13 @@ from umai_decision_engine.gateway.guard import CallContext, Check, strictest
 from umai_decision_engine.gateway.masking import MaskSession
 from umai_decision_engine.gateway.streaming import AnswerStream, ChoiceState, sse_events
 from umai_decision_engine.gateway.tools import (
-    check_tool_calls,
+    RESPONSES_TOOL_ITEMS,
+    ToolCall,
     input_checks,
     note_output,
+    responses_tool_calls,
+    responses_tool_fields,
+    settle_tool_calls,
     tool_action,
 )
 from umai_decision_engine.gateway.upstream import forwarded_headers
@@ -178,6 +183,13 @@ def _output_parts(output: Any, index: int) -> tuple[list[Segment], int]:
     return found, unscanned
 
 
+def _stored_history(body: dict[str, Any]) -> bool:
+    """Earlier turns the provider keeps (``previous_response_id``, a conversation): their
+    placeholders are not in this call's input."""
+
+    return bool(body.get("previous_response_id") or body.get("conversation"))
+
+
 def set_body_text(body: dict[str, Any], segment: Segment, text: str) -> None:
     target: Any = body if segment.message == -1 else body["input"][segment.message]
     for key in segment.path[:-1]:
@@ -291,7 +303,9 @@ async def create_response(request: Request) -> Response:
     call = Call(
         ctx=CallContext(request_id, tenant, route, _subject(request, body)),
         provider_key=provider_key,
-        session=MaskSession(),
+        session=MaskSession.for_call(
+            (s.text for s in segments), stored_history=_stored_history(body)
+        ),
         guard=state.guard,
         upstream=state.upstream,
         settings=state.settings,
@@ -318,7 +332,9 @@ async def create_response(request: Request) -> Response:
         for check, parts in results:
             for segment, spans in zip(parts, check.spans, strict=True):
                 if spans:
-                    masked = call.session.mask(segment.text, spans, from_input=True)
+                    masked = call.session.mask_text(
+                        segment.text, spans, from_input=True, json_text=segment.json_string
+                    )
                     set_body_text(upstream_body, segment, masked)
 
     if stream:
@@ -388,7 +404,7 @@ async def check_output(call: Call, data: dict[str, Any]) -> None:
         return
     output_enabled = call.guard.enabled(call.ctx, Phase.POST_LLM)
     blocking: Check | None = None
-    functions: list[dict[str, Any]] = []
+    tool_calls: list[ToolCall] = []
     for item in output:
         if not isinstance(item, dict):
             continue
@@ -408,11 +424,9 @@ async def check_output(call: Call, data: dict[str, Any]) -> None:
                     if check.masks:
                         text = call.session.mask(text, check.spans[0], from_input=False)
                 part["text"] = call.session.restore(text) if route.restore_placeholders else text
-        elif item.get("type") == "function_call" and isinstance(item.get("arguments"), str):
-            if route.restore_placeholders:
-                item["arguments"] = call.session.restore(item["arguments"], json_string=True)
-            functions.append(item)  # has "name" and "arguments": masked in place
-    blocking = blocking or await check_tool_calls(call, functions)
+        else:
+            tool_calls += responses_tool_calls(item)  # masked in place
+    blocking = blocking or await settle_tool_calls(call, tool_calls)
     if blocking is not None:
         if route.refusal == "error":
             raise refusal_error(call, blocking)
@@ -424,14 +438,43 @@ async def check_output(call: Call, data: dict[str, Any]) -> None:
 # ------------------------------------------------------------------ streaming
 
 
+# Tool-input events: the item type they belong to and the field of the done event.
+_TOOL_DONE = {
+    "response.function_call_arguments.done": ("function_call", "arguments"),
+    "response.custom_tool_call_input.done": ("custom_tool_call", "input"),
+    "response.mcp_call_arguments.done": ("mcp_call", "arguments"),
+}
+_TOOL_DELTA = {
+    "function_call": "response.function_call_arguments.delta",
+    "custom_tool_call": "response.custom_tool_call_input.delta",
+    "mcp_call": "response.mcp_call_arguments.delta",
+}
+# Held, never passed on: the complete, checked input arrives with the item (or its done event).
+_HELD = frozenset(
+    {
+        *_TOOL_DELTA.values(),
+        "response.shell_call_command.added",
+        "response.shell_call_command.delta",
+        "response.shell_call_command.done",
+    }
+)
+
+
 class ResponsesStream(AnswerStream):
-    """Responses events in, checked Responses events out (text held back like ``window``)."""
+    """Responses events in, checked Responses events out (text held back like ``window``).
+
+    Text and tool input reach the caller only checked: a part or a tool call that first shows
+    up in a final event (``content_part.done``, ``output_item.done``, ``response.completed``)
+    is checked there."""
 
     def __init__(self, call: Call, *, mode: str, holdback: int, step: int) -> None:
         super().__init__(call, mode=mode, holdback=holdback, step=step)
         self.parts: dict[tuple[str, int], int] = {}  # (item_id, content_index) → state index
         self.where: dict[int, tuple[str, int, int]] = {}  # index → (item_id, output, content)
-        self.calls: dict[str, dict[str, Any]] = {}  # function_call item id → {name, arguments}
+        self.settled: set[int] = set()  # parts whose whole text was checked
+        self.items: dict[str, dict[str, Any]] = {}  # tool item id → the item as added
+        # tool item id → (input as the upstream sent it, input as checked)
+        self.checked: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
         self.base: dict[str, Any] = {}
         self.blocked: Check | None = None
         self.done = False
@@ -465,19 +508,74 @@ class ResponsesStream(AnswerStream):
         self.done = True
         return [{"type": "response.incomplete", "response": response}]
 
-    def _final_text(self, item_id: str, content_index: int) -> str | None:
-        index = self.parts.get((item_id, content_index))
-        return None if index is None else self.choices[index].sent
+    async def _settle_part(
+        self, item_id: str, content_index: int, output_index: int, text: str
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        """Finish an ``output_text`` part with ``text``, the upstream's full text, unless it was
+        finished before: deltas still due (only for a part that was streamed) and the checked
+        text, or ``None`` when the check blocks."""
 
-    def _rewrite_item(self, item: dict[str, Any]) -> None:
+        key = (item_id, content_index)
+        streamed = key in self.parts
+        st = self.part(
+            {"item_id": item_id, "content_index": content_index, "output_index": output_index}
+        )
+        out: list[dict[str, Any]] = []
+        if st.index not in self.settled:
+            if len(text) >= len(st.raw):
+                st.raw = text  # the authoritative full text
+            out = await self.release(st, final=True)
+            if self.mode == "after" and self.output_enabled and st.raw and not st.blocked:
+                await self._check(st.raw)
+            self.settled.add(st.index)
+        if st.blocked:
+            self.blocked = self.blocked or st.block_check
+            return out, None
+        return (out if streamed else []), st.sent
+
+    async def _settle_tool_item(self, item: dict[str, Any]) -> bool:
+        """Restore and check a tool item's input in place, unless that exact input was checked
+        before (its done event); ``True`` when the check blocks."""
+
+        item_id = str(item.get("id"))
+        fields = responses_tool_fields(item.get("type"))
+        raw = {f: copy.deepcopy(item.get(f)) for f in fields}
+        seen = self.checked.get(item_id)
+        if seen is not None and seen[0] == raw:
+            item.update(copy.deepcopy(seen[1]))
+            return False
+        blocking = await settle_tool_calls(self.call, responses_tool_calls(item))
+        if blocking is not None:
+            self.blocked = self.blocked or blocking
+            return True
+        self.checked[item_id] = (raw, {f: copy.deepcopy(item.get(f)) for f in fields})
+        return False
+
+    async def _settle_item(
+        self, item: dict[str, Any], output_index: int, *, emit: bool
+    ) -> tuple[list[dict[str, Any]], bool]:
+        """Check an output item in place; deltas still due when ``emit``, and whether the check
+        blocks."""
+
+        out: list[dict[str, Any]] = []
         if item.get("type") == "message":
             for j, part in enumerate(item.get("content") or []):
-                if isinstance(part, dict) and part.get("type") == "output_text":
-                    text = self._final_text(str(item.get("id")), j)
-                    if text is not None:
-                        part["text"] = text
-        elif item.get("type") == "function_call" and str(item.get("id")) in self.calls:
-            item["arguments"] = self.calls[str(item["id"])]["arguments"]
+                if not (
+                    isinstance(part, dict)
+                    and part.get("type") == "output_text"
+                    and isinstance(part.get("text"), str)
+                ):
+                    continue
+                deltas, text = await self._settle_part(
+                    str(item.get("id")), j, output_index, part["text"]
+                )
+                out += deltas if emit else []
+                if text is None:
+                    return out, True
+                part["text"] = text
+        elif item.get("type") in RESPONSES_TOOL_ITEMS:
+            return out, await self._settle_tool_item(item)
+        return out, False
 
     async def handle(self, event: dict[str, Any]) -> list[dict[str, Any]]:
         if self.done:
@@ -495,73 +593,92 @@ class ResponsesStream(AnswerStream):
             out = await self.release(st, final=False)
             return self._incomplete() if st.blocked else out
         if kind == "response.output_text.done":
-            st = self.part(event)
-            if isinstance(event.get("text"), str) and len(event["text"]) >= len(st.raw):
-                st.raw = event["text"]  # the authoritative full text
-            out = await self.release(st, final=True)
-            if self.mode == "after" and self.output_enabled and st.raw and not st.blocked:
-                await self._check(st.raw)
-            if st.blocked:
-                self.blocked = self.blocked or st.block_check
+            text = event.get("text") if isinstance(event.get("text"), str) else ""
+            out, checked = await self._settle_part(
+                str(event.get("item_id")),
+                int(event.get("content_index") or 0),
+                int(event.get("output_index") or 0),
+                text,
+            )
+            if checked is None:
                 return out + self._incomplete()
-            return [*out, {**event, "text": st.sent}]
+            return [*out, {**event, "text": checked}]
         if kind in ("response.content_part.done", "response.content_part.added"):
             part = event.get("part")
-            if (
-                kind.endswith("done")
-                and isinstance(part, dict)
-                and part.get("type") == "output_text"
-            ):
-                text = self._final_text(
-                    str(event.get("item_id")), int(event.get("content_index") or 0)
-                )
-                if text is not None:
-                    event = {**event, "part": {**part, "text": text}}
-            return [event]
+            if not (isinstance(part, dict) and part.get("type") == "output_text"):
+                return [event]
+            if kind.endswith("added") or not isinstance(part.get("text"), str):
+                return [{**event, "part": {**part, "text": ""}}]  # the text arrives checked
+            out, checked = await self._settle_part(
+                str(event.get("item_id")),
+                int(event.get("content_index") or 0),
+                int(event.get("output_index") or 0),
+                part["text"],
+            )
+            if checked is None:
+                return out + self._incomplete()
+            return [*out, {**event, "part": {**part, "text": checked}}]
         if kind == "response.output_item.added":
             item = event.get("item")
-            if isinstance(item, dict) and item.get("type") == "function_call":
-                self.calls[str(item.get("id"))] = {"name": item.get("name"), "arguments": ""}
+            if isinstance(item, dict):
+                return await self._item_added(event, item)
             return [event]
-        if kind == "response.function_call_arguments.delta":
+        if kind in _HELD:
             return []  # released whole after the check
-        if kind == "response.function_call_arguments.done":
-            return await self._function_done(event)
+        if kind in _TOOL_DONE:
+            return await self._tool_done(event)
         if kind == "response.output_item.done":
-            if isinstance(event.get("item"), dict):
-                self._rewrite_item(event["item"])
+            item = event.get("item")
+            if isinstance(item, dict):
+                out, blocked = await self._settle_item(
+                    item, int(event.get("output_index") or 0), emit=True
+                )
+                return out + self._incomplete() if blocked else [*out, event]
             return [event]
-        if kind in ("response.completed", "response.incomplete"):
+        if kind in ("response.completed", "response.incomplete", "response.failed"):
             response = event.get("response")
             if isinstance(response, dict):
                 _restore_echo(self.call, response)
-                for item in response.get("output") or []:
+                for n, item in enumerate(response.get("output") or []):
                     if isinstance(item, dict):
-                        self._rewrite_item(item)
+                        _, blocked = await self._settle_item(item, n, emit=False)
+                        if blocked:
+                            return self._incomplete()
             self.done = True
             return [event]
         return [event]  # reasoning summaries, hosted tool progress, errors: unchanged
 
-    async def _function_done(self, event: dict[str, Any]) -> list[dict[str, Any]]:
+    async def _item_added(
+        self, event: dict[str, Any], item: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """A new output item: text it already carries is held for the checked events; a tool
+        item's input, when already there, is checked now."""
+
+        kind = item.get("type")
+        if kind == "message":
+            for part in item.get("content") or []:
+                if isinstance(part, dict) and part.get("type") == "output_text":
+                    part["text"] = ""
+        elif kind in RESPONSES_TOOL_ITEMS:
+            self.items[str(item.get("id"))] = copy.deepcopy(item)
+            has_input = any(item.get(f) for f in responses_tool_fields(kind))
+            if has_input and await self._settle_tool_item(item):
+                return self._incomplete()
+        return [event]
+
+    async def _tool_done(self, event: dict[str, Any]) -> list[dict[str, Any]]:
+        """The complete input of a function, custom or MCP tool call: restored and checked,
+        then released as one delta plus the done event."""
+
+        kind, field = _TOOL_DONE[str(event.get("type"))]
         item_id = str(event.get("item_id"))
-        function = self.calls.setdefault(item_id, {"name": None, "arguments": ""})
-        arguments = event.get("arguments") if isinstance(event.get("arguments"), str) else ""
-        if self.call.route.restore_placeholders:
-            arguments = self.session.restore(arguments, json_string=True)
-        function["arguments"] = arguments
-        blocking = await check_tool_calls(self.call, [function])
-        if blocking is not None:
-            self.blocked = self.blocked or blocking
+        item = copy.deepcopy(self.items.get(item_id) or {"type": kind, "id": item_id})
+        item[field] = event.get(field) if isinstance(event.get(field), str) else ""
+        if await self._settle_tool_item(item):
             return self._incomplete()
         loc = {"item_id": event.get("item_id"), "output_index": event.get("output_index")}
-        return [
-            {
-                "type": "response.function_call_arguments.delta",
-                **loc,
-                "delta": function["arguments"],
-            },
-            {**event, "arguments": function["arguments"]},
-        ]
+        delta = {"type": _TOOL_DELTA[kind], **loc, "delta": item[field]}
+        return [delta, {**event, field: item[field]}]
 
 
 class _Numbered:

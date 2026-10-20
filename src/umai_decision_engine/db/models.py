@@ -65,6 +65,10 @@ class Tenant(Base):
     # ADR-0033 §1, §7: organizations are tenants
     edition: Mapped[str] = mapped_column(String(16), nullable=False, default="community")
     created_by: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)  # users.id
+    # The terms the creator accepted (organizations 0.3)
+    terms_version: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    terms_accepted_by: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)  # users.id
+    terms_accepted_at: Mapped[datetime | None] = mapped_column(UtcDateTime(), nullable=True)
 
 
 class User(Base):
