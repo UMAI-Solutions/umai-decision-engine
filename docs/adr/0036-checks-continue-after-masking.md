@@ -1,8 +1,8 @@
 # ADR-0036 — Masking does not end the evaluation: attack and agent-action checks run on the masked text
 
-- **Status:** Accepted (product owner approved WP1 of the gateway plan, 2026-10-19). Takes effect
-  when L1 is implemented (gateway plan WP4c); until then nothing runs after the L0 gate and the
-  engine's behaviour is unchanged
+- **Status:** Accepted (product owner approved WP1 of the gateway plan, 2026-10-19). In effect
+  since L1b was implemented (ADR-0040, 2026-10-20): L1b runs on the masked text after a
+  non-terminal L0 outcome
 - **Date:** 2026-10-19
 - **Deciders:** product owner; engineering proposal
 - **Amends:** ADR-0014 §1 and §5 (an L0 detection is terminal)

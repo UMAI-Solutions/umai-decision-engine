@@ -1,6 +1,6 @@
 # Contract: evaluation API
 
-**Version:** 0.11 · **Endpoints:** `POST /v1/evaluate`, `GET /v1/bundles`, `POST /v1/bundles/reload`, `POST /v1/detect` (development) · **Health:** `GET /healthz`, `GET /readyz`
+**Version:** 0.12 · **Endpoints:** `POST /v1/evaluate`, `GET /v1/bundles`, `POST /v1/bundles/reload`, `POST /v1/detect` (development) · **Health:** `GET /healthz`, `GET /readyz`
 
 `/readyz` returns 200 only after Presidio analyzers are loaded and warmed up, the policy
 bundles are loaded, and the configured L1b provider answered a probe.
@@ -109,7 +109,7 @@ several messages or parts is scanned one part at a time; spans refer to the part
 | `bundle` | Id, version, mode and content hash of the bundle that decided (every decision is traceable to an exact bundle) |
 | `decision.decided_by` | `L0` (an entity was detected: the L0 gate decided and L1 did not run, ADR-0014), `L1a`, `L1b`, or `pipeline` (failure policy) |
 | `decision.reason` | Entity types and exception ids only, never values: `L0: TR_TCKN, CREDIT_CARD detected`, `L0: TR_TCKN allowed by exception ex-kyc-internal` |
-| `decision.matched[]` | What produced the decision, strictest first: `{kind, id, version?, name?, action, entities[]}` with `kind` `l0_policy` (guardrail policy, ADR-0021), `l0_on_detect` (bundles ≤ 0.5), `l0_exception`, `l1a_rule`. Ids only, never content |
+| `decision.matched[]` | What produced the decision, strictest first: `{kind, id, version?, name?, action, entities[]}` with `kind` `l0_policy` (guardrail policy, ADR-0021), `l0_on_detect` (bundles ≤ 0.5), `l0_exception`, `l1a_rule`, `l1b_policy` (0.12). Ids only, never content |
 | `would_have` | In `MONITOR` mode: the decision `ENFORCE` would have returned; `decision` is then `ALLOW` |
 | `degraded` | Any failure path or fallback was taken; details in `errors` |
 | `tags[]` | See [tag-taxonomy](tag-taxonomy.md) |
@@ -246,6 +246,13 @@ applies, visibly. The check runs after admission and schema validation.
 
 ## Changelog
 
+- 0.12 (2026-10-20, ADR-0040): L1b decides. `decided_by: L1b`; `decision.matched[].kind`
+  `l1b_policy`; tags with `layer: L1b`, `probability`, `policy_id` / `policy_version`;
+  `latency_ms.l1b`; errors `L1B_TIMEOUT`, `L1B_RATE_LIMITED`, `L1B_UNAVAILABLE`,
+  `L1B_INVALID_RESPONSE`, `L1B_AUTH` with the bundle's failure policy applied to the L1b part.
+  ADR-0036 is in effect: an L0 outcome other than `BLOCK` / `STEP_UP_APPROVAL` is a floor and
+  L1b judges the masked text. Shadow policies never appear in the response. Requests
+  0.2–0.12 accepted.
 - 0.11 (2026-10-20, review fix): a key that belongs to an application cannot pin
   `bundle.version`; a version other than the guardrail's active one is refused (403
   `guardrail_mismatch`). Requests 0.2–0.11 accepted.

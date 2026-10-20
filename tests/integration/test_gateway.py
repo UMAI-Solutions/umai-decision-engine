@@ -229,6 +229,7 @@ def make_gateway(write_bundle, detector, tmp_path, upstream):
         mode: str = "ENFORCE",
         applications: str | None = None,
         guardrail: str | None = None,
+        decision_models: Any = None,
         **settings: Any,
     ) -> TestClient:
         write_bundle(guardrail or GUARDRAIL.format(mode=mode), bundle_id="gr-gw", active=1)
@@ -248,7 +249,10 @@ def make_gateway(write_bundle, detector, tmp_path, upstream):
             **settings,
         )
         app = create_gateway_app(
-            cfg, detector=detector, upstream_transport=httpx.MockTransport(upstream.handler)
+            cfg,
+            detector=detector,
+            upstream_transport=httpx.MockTransport(upstream.handler),
+            decision_models=decision_models,
         )
         client = TestClient(app, headers={"X-Umai-Provider-Key": "sk-test"})
         client.__enter__()

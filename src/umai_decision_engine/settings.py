@@ -10,10 +10,18 @@ from typing import Literal
 
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-from pydantic import Field, SecretStr, model_validator
+from pydantic import BaseModel, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from umai_decision_engine.l0.hashing import TenantKeyError
+
+
+class DecisionProviderSettings(BaseModel):
+    """One L1b decision-model provider (ADR-0040): a bundle's ``l1b.provider`` names it."""
+
+    adapter: Literal["openai_decisions", "fake"]
+    base_url: str | None = None  # openai_decisions: https://eu.api.openai.com/v1 for EU processing
+    model: str | None = None
 
 
 class Settings(BaseSettings):
@@ -99,6 +107,11 @@ class Settings(BaseSettings):
     # Provider keys the deployment holds for routes with credential "secret" (name → key).
     # Never logged; never sent anywhere but the route's upstream (ADR-0035 §4).
     gateway_provider_keys: dict[str, SecretStr] = Field(default_factory=dict)
+
+    # L1b decision-model providers (ADR-0040): name → adapter, base URL, model. Keys are
+    # separate (name → key), never in bundles, never logged.
+    decision_providers: dict[str, DecisionProviderSettings] = Field(default_factory=dict)
+    decision_provider_keys: dict[str, SecretStr] = Field(default_factory=dict)
     gateway_max_request_bytes: int = Field(16_000_000, ge=10_000, le=200_000_000)
     # Characters the gateway scans per call: the whole history, resent every turn (gateway-api
     # 0.8). Larger than max_input_chars because a conversation grows; the L0 cache keeps a

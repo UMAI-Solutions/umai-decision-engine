@@ -1,6 +1,6 @@
 # Contract: policy bundle
 
-**Version:** 0.8
+**Version:** 0.9
 
 The configuration the engine evaluates against (successor of `umai-engine`'s
 `GuardrailSnapshot`). A bundle is a signed, immutable artifact; the engine only reads it
@@ -104,13 +104,14 @@ l1a:
 
 l1b:
   enabled: true
-  provider: onprem_decider         # key into settings provider registry; adapter kinds:
-                                   # systemone_compatible | local_scoring | jev | openai_decisions | gpt_oss_safeguard | fake
-  fallback_provider: gpt_oss_safeguard
-  shadow_providers: []
+  provider: openai                 # a name in UMAI_DE_DECISION_PROVIDERS (settings); adapters built:
+                                   # openai_decisions | fake (planned: systemone_compatible, jev, gpt_oss_safeguard)
+  fallback_provider: null
+  shadow_providers: []             # planned: other providers compared on the same traffic
   timeout_ms: 600
   max_input_chars: 4000
-  policies: []                     # see decision-questions.md
+  batch: all                       # all: one call with every question | per_policy (0.9, ADR-0040)
+  policies: []                     # see decision-questions.md (enforcement: shadow until evals set thresholds)
 
 l2:                                # asynchronous review (ADR-0010); never affects decisions
   enabled: true
@@ -142,7 +143,9 @@ l2:                                # asynchronous review (ADR-0010); never affec
 | `l0.allowed_domains[]` | lowercase domain[] | `[]` | `UNKNOWN_LINK` is not reported for URLs whose registrable domain is listed (subdomains included), in addition to the engine's popular-domain list (Lakera's "allowed domains") |
 | `l1a.rules[]` | `{id, when, effect, severity, tags[], final, force_review, redact[]}` | `[]` | Facts and operators in [L1](../architecture/l1-policy-decision.md) |
 | `l1a.legacy_preflight` | `umai-engine` HeuristicConfig | null | Compatibility; converted to L1a rules at load |
-| `l1b.policies[]` | DecisionPolicy | `[]` | [decision-questions](decision-questions.md) |
+| `l1b.provider`, `l1b.fallback_provider` | string | — | Names in `UMAI_DE_DECISION_PROVIDERS`; a missing provider is a failure (`L1B_UNAVAILABLE`), never an allow |
+| `l1b.batch` | `all` \| `per_policy` | `all` | One provider call with every applicable question, or one per policy in parallel (0.9) |
+| `l1b.policies[]` | DecisionPolicy | `[]` | [decision-questions](decision-questions.md); `enforcement: shadow` records without deciding (0.9) |
 | `l2.review_when` | condition group over event fields | see shape | Fields: `decision.action`, `decision.severity`, `tags`, `l1b.min_confidence`, `l1b.refused`, `phase`, `destination.class` |
 | `l2.model_ref` | string | — | Key into settings' model registry; no URLs or keys in bundles |
 | `l2.finding_threshold` | `{severity, confidence}` | `HIGH`, `medium` | Analysis at or above → finding candidate |
@@ -207,6 +210,10 @@ The loader rejects a bundle when:
 
 ## Changelog
 
+- 0.9 (2026-10-20, ADR-0040): L1b implemented. `l1b.batch`; decision policies gain
+  `enforcement`, `name`, `description`, `source` and probability thresholds (`p_gte`) in
+  `decide` (decision-questions 0.4). `redact` in an L1b `decide` rule is refused at load (not
+  supported yet).
 - 0.8 (2026-10-19): tenant-owned bundles: `tenants/<tenant_id>/` layout, signed
   `manifest.tenant_id`, unowned bundles belong to the default tenant (ADR-0019 §2). Manifests
   without `tenant_id` verify unchanged.

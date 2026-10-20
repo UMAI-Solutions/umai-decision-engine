@@ -7,6 +7,7 @@ python -m evals.run --suite gateway-latency [--tag NAME]
 python -m evals.run --suite pi-tr [--split dev|test|all] --detector heuristic[,<model>]
                                       [--model-dir DIR] [--threshold T]
 python -m evals.run --suite masking-survival --model gpt-4.1-mini[,other] [--tag NAME]  # live
+python -m evals.run --suite l1-latency [--limit 40] [--base-url URL] [--region-note TEXT]  # live
 
 Writes evals/reports/<date>-<suite>-<tag>/summary.md (committed) and results.jsonl (local).
 Use the dev split while iterating; run the test split once at the end and never tune on it.
@@ -18,7 +19,7 @@ import argparse
 import logging
 import sys
 
-from evals.suites import gateway_latency, l0_pii_tr, leak, masking_survival, pi_tr
+from evals.suites import gateway_latency, l0_pii_tr, l1_latency, leak, masking_survival, pi_tr
 
 SUITES = {
     l0_pii_tr.NAME: l0_pii_tr.run,
@@ -26,6 +27,7 @@ SUITES = {
     gateway_latency.NAME: gateway_latency.run,
     masking_survival.NAME: masking_survival.run,
     pi_tr.NAME: pi_tr.run,
+    l1_latency.NAME: l1_latency.run,
 }
 
 
@@ -44,6 +46,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--detector", help="pi-tr: comma-separated detectors (a+b = max of both)")
     parser.add_argument("--model-dir", help="pi-tr: folder with one sub-folder per model")
     parser.add_argument("--threshold", type=float, default=0.5, help="pi-tr: deployment threshold")
+    l1_latency.add_arguments(parser)
     args = parser.parse_args(argv)
     logging.getLogger("umai.de").setLevel(logging.WARNING)
     if hasattr(sys.stdout, "reconfigure"):

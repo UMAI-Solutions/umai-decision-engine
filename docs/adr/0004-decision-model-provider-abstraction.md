@@ -1,6 +1,6 @@
 # ADR-0004 — L1b uses decision models behind a provider interface; on-prem deployable
 
-- **Status:** Accepted (default provider pending F0)
+- **Status:** Accepted (default provider pending F0; first adapter built: OpenAI Decisions, ADR-0040)
 - **Date:** 2026-10-12, amended 2026-10-15
 - **Deciders:** product owner (UMAI) for the model class and the on-prem requirement; the
   interface is a design proposal

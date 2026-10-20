@@ -117,8 +117,13 @@ evaluator (`rules/`); `/v1/evaluate`, `/v1/detect` (dev), `/v1/bundles`, `/v1/bu
 health; bearer-token auth on `/v1` (ADR-0016); the policy service (ADR-0022: drafts, golden
 tests with accepted changes, publish, activate, rollback); eval harness with the `l0-pii-tr` and `leak`
 suites; golden-test runner (`cli test`) and CI (`.github/workflows/ci.yml`: ruff, pytest,
-golden tests on Linux and Windows). L1 is not implemented: input without detected entities, evaluated against a bundle
-with L1 rules or policies, is answered with `on_evaluation_failure` and `L1_NOT_IMPLEMENTED`.
+golden tests on Linux and Windows). L1b (2026-10-20, ADR-0040): decision policies through a
+provider adapter (`l1/`; OpenAI Decisions API, `fake`), on L0-redacted input, after the L0
+gate's floor (ADR-0036 in effect), with probability thresholds, fallback, failure policy and
+shadow mode; `gr-demo-data-protection` v5 holds nine policies converted from `OpenAI_Decisions`,
+all in shadow; golden cases stub the model (`model_answers`); live suite `l1-latency`. L1a rules
+are not implemented: a bundle with L1a rules is answered with `on_evaluation_failure` and
+`L1_NOT_IMPLEMENTED`.
 Tenancy (2026-10-18): per-tenant API keys with scopes and rate limits at admission (ADR-0023:
 `tenancy/`, contract `credentials` 0.1, evaluation API 0.6; shared token kept for self-hosted),
 key management in the policy service (`/v1/tenants`, `/v1/tenants/{id}/keys`, signed registry

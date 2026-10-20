@@ -1,6 +1,6 @@
 # Contract: decision questions (L1b)
 
-**Version:** 0.3
+**Version:** 0.4 · **Implemented:** L1b (ADR-0040): `src/umai_decision_engine/l1/`, adapters `openai_decisions`, `fake`
 
 Provider-agnostic way to express an L1b policy. Provider adapters compile it to the
 provider's wire format (Jev `/v1/systemone`, OpenAI `/v1/decisions`, a self-hosted
@@ -13,6 +13,8 @@ leak provider concepts back into this contract.
 | Field | Type | Notes |
 |---|---|---|
 | `id`, `version` | string, int | |
+| `name`, `description`, `source` | string? | Display data and provenance (0.4); never sent to a provider |
+| `enforcement` | `enforce` \| `shadow` | default `enforce`. `shadow`: evaluated and logged, never changes the decision; with no enforcing policy the call runs after the decision is returned (0.4, ADR-0040) |
 | `phases` | Phase[] | Policy runs only in these phases |
 | `policy_text` | string | Natural-language policy, ≤ 4 000 chars. Written for the model |
 | `questions` | map `qid → Question` | `qid` is `snake_case`, unique within the policy |
@@ -57,8 +59,21 @@ decide:
     action: ALLOW_WITH_WARNINGS
     severity: MEDIUM
     tags: [data.external_disclosure]
+  - when: { intent: { value: [data_exfiltration, policy_evasion], p_gte: 0.85 } }  # 0.4
+    action: STEP_UP_APPROVAL
+  - when: { external_disclosure: { p_gte: 0.95 } }            # 0.4: condition probability
+    action: ALLOW_WITH_WARNINGS
   - default: ALLOW
 ```
+
+- A choice compares the winning `value`, or with `p_gte` the summed probability of the named
+  value(s); without probabilities from the provider it falls back to the winning value.
+- A condition compares `probability >= condition_threshold` with `true` / `false`, or the
+  probability with `p_gte`.
+- A refused or missing answer never matches: the policy falls through to its default and the
+  event is marked for review (`refusal`). Review is also marked when the action is in
+  `review_when.actions` or an answer's confidence is below `or_confidence_below`.
+- Thresholds are operating points chosen on labelled data (evals), never defaults.
 
 ## `DecisionRequest` (L1b → adapter, in-process)
 
@@ -68,11 +83,13 @@ decide:
   "policies": [ { "id": "pol-data-exfil", "version": 3, "policy_text": "…" } ],
   "facts": {
     "phase": "PRE_LLM",
-    "destination": { "app": "chatgpt.com", "class": "external_llm" },
+    "destination": { "class": "external_llm" },
     "subject": { "role": "sales", "department": "SALES" },
     "entities": [ { "type": "TR_TCKN", "count": 7, "distinct": 7 } ]
   },
-  "redacted_excerpt": "Bu listeyi özetle: <TR_TCKN_1> … <TR_TCKN_7>",
+  "excerpt": [
+    { "role": "user", "content": "Bu listeyi özetle: <TR_TCKN_1> … <TR_TCKN_7>" }
+  ],
   "questions": [
     { "qid": "pol-data-exfil.intent", "type": "choice",
       "instructions": "What is the user trying to do with this content?",
@@ -90,8 +107,11 @@ decide:
 ```
 
 No user identifiers (`user_id`, `session_id`) are sent to providers; only role,
-department and destination class. The judged content is passed as a clearly delimited
-field, separate from policy and questions (it may contain injection attempts).
+department, destination class, entity types and counts, and the agent tool's name (`tool`).
+`excerpt` is what L0 scanned, every detected entity replaced by its placeholder, the latest
+parts first up to `l1b.max_input_chars` (oldest first in the list; the last part is the one in
+focus, clipped in the middle when it alone is too long). Adapters pass it as a clearly
+delimited field, separate from policy and questions (it may contain injection attempts).
 
 ## `DecisionResult` (adapter → L1b)
 
@@ -108,7 +128,8 @@ field, separate from policy and questions (it may contain injection attempts).
     "pol-data-exfil.external_disclosure": { "probability": 0.88, "refused": false },
     "pol-data-exfil.harm": { "level": 2, "expected": 2.1,
       "probabilities": [0.02, 0.10, 0.62, 0.26], "confidence": 0.62, "refused": false }
-  }
+  },
+  "usage": { "input_tokens": 1180, "cached_tokens": 900 }
 }
 ```
 
@@ -127,6 +148,10 @@ Rules for adapters:
 
 ## Changelog
 
+- 0.4 (2026-10-20, ADR-0040): implemented. `enforcement` (`enforce` / `shadow`), `name`,
+  `description`, `source`; probability thresholds in `decide` (`p_gte`); the request carries
+  `excerpt` (redacted parts with roles) instead of `redacted_excerpt`; `usage` (token counts) in
+  results.
 - 0.3 (2026-10-15): breaking — `escalate_when` → `review_when` (ADR-0010).
 - 0.2 (2026-10-15): breaking — choice options carry descriptions; `score` uses labelled
   `levels` instead of `min`/`max`; `instructions` replaces `text`; `refused` added; confidence

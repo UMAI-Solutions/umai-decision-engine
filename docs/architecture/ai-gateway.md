@@ -58,7 +58,7 @@ gap in UMAI Cloud and on-prem, with AI governance packages as a later extension.
 | Timeline | None; focus on what can be built well | §8 is ordered by dependency and value, not by date |
 
 Their headline requirement, prompt-injection resistance in Turkish, is the part UMAI has least
-of today (L1 is not implemented). No vendor can promise resistance to *all* injection methods;
+of today (L1b exists since ADR-0040, with a prompt-attack policy in shadow; its Turkish detection rates are not measured yet). No vendor can promise resistance to *all* injection methods;
 what UMAI can promise is measured, published detection and false-alarm rates on a Turkish attack
 set plus layered controls (§8 WP4).
 
@@ -126,7 +126,7 @@ flowchart LR
 | Metering unit | Today one evaluation = one request; a gateway call is 1–N evaluations plus provider tokens | A and B | §6.10, ADR-0028 |
 | Raw-content rule | ADR-0005 lets raw content exist only in L0; a forwarder handles raw content by definition | B | §7 |
 | Threat model | New boundary to the provider; tenant-configured upstream URLs (SSRF); provider keys; availability; gateways are prime supply-chain targets (LiteLLM's PyPI compromise, 2026-03-24) | B | §7 |
-| Prompt-attack detection | Gateway buyers expect prompt-injection and jailbreak screening; UMAI has it only as planned L1b policies (L1 not implemented) | A and B | §8 WP4 (Q52) |
+| Prompt-attack detection | Gateway buyers expect prompt-injection and jailbreak screening; UMAI has it as an L1b policy (`prompt-attack`, ADR-0040), in shadow until step 3 evals set its threshold | A and B | §8 WP4 (Q52) |
 | **Injection checks skipped after masking** | ADR-0014 ends the evaluation at the L0 gate whenever an entity is detected, including `ALLOW_WITH_MODIFICATIONS` and exception `ALLOW`. If injection detection lives in L1, adding an e-mail address to a prompt skips it | A and B | ADR-0036: an L0 `BLOCK` / `STEP_UP_APPROVAL` stays terminal; a masking or exception outcome continues to the later checks on the **masked** text |
 | Observability buyers expect | LLMOps gateways log full prompts; UMAI must not (AGENTS rule 1) | B | §6.12: metadata, tokens, cost, decisions, redacted excerpts only |
 | Evidence | Added latency per call, streaming hold-back cost, masking survival rate | A and B | §8 (AGENTS rule 6) |

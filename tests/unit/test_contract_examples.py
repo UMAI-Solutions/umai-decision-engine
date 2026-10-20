@@ -23,7 +23,7 @@ from umai_decision_engine.contracts.evaluation import (
     InputTooLargeBody,
     ValidationErrorBody,
 )
-from umai_decision_engine.contracts.policy_tests import PolicyTestFile
+from umai_decision_engine.contracts.policy_tests import GoldenCase, PolicyTestFile
 from umai_decision_engine.policy.manifest import BundleManifest
 from umai_decision_engine.policy.validate import validate_bundle
 
@@ -53,10 +53,13 @@ def test_entity_detection_example() -> None:
 
 
 def test_policy_tests_example() -> None:
-    (example,) = _blocks("contracts/policy-tests.md", "yaml")
+    example, *cases = _blocks("contracts/policy-tests.md", "yaml")
     test_file = PolicyTestFile.model_validate(yaml.safe_load(example))
     for case in test_file.cases:
         case.input.merged_over(test_file.defaults)
+    assert len(cases) == 1  # the model_answers example (0.3)
+    for case in yaml.safe_load(cases[0]):
+        GoldenCase.model_validate(case).input.merged_over(test_file.defaults)
 
 
 def test_policy_bundle_examples() -> None:
