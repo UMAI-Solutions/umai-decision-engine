@@ -153,6 +153,43 @@ def test_a_provider_in_use_cannot_be_removed(control) -> None:
     assert control.delete("/v1/providers/contoso-hr").status_code == 200
 
 
+def _default_provider(control) -> str:
+    listed = control.get("/v1/providers").json()["providers"]
+    return next(p["provider_id"] for p in listed if p["default"])
+
+
+def test_the_default_provider_never_moves_to_openai_silently(control) -> None:
+    """Review fix (gateway-api 0.12): callers' Azure keys must not end up at api.openai.com."""
+
+    control.put("/v1/providers/contoso-hr", json={**AZURE, "default": True})
+    control.put("/v1/applications/hr-assistant", json=APP)  # bare model names → the default
+
+    # Re-saving the default without the flag keeps it the default.
+    assert (
+        control.put("/v1/providers/contoso-hr", json={**AZURE, "region": "eu"}).status_code == 200
+    )
+    assert _default_provider(control) == "contoso-hr"
+
+    # Deleting it while an application relies on it is refused, and nothing changes.
+    refused = control.delete("/v1/providers/contoso-hr")
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["detail"]["error"] == "provider_in_use"
+    assert "hr-assistant" in refused.json()["detail"]["detail"]
+    assert _default_provider(control) == "contoso-hr"
+
+    # An application limited to other providers does not rely on the default.
+    control.put("/v1/applications/hr-assistant", json={**APP, "providers": ["openai"]})
+    assert control.delete("/v1/providers/contoso-hr").status_code == 200
+    assert _default_provider(control) == "openai"
+
+
+def test_only_an_explicit_false_unmarks_the_default(control) -> None:
+    control.put("/v1/providers/contoso-hr", json={**AZURE, "default": True})
+    saved = control.put("/v1/providers/contoso-hr", json={**AZURE, "default": False})
+    assert saved.status_code == 200 and saved.json()["provider"]["default"] is False
+    assert _default_provider(control) == "openai"
+
+
 def test_gateway_settings_are_defaults(control) -> None:
     assert control.get("/v1/gateway/settings").json()["gateway"]["refusal"] == "error"
     saved = control.put(

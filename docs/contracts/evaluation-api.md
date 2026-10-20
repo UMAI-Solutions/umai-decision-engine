@@ -1,6 +1,6 @@
 # Contract: evaluation API
 
-**Version:** 0.10 · **Endpoints:** `POST /v1/evaluate`, `GET /v1/bundles`, `POST /v1/bundles/reload`, `POST /v1/detect` (development) · **Health:** `GET /healthz`, `GET /readyz`
+**Version:** 0.11 · **Endpoints:** `POST /v1/evaluate`, `GET /v1/bundles`, `POST /v1/bundles/reload`, `POST /v1/detect` (development) · **Health:** `GET /healthz`, `GET /readyz`
 
 `/readyz` returns 200 only after Presidio analyzers are loaded and warmed up, the policy
 bundles are loaded, and the configured L1b provider answered a probe.
@@ -45,7 +45,7 @@ not part of this API ([ADR-0010](../adr/0010-l2-asynchronous-review.md)).
 | `timestamp` | RFC 3339 string | yes | Caller time |
 | `tenant_id` | string | no (0.6) | The credential's tenant is authoritative (ADR-0023 §5): omitted → filled from the API key; present → must equal it, else 403 `tenant_mismatch`. Required with the shared operator token (400 `tenant_required`). Selects HMAC key and history namespace |
 | `bundle.id` | string | yes, unless the key belongs to an application (0.10) | Policy bundle to evaluate against. A key that belongs to an application ([credentials](credentials.md) 0.6) is evaluated with the application's guardrail: omitted → filled with it; another id or `bundle_inline` → 403 `guardrail_mismatch`; the key's application missing or disabled → 403 `unknown_application`. Any other caller must name it (422 `bundle_required`) |
-| `bundle.version` | int | no | Explicit version; omitted → the bundle's **active** version (ADR-0012) |
+| `bundle.version` | int | no | Explicit version; omitted → the bundle's **active** version (ADR-0012). A key that belongs to an application always gets its guardrail's active version: another version → 403 `guardrail_mismatch` (0.11) |
 | `bundle_inline` | PolicyBundle | no | R&D only: evaluate against an inline bundle; disabled unless `settings.allow_inline_bundles` |
 | `phase` | Phase | yes | |
 | `content.messages[]` | `{role: system\|user\|assistant, content}` | yes | Same as `umai-engine` `ChatMessage` |
@@ -246,6 +246,9 @@ applies, visibly. The check runs after admission and schema validation.
 
 ## Changelog
 
+- 0.11 (2026-10-20, review fix): a key that belongs to an application cannot pin
+  `bundle.version`; a version other than the guardrail's active one is refused (403
+  `guardrail_mismatch`). Requests 0.2–0.11 accepted.
 - 0.10 (2026-10-20): one guardrail per application on every path (ADR-0039 §2): `bundle` is
   optional for a key that belongs to an application, whose guardrail applies; errors
   `guardrail_mismatch`, `unknown_application` (403) and `bundle_required` (422). The prompt

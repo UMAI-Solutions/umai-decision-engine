@@ -19,8 +19,10 @@ from umai_decision_engine.contracts.common import (
 )
 from umai_decision_engine.contracts.entities import EntitySummary
 
-CONTRACT_VERSION = "0.10"
-_ACCEPTED_REQUEST_VERSIONS = Literal["0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "0.10"]
+CONTRACT_VERSION = "0.11"
+_ACCEPTED_REQUEST_VERSIONS = Literal[
+    "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "0.10", "0.11"
+]
 
 # ------------------------------------------------------------------ request
 
@@ -172,9 +174,9 @@ class ErrorInfo(ContractModel):
 
 
 class EvaluationResponse(ContractModel):
-    contract_version: Literal["0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9"] = (
-        CONTRACT_VERSION
-    )
+    contract_version: Literal[
+        "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "0.10", "0.11"
+    ] = CONTRACT_VERSION
     request_id: str
     tenant_id: str
     bundle: BundleInfo

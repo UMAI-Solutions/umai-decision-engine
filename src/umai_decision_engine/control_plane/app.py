@@ -652,6 +652,12 @@ async def put_provider(
         data = await _read_file(request, tenant)
         providers = _entries(data, "providers")
         created = not any(_is(p, "provider_id", provider_id) for p in providers)
+        if "default" not in body and any(
+            _is(p, "provider_id", provider_id) and p.get("default") is True for p in providers
+        ):
+            # Re-saving the default without the flag keeps it the default: only an explicit
+            # `default: false` moves it, so pass-through keys never silently go elsewhere.
+            body["default"] = True
         if body.get("default") is True:
             providers = [
                 {**p, "default": False} if isinstance(p, dict) and p.get("default") else p
@@ -681,7 +687,8 @@ async def delete_provider(
     actor: Actor = _ALLOW[Action.GATEWAY_WRITE],
 ) -> dict[str, Any]:
     """Remove a provider; refused while an application names it (allowed providers, aliases or
-    fallback). Removing a defined ``openai`` brings the built-in one back."""
+    fallback) or, for the provider marked default, while an application sends bare model names
+    to it. Removing a defined ``openai`` brings the built-in one back."""
 
     async with _FILE_LOCKS[tenant.slug]:
         data = await _read_file(request, tenant)
@@ -708,6 +715,20 @@ async def delete_provider(
                 409,
                 {"error": "provider_in_use", "detail": f"application {users[0]} uses it"},
             )
+        marked = next((p for p in content.providers if p.default), None)
+        if marked is not None and marked.provider_id == provider_id:
+            # Without it the built-in OpenAI provider becomes the default, and callers' keys
+            # for this provider would go to api.openai.com.
+            relying = sorted(a.application_id for a in content.applications if not a.providers)
+            if relying:
+                raise HTTPException(
+                    409,
+                    {
+                        "error": "provider_in_use",
+                        "detail": f"application {relying[0]} sends its models to it as the "
+                        "default provider; mark another provider default first",
+                    },
+                )
         data["providers"] = [p for p in providers if not _is(p, "provider_id", provider_id)]
         await _write_file(request, tenant, data)
     log.info(

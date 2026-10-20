@@ -1,6 +1,6 @@
 # Contract: gateway API
 
-**Version:** 0.11 · **Status:** implemented for Chat Completions and the Responses API,
+**Version:** 0.12 · **Status:** implemented for Chat Completions and the Responses API,
 non-streaming and streaming, and for embeddings (input checks): applications, providers, input, tool-result, answer and tool-call checks, masking,
 restoration and refusals (WP2, WP3, WP5; [design](../architecture/ai-gateway.md) §8) · **Endpoints**
 (gateway host, e.g. `eu.gateway.<domain>`): `POST /v1/chat/completions`, `POST /v1/responses`, `POST /v1/embeddings`,
@@ -163,7 +163,7 @@ policy-service route: the person's tenant, or `X-Umai-Tenant` with the control t
 | `PUT /v1/applications/{application_id}` with one application → `{"tenant_id", "application"}` (201 when created) | `application.write` | owner, admin; operator |
 | `DELETE /v1/applications/{application_id}` → `{"tenant_id", "deleted"}` | `application.write` | owner, admin; operator |
 | `GET /v1/providers` → `{"tenant_id", "providers": [...]}`; each with `default` and `builtin` | `gateway.read` | owner, admin, policy editor, approver, viewer; operator |
-| `PUT /v1/providers/{provider_id}` → `{"tenant_id", "provider"}` (201 when created); `default: true` moves the default | `gateway.write` | owner, admin; operator |
+| `PUT /v1/providers/{provider_id}` → `{"tenant_id", "provider"}` (201 when created); `default: true` moves the default; re-saving the default without `default` keeps it the default, only `default: false` unmarks it (0.12) | `gateway.write` | owner, admin; operator |
 | `DELETE /v1/providers/{provider_id}` → `{"tenant_id", "deleted"}` | `gateway.write` | owner, admin; operator |
 | `GET` / `PUT /v1/gateway/settings` → `{"tenant_id", "gateway": {...}}` | `gateway.read` / `gateway.write` | as above |
 
@@ -171,7 +171,10 @@ policy-service route: the person's tenant, or `X-Umai-Tenant` with the control t
   fallback rules, allow-list); for an application also: its `guardrail` is a guardrail of this
   tenant. The file is then written atomically.
 - **`DELETE`** is refused while an active key belongs to the application, or while an
-  application names the provider (allowed providers, alias or fallback target). The built-in
+  application names the provider (allowed providers, alias or fallback target). The provider
+  marked `default` is also refused while an application without a `providers` list exists: its
+  bare model names would silently go to the built-in `openai` provider, and with them the
+  callers' keys for this provider (0.12); mark another provider default first. The built-in
   `openai` provider can be disabled, not deleted.
 - **Refusals:**
   - HTTP 422 `{"detail": {"error": "invalid_configuration" | "unknown_guardrail", "detail":
@@ -399,6 +402,8 @@ latency. No record carries prompt, answer, provider key or mask map (ADR-0035).
 
 ## Changelog
 
+- 0.12 (2026-10-20, review fixes after merging): the default provider never moves silently:
+  `PUT` without `default` keeps it, `DELETE` is refused while an application relies on it.
 - 0.11 (2026-10-20, review fixes before merging): request fields the guardrail cannot check
   are refused (`prediction`, audio answers, Responses `prompt.variables`) or left out
   (`metadata`, participant `name`, log probabilities, reasoning summaries); answers lose
