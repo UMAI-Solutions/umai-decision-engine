@@ -53,14 +53,17 @@ def write_bundle(tmp_path: Path) -> Callable[..., Path]:
         *,
         active: int | None = None,
         manifest: str | None = None,
+        tenant: str | None = None,
     ) -> Path:
-        directory = root / bundle_id / str(version)
+        # tenant: owned by that tenant (policies/tenants/<tenant>/..., policy-bundle 0.8)
+        base = root if tenant is None else root / "tenants" / tenant
+        directory = base / bundle_id / str(version)
         directory.mkdir(parents=True, exist_ok=True)
         (directory / "bundle.yaml").write_bytes(content.encode("utf-8"))  # exact bytes: hashes
         if manifest is not None:
             (directory / "manifest.json").write_bytes(manifest.encode("utf-8"))
         if active is not None:
-            (root / bundle_id / "active").write_text(str(active), encoding="utf-8")
+            (base / bundle_id / "active").write_text(str(active), encoding="utf-8")
         return directory
 
     _write.root = root  # type: ignore[attr-defined]

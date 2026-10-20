@@ -1,6 +1,6 @@
 # Contract: policy bundle
 
-**Version:** 0.7
+**Version:** 0.8
 
 The configuration the engine evaluates against (successor of `umai-engine`'s
 `GuardrailSnapshot`). A bundle is a signed, immutable artifact; the engine only reads it
@@ -11,7 +11,10 @@ in R&D and by the policy control plane later ([ADR-0013](../adr/0013-policy-life
 
 ```text
 policies/
-└── gr-demo-data-protection/          # bundle id
+├── tenants/                          # tenant-owned bundles (0.8)
+│   └── acme/                         # tenant id
+│       └── gr-default/1/…            # same layout as below
+└── gr-demo-data-protection/          # bundle id (owned by the default tenant)
     ├── active                       # text file: the active version, e.g. "3"
     ├── 2/
     │   ├── bundle.yaml
@@ -28,6 +31,7 @@ policies/
 {
   "bundle_id": "gr-demo-data-protection",
   "version": 3,
+  "tenant_id": "tenant-demo",
   "contract_version": "0.3",
   "engine": ">=0.1,<1.0",
   "created_at": "2026-10-16T09:00:00Z",
@@ -42,6 +46,16 @@ the **exact bytes** of `bundle.yaml` (line endings included — `.gitattributes`
 conversion under `policies/`, otherwise Git on Windows breaks signed bundles); `signature` is verified with the public key `key_id` from settings and is
 required when `settings.require_signed_bundles` is true. In development an unsigned bundle may
 omit `manifest.json`; the engine then computes the hash itself and marks the bundle `unsigned`.
+
+**Ownership (0.8, ADR-0019 §2).** A bundle belongs to one tenant. Under `tenants/<tenant_id>/`
+the directory names the owner; directly under the root, the owner is the deployment's default
+tenant (`UMAI_DE_DEFAULT_TENANT_ID`), which keeps single-tenant installs and existing layouts
+working. `manifest.tenant_id` is signed with the rest and, when present, must equal the owner
+from the layout, otherwise the version does not load. The store resolves `(tenant, bundle id)`
+only, so two tenants may use the same bundle id. Tenant directory names follow the tenant id
+pattern (`a-z 0-9 -`); `tenants` cannot be used as a bundle id. The policy service writes a
+tenant's versions under its directory and stamps `tenant_id`. (ADR-0025 §8 later moves SaaS
+bundles into the tenant store, served by `http_pull`; the ownership rule stays.)
 
 
 Secrets never appear in a bundle. Provider credentials and HMAC keys come from settings.
@@ -193,6 +207,9 @@ The loader rejects a bundle when:
 
 ## Changelog
 
+- 0.8 (2026-10-19): tenant-owned bundles: `tenants/<tenant_id>/` layout, signed
+  `manifest.tenant_id`, unowned bundles belong to the default tenant (ADR-0019 §2). Manifests
+  without `tenant_id` verify unchanged.
 - 0.7 (2026-10-17): `l0.policies[].enabled` (on / off, ADR-0022).
 - 0.6 (2026-10-17): `l0.policies` (named, versioned, roles, sensitivity) and guardrail
   `name` / `description` (ADR-0021). Bundles ≤ 0.5 still load.

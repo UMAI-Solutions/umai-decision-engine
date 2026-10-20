@@ -70,12 +70,12 @@ roles (8.x). Not deployed on `umai-beta` yet: Caddy basic auth stays in front of
 
 | ID | L | Requirement | Status | Evidence / gap | Closes with |
 |---|---|---|---|---|---|
-| 8.1.1 / 8.1.2 | 1/2 | Documented function- and data-level (and field-level) access rules | **missing** | no rules document; this analysis and ADR-0029 are the first | ADR-0029 §3 |
+| 8.1.1 / 8.1.2 | 1/2 | Documented function- and data-level (and field-level) access rules | **holds** for the policy service (2026-10-19) | permission matrix as code (`control_plane/authz.py`, ADR-0029 §3); `tests/unit/test_authz.py` fails on a route without a declared action | organization routes (slice (b)) join the same table |
 | 8.2.1 | 1 | Function-level access only for permitted consumers | **holds** | scopes per route; `bundles:reload` is operator-only | — |
-| 8.2.2 | 1 | Object-level access (no IDOR / BOLA) | **missing** | any token reads any bundle (`GET /v1/bundles/{id}/versions/{v}`), any guardrail draft | ADR-0023, ADR-0025 |
+| 8.2.2 | 1 | Object-level access (no IDOR / BOLA) | **holds** (2026-10-19) | bundles are tenant-owned: a key resolves, lists and reads only its tenant's (`tests/integration/test_tenant_bundles.py`); drafts are RLS-scoped; a person acts only in the tenant of their assertion | — |
 | 8.2.3 | 2 | Field-level access | n/a | — | with roles |
-| 8.3.1 | 1 | Enforce in a trusted service layer, not the client | partial | engine decides policy in code (good); console actions are not authorized anywhere | ADR-0029 §1 |
-| 8.4.1 | 2 | Multi-tenant cross-tenant controls | **holds** for keys and the store | tenant from the credential (T1 green); Postgres RLS with FORCE and `WITH CHECK` (I1–I3 green); bundles still shared | ADR-0025 §8 for bundles |
+| 8.3.1 | 1 | Enforce in a trusted service layer, not the client | partial | the policy service authorizes every route from the on-behalf-of assertion (2026-10-19); the console does not sign assertions yet, so `umai-beta` runs `actor_assertion: optional` | console signing (slice (b)) |
+| 8.4.1 | 2 | Multi-tenant cross-tenant controls | **holds** for keys, the store and bundles | tenant from the credential (T1 green); Postgres RLS with FORCE and `WITH CHECK` (I1–I3 green); tenant-owned bundles with the owner in the signed manifest (2026-10-19) | ADR-0025 §8: bundles move into Postgres with `http_pull` |
 | 15.3.1 | 1 | Return only necessary fields | holds | response models with `exclude_none`; bundle content is policy data only | — |
 | 15.3.3 | 2 | Restrict writable fields (mass assignment) | holds | Pydantic models with `extra="forbid"` on contracts (422 on unknown fields: `tests/integration/test_api.py::test_malformed_request_is_422`) | — |
 | 15.3.4 | 2 | Client IP from trusted headers only | n/a | no IP use yet | ADR-0030 (audit `ip`) |
@@ -134,7 +134,7 @@ ASVS tally over the rows above (2026-10-18, after ADR-0023/0025 code): **holds 1
 | CC6.6 protection against external threats | TLS, ingress, rate limiting, WAF | **missing** | none deployed | launch plan S0 |
 | CC6.7 restrict transmission/removal of information | Content never leaves L0; exports controlled; encryption in transit | partial | ADR-0005 holds in code; no TLS, no export controls yet | ADR-0030, S0 |
 | CC6.8 malicious software prevention/detection | Dependency scanning, image scanning, signed images | **missing** | — | launch plan S0 |
-| CC7.1 detect configuration changes and vulnerabilities | Audit events, IaC drift detection, vulnerability scanning | **missing** | change log without actor (readiness A1) | ADR-0030, S0 |
+| CC7.1 detect configuration changes and vulnerabilities | Audit events, IaC drift detection, vulnerability scanning | partial | the change log names the actor of every publish and activation (readiness A1 green, 2026-10-19); audit events, drift detection and scanning are missing | ADR-0030, S0 |
 | CC7.2 monitor for anomalies | Metrics, alerts, usage anomalies | **missing** | no metrics pipeline | ADR-0028 §7, S0 |
 | CC7.3 / CC7.4 evaluate events; incident response program | IR plan, on-call, runbooks, status page | **missing** | — | launch plan S0 (company + ops) |
 | CC7.5 recovery | Backups, restore drill | **missing** | nothing to back up yet; drill defined | ADR-0025, verification plan |

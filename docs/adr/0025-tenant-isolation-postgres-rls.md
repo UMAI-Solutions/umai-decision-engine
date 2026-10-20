@@ -1,6 +1,6 @@
 # ADR-0025 — Tenant isolation: one Postgres per region with row-level security, per-tenant envelope encryption, SQLite retired from SaaS
 
-- **Status:** Accepted (product owner, 2026-10-18). Implemented for `tenants`, `api_keys`, `drafts` (`db/`, migration 0001, `tests/db/test_isolation.py`); §4 envelope encryption and §8 bundles in the store follow
+- **Status:** Accepted (product owner, 2026-10-18). Implemented for `tenants`, `api_keys`, `drafts` (`db/`, migration 0001, `tests/db/test_isolation.py`); bundles tenant-owned in the directory layout since 2026-10-19 (policy-bundle 0.8); §4 envelope encryption and §8 bundles in the store with `http_pull` follow
 - **Date:** 2026-10-17
 - **Deciders:** engineering proposal; product owner
 - **Builds on:** ADR-0012 (signed bundles), ADR-0018 (regions), ADR-0019 §2 (tenant-owned data), ADR-0022 (policy service); amended by ADR-0031 (Azure Database for PostgreSQL Flexible Server, Key Vault wrapping); amended by ADR-0033 (accepted 2026-10-18: global `users` table, read-only `member_self` policy on `memberships`)

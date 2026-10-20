@@ -116,6 +116,22 @@ def test_t1_credential_tenant_must_match_body_tenant(write_bundle, detector, tmp
     assert response.json()["detail"]["error"] == "tenant_mismatch"
 
 
+def test_a1_activation_is_attributed_to_an_actor(write_bundle, detector, tmp_path) -> None:
+    """Every configuration change records the acting principal: the person of the on-behalf-of
+    assertion, or the operator (control token alone, development here). Closed 2026-10-19."""
+
+    write_bundle(bundle_yaml(), active=1)
+    write_bundle(bundle_yaml(version=2), version=2)
+    settings = Settings(
+        env="development", policy_dir=write_bundle.root, control_db_path=tmp_path / "c.sqlite"
+    )
+    with TestClient(create_control_app(settings, detector=detector)) as control:
+        activated = control.post("/v1/guardrails/gr-test/activate", json={"version": 2})
+        assert activated.status_code == 200
+        history = control.get("/v1/guardrails/gr-test").json()["history"]
+    assert history and history[-1].get("actor")
+
+
 # ------------------------------------------------------------ gaps (xfail until closed)
 
 
@@ -143,22 +159,3 @@ def test_l1_validation_errors_do_not_echo_raw_content(client) -> None:
     response = client.post("/v1/evaluate", json=bad)
     assert response.status_code == 422
     assert TCKN not in response.text
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason="GAP-A1: the change log has no actor; audit events need who did it (ADR-0030)",
-)
-def test_a1_activation_is_attributed_to_an_actor(write_bundle, detector, tmp_path) -> None:
-    """Every configuration change records the acting principal."""
-
-    write_bundle(bundle_yaml(), active=1)
-    write_bundle(bundle_yaml(version=2), version=2)
-    settings = Settings(
-        env="development", policy_dir=write_bundle.root, control_db_path=tmp_path / "c.sqlite"
-    )
-    with TestClient(create_control_app(settings, detector=detector)) as control:
-        activated = control.post("/v1/guardrails/gr-test/activate", json={"version": 2})
-        assert activated.status_code == 200
-        history = control.get("/v1/guardrails/gr-test").json()["history"]
-    assert history and history[-1].get("actor")

@@ -91,7 +91,11 @@ class Evaluator:
             return self._store.load_inline(
                 request.bundle_inline
             ), None  # may raise validation error
-        loaded = self._store.get(request.bundle.id, request.bundle.version)
+        # The request's tenant comes from the credential (ADR-0023 §5); only its own
+        # bundles resolve (ADR-0019 §2).
+        loaded = self._store.get(
+            request.bundle.id, request.bundle.version, tenant_id=request.tenant_id
+        )
         if loaded is None:
             what = f"v{request.bundle.version}" if request.bundle.version else "active version"
             return None, ErrorInfo(

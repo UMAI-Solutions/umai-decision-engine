@@ -45,6 +45,8 @@ def make_client(write_bundle, detector):
         env = settings_overrides.pop("env", "development")
         if env != "development":
             settings_overrides.setdefault("api_token", API_TOKEN)
+        # The fixture's bundles sit directly under the policy root: the default tenant's.
+        settings_overrides.setdefault("default_tenant_id", "tenant-a")
         settings = Settings(
             env=env,
             policy_dir=write_bundle.root,

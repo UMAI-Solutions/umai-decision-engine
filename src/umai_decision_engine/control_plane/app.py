@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import hmac
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -19,8 +20,16 @@ from pydantic import BaseModel, Field
 
 from umai_decision_engine import __version__
 from umai_decision_engine.contracts.credentials import KeyEnv, Scope
+from umai_decision_engine.control_plane.actors import load_public_key
+from umai_decision_engine.control_plane.authz import (
+    Action,
+    Actor,
+    actor_of,
+    authorize,
+    check_tenant,
+)
 from umai_decision_engine.control_plane.keys import KeyPublisher, KeyService
-from umai_decision_engine.control_plane.repository import GuardrailRepository
+from umai_decision_engine.control_plane.repository import GuardrailRepositories
 from umai_decision_engine.control_plane.service import PolicyService, ServiceError
 from umai_decision_engine.db.migrate import upgrade
 from umai_decision_engine.db.repositories import (
@@ -36,6 +45,8 @@ from umai_decision_engine.l0.detector import EntityDetector
 from umai_decision_engine.l0.recognizers.catalog import SPECS_BY_ENTITY, TAG_BY_ENTITY
 from umai_decision_engine.settings import Settings, get_settings
 from umai_decision_engine.telemetry.logging import configure_logging
+
+log = logging.getLogger("umai.control_plane")
 
 _TESTS_KEY = b"umai-de-policy-service-tests"  # golden-test runs only; hashes are never shown
 
@@ -108,11 +119,21 @@ TENANT_HEADER = "X-Umai-Tenant"
 
 
 async def current_tenant(request: Request) -> TenantInfo:
-    """The tenant a control-plane request acts for: the ``X-Umai-Tenant`` header, else the
-    configured default tenant. The operator credential (control token) may act for any tenant;
-    per-person authorisation arrives with the console login (ADR-0024, ADR-0029)."""
+    """The tenant a control-plane request acts for. A person: the tenant their assertion names
+    (``X-Umai-Tenant``, if sent, must agree). The operator (control token alone): the
+    ``X-Umai-Tenant`` header, else the configured default tenant (ADR-0023 §1, ADR-0033 §1)."""
 
-    slug = request.headers.get(TENANT_HEADER) or request.app.state.settings.default_tenant_id
+    actor = actor_of(request)
+    header = request.headers.get(TENANT_HEADER)
+    if actor.kind == "person":
+        if actor.tenant_id is None:
+            raise HTTPException(
+                403, {"error": "tenant_required", "detail": "the assertion names no tenant"}
+            )
+        check_tenant(actor, header or actor.tenant_id)
+        slug = actor.tenant_id
+    else:
+        slug = header or request.app.state.settings.default_tenant_id
     tenant = await request.app.state.tenants.get(slug)
     if tenant is None:
         raise HTTPException(404, f"tenant {slug} does not exist")
@@ -121,6 +142,8 @@ async def current_tenant(request: Request) -> TenantInfo:
 
 router = APIRouter(prefix="/v1", dependencies=[Depends(require_token)])
 _TENANT = Depends(current_tenant)
+# One dependency per action of the permission matrix (ADR-0029 §3); every route takes one.
+_ALLOW = {action: Depends(authorize(action)) for action in Action}
 
 
 def _service(request: Request) -> PolicyService:
@@ -132,7 +155,7 @@ def _keys(request: Request) -> KeyService:
 
 
 @router.get("/catalog")
-async def catalog() -> dict[str, Any]:
+async def catalog(actor: Actor = _ALLOW[Action.CATALOG_READ]) -> dict[str, Any]:
     return {
         "entities": [
             {"type": entity, "tag": TAG_BY_ENTITY.get(entity), "group": _catalog_group(entity)}
@@ -142,62 +165,107 @@ async def catalog() -> dict[str, Any]:
 
 
 @router.get("/guardrails")
-async def list_guardrails(request: Request, tenant: TenantInfo = _TENANT) -> dict[str, Any]:
+async def list_guardrails(
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.GUARDRAIL_READ],
+) -> dict[str, Any]:
     return {"guardrails": await _service(request).list(tenant)}
 
 
 @router.get("/guardrails/{bundle_id}")
 async def guardrail(
-    bundle_id: str, request: Request, tenant: TenantInfo = _TENANT
+    bundle_id: str,
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.GUARDRAIL_READ],
 ) -> dict[str, Any]:
     return await _service(request).summary(tenant, bundle_id)
 
 
 @router.post("/guardrails/{bundle_id}/draft", status_code=201)
 async def create_draft(
-    bundle_id: str, body: DraftCreate, request: Request, tenant: TenantInfo = _TENANT
+    bundle_id: str,
+    body: DraftCreate,
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.DRAFT_WRITE],
 ) -> dict[str, Any]:
     return await _service(request).create_draft(tenant, bundle_id, body.base_version)
 
 
 @router.get("/guardrails/{bundle_id}/draft")
 async def get_draft(
-    bundle_id: str, request: Request, tenant: TenantInfo = _TENANT
+    bundle_id: str,
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.GUARDRAIL_READ],
 ) -> dict[str, Any]:
     return await _service(request).get_draft(tenant, bundle_id)
 
 
 @router.put("/guardrails/{bundle_id}/draft")
 async def save_draft(
-    bundle_id: str, body: DraftSave, request: Request, tenant: TenantInfo = _TENANT
+    bundle_id: str,
+    body: DraftSave,
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.DRAFT_WRITE],
 ) -> dict[str, Any]:
     return await _service(request).save_draft(tenant, bundle_id, body.bundle)
 
 
 @router.delete("/guardrails/{bundle_id}/draft", status_code=204)
-async def discard_draft(bundle_id: str, request: Request, tenant: TenantInfo = _TENANT) -> None:
+async def discard_draft(
+    bundle_id: str,
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.DRAFT_WRITE],
+) -> None:
     await _service(request).discard_draft(tenant, bundle_id)
 
 
 @router.post("/guardrails/{bundle_id}/draft/test")
 async def test_draft(
-    bundle_id: str, request: Request, tenant: TenantInfo = _TENANT
+    bundle_id: str,
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.DRAFT_TEST],
 ) -> dict[str, Any]:
     return await _service(request).test_draft(tenant, bundle_id)
 
 
 @router.post("/guardrails/{bundle_id}/draft/publish")
 async def publish(
-    bundle_id: str, body: PublishRequest, request: Request, tenant: TenantInfo = _TENANT
+    bundle_id: str,
+    body: PublishRequest,
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.GUARDRAIL_PUBLISH],
 ) -> dict[str, Any]:
+    if body.activate:  # publish-and-activate also needs the activation permission
+        await authorize(Action.GUARDRAIL_ACTIVATE)(request)
     return await _service(request).publish(
-        tenant, bundle_id, activate=body.activate, accept=body.accept, note=body.note
+        tenant,
+        bundle_id,
+        activate=body.activate,
+        accept=body.accept,
+        note=body.note,
+        actor=actor.record(),
     )
 
 
 @router.post("/guardrails/{bundle_id}/activate")
-async def activate(bundle_id: str, body: ActivateRequest, request: Request) -> dict[str, Any]:
-    return await asyncio.to_thread(_service(request).activate, bundle_id, body.version, body.note)
+async def activate(
+    bundle_id: str,
+    body: ActivateRequest,
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.GUARDRAIL_ACTIVATE],
+) -> dict[str, Any]:
+    return await asyncio.to_thread(
+        _service(request).activate, tenant, bundle_id, body.version, body.note, actor.record()
+    )
 
 
 # ------------------------------------------------------------------ tenants and API keys
@@ -215,12 +283,16 @@ async def _tenant(request: Request, tenant_id: str) -> TenantInfo:
 
 
 @router.get("/tenants")
-async def list_tenants(request: Request) -> dict[str, Any]:
+async def list_tenants(
+    request: Request, actor: Actor = _ALLOW[Action.TENANT_READ]
+) -> dict[str, Any]:
     return {"tenants": [t.public() for t in await _tenant_repo(request).list()]}
 
 
 @router.post("/tenants", status_code=201)
-async def create_tenant(body: TenantCreate, request: Request) -> dict[str, Any]:
+async def create_tenant(
+    body: TenantCreate, request: Request, actor: Actor = _ALLOW[Action.TENANT_CREATE]
+) -> dict[str, Any]:
     region = body.region or request.app.state.settings.region
     try:
         tenant = await _tenant_repo(request).create(body.id, body.name or body.id, region)
@@ -230,7 +302,9 @@ async def create_tenant(body: TenantCreate, request: Request) -> dict[str, Any]:
 
 
 @router.get("/tenants/{tenant_id}")
-async def get_tenant(tenant_id: str, request: Request) -> dict[str, Any]:
+async def get_tenant(
+    tenant_id: str, request: Request, actor: Actor = _ALLOW[Action.TENANT_READ]
+) -> dict[str, Any]:
     return (await _tenant(request, tenant_id)).public()
 
 
@@ -239,15 +313,24 @@ def _key_view(record) -> dict[str, Any]:
 
 
 @router.get("/tenants/{tenant_id}/keys")
-async def list_keys(tenant_id: str, request: Request) -> dict[str, Any]:
+async def list_keys(
+    tenant_id: str, request: Request, actor: Actor = _ALLOW[Action.KEY_READ]
+) -> dict[str, Any]:
+    check_tenant(actor, tenant_id)
     tenant = await _tenant(request, tenant_id)
     return {"keys": [_key_view(k) for k in await _keys(request).list(tenant)]}
 
 
 @router.post("/tenants/{tenant_id}/keys", status_code=201)
-async def create_key(tenant_id: str, body: KeyCreate, request: Request) -> dict[str, Any]:
+async def create_key(
+    tenant_id: str,
+    body: KeyCreate,
+    request: Request,
+    actor: Actor = _ALLOW[Action.KEY_CREATE],
+) -> dict[str, Any]:
     """Creates a key; the secret is in the response once and never stored (ADR-0023 §2)."""
 
+    check_tenant(actor, tenant_id)
     tenant = await _tenant(request, tenant_id)
     try:
         record, secret, published = await _keys(request).create(
@@ -256,7 +339,7 @@ async def create_key(tenant_id: str, body: KeyCreate, request: Request) -> dict[
             scopes=body.scopes,
             env=body.env,
             expires_at=body.expires_at,
-            created_by="control-token",
+            created_by="control-token" if actor.kind == "operator" else actor.label,
         )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
@@ -264,7 +347,13 @@ async def create_key(tenant_id: str, body: KeyCreate, request: Request) -> dict[
 
 
 @router.delete("/tenants/{tenant_id}/keys/{key_id}")
-async def revoke_key(tenant_id: str, key_id: str, request: Request) -> dict[str, Any]:
+async def revoke_key(
+    tenant_id: str,
+    key_id: str,
+    request: Request,
+    actor: Actor = _ALLOW[Action.KEY_REVOKE],
+) -> dict[str, Any]:
+    check_tenant(actor, tenant_id)
     tenant = await _tenant(request, tenant_id)
     try:
         record, published = await _keys(request).revoke(tenant, key_id)
@@ -274,7 +363,9 @@ async def revoke_key(tenant_id: str, key_id: str, request: Request) -> dict[str,
 
 
 @router.post("/tenants/{tenant_id}/keys/publish")
-async def publish_keys(tenant_id: str, request: Request) -> dict[str, Any]:
+async def publish_keys(
+    tenant_id: str, request: Request, actor: Actor = _ALLOW[Action.KEY_PUBLISH]
+) -> dict[str, Any]:
     """Rewrite the tenant's registry snapshot (after a signing-key change, or to repair)."""
 
     tenant = await _tenant(request, tenant_id)
@@ -315,8 +406,17 @@ def create_app(
         app.state.keys = KeyService(
             ApiKeyRepository(db), KeyPublisher(cfg.key_registry_dir, signing_key), cfg.region
         )
+        app.state.actor_keys = {
+            kid: load_public_key(value) for kid, value in cfg.actor_public_keys.items()
+        }
+        log.info(
+            "control_plane.actor_assertion mode=%s keys=%d%s",
+            cfg.actor_assertion,
+            len(app.state.actor_keys),
+            "" if cfg.actor_assertion == "required" else " (the control token acts as operator)",
+        )
         app.state.service = PolicyService(
-            GuardrailRepository(cfg.policy_dir),
+            GuardrailRepositories(cfg.policy_dir, cfg.default_tenant_id),
             DraftRepository(db),
             engine,
             signing_key,

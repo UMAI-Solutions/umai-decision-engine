@@ -2,6 +2,10 @@
 
 The only place policy lives in the process. Reloads build a complete new state and swap
 one reference, so a request sees either the old state or the new one, never a mix.
+
+Bundles belong to a tenant (ADR-0019 §2, policy-bundle 0.8): lookups take ``(tenant, bundle id)``
+and never resolve another tenant's bundle. Bundles without an owner in the source layout belong
+to the deployment's default tenant.
 """
 
 from __future__ import annotations
@@ -37,6 +41,7 @@ class LoadedBundle:
     key_id: str | None
     loaded_at: datetime
     location: str
+    tenant_id: str | None = None  # owner; None only for inline (playground) bundles
 
 
 @dataclass(frozen=True)
@@ -48,8 +53,8 @@ class LoadError:
 
 @dataclass(frozen=True)
 class StoreState:
-    bundles: Mapping[tuple[str, int], LoadedBundle] = field(default_factory=dict)
-    active: Mapping[str, int] = field(default_factory=dict)
+    bundles: Mapping[tuple[str, str, int], LoadedBundle] = field(default_factory=dict)
+    active: Mapping[tuple[str, str], int] = field(default_factory=dict)  # (tenant, id) -> version
     errors: tuple[LoadError, ...] = ()
     fingerprint: str | None = None
     reloaded_at: datetime | None = None
@@ -77,8 +82,10 @@ class BundleStore:
         *,
         public_keys: dict[str, str],
         require_signed: bool,
+        default_tenant: str = "default",
     ) -> None:
         self._source = source
+        self.default_tenant = default_tenant
         self._public_keys = dict(public_keys)
         self._require_signed = require_signed
         self._state = StoreState()
@@ -94,13 +101,21 @@ class BundleStore:
 
     # ----------------------------------------------------------- lookup
 
-    def get(self, bundle_id: str, version: int | None = None) -> LoadedBundle | None:
+    def get(
+        self, bundle_id: str, version: int | None = None, *, tenant_id: str | None = None
+    ) -> LoadedBundle | None:
+        """A tenant's bundle (the default tenant when ``tenant_id`` is None); never another's."""
+
+        tenant = tenant_id or self.default_tenant
         state = self._state
         if version is None:
-            version = state.active.get(bundle_id)
+            version = state.active.get((tenant, bundle_id))
             if version is None:
                 return None
-        return state.bundles.get((bundle_id, version))
+        return state.bundles.get((tenant, bundle_id, version))
+
+    def owner(self, artifact: BundleArtifact) -> str:
+        return artifact.tenant_id or self.default_tenant
 
     def load_inline(self, bundle: PolicyBundle) -> LoadedBundle:
         """Validate a request-supplied bundle (playground; development only). Not stored."""
@@ -122,10 +137,15 @@ class BundleStore:
 
     def _load(self, artifact: BundleArtifact) -> LoadedBundle:
         signed, key_id = False, None
+        owner = self.owner(artifact)
         if artifact.manifest_bytes is not None:
             manifest = BundleManifest.model_validate_json(artifact.manifest_bytes)
             if (manifest.bundle_id, manifest.version) != (artifact.bundle_id, artifact.version):
                 raise ManifestError("manifest bundle_id/version do not match the directory")
+            if manifest.tenant_id is not None and manifest.tenant_id != owner:
+                raise ManifestError(
+                    f"manifest tenant_id {manifest.tenant_id!r} does not match the owner {owner!r}"
+                )
             signed = verify_manifest(
                 manifest,
                 artifact.bundle_bytes,
@@ -146,6 +166,7 @@ class BundleStore:
             key_id=key_id,
             loaded_at=_now(),
             location=artifact.location,
+            tenant_id=owner,
         )
 
     def reload(self, *, force: bool = False) -> bool:
@@ -158,11 +179,11 @@ class BundleStore:
 
         snapshot = self._source.scan()
         errors = [LoadError(loc, msg, _now()) for loc, msg in snapshot.errors]
-        bundles: dict[tuple[str, int], LoadedBundle] = {}
-        seen: set[tuple[str, int]] = set()
+        bundles: dict[tuple[str, str, int], LoadedBundle] = {}
+        seen: set[tuple[str, str, int]] = set()
 
         for artifact in snapshot.artifacts:
-            key = (artifact.bundle_id, artifact.version)
+            key = (self.owner(artifact), artifact.bundle_id, artifact.version)
             seen.add(key)
             old = previous.bundles.get(key)
             digest = sha256_hex(artifact.bundle_bytes)
@@ -189,28 +210,34 @@ class BundleStore:
                 errors.append(LoadError(artifact.location, _short(exc), _now()))
 
         for key, old in previous.bundles.items():
-            if key not in seen and previous.active.get(key[0]) == key[1]:
+            if key not in seen and previous.active.get(key[:2]) == key[2]:
                 bundles[key] = old
                 errors.append(
                     LoadError(old.location, "active version removed from source; kept", _now())
                 )
 
-        active: dict[str, int] = {}
-        for bundle_id in set(snapshot.active) | set(previous.active):
-            wanted = snapshot.active.get(bundle_id)
-            fallback = previous.active.get(bundle_id)
-            if wanted is not None and (bundle_id, wanted) in bundles:
-                active[bundle_id] = wanted
+        wanted_active = {
+            (owner or self.default_tenant, bundle_id): version
+            for (owner, bundle_id), version in snapshot.active.items()
+        }
+        active: dict[tuple[str, str], int] = {}
+        for pointer in set(wanted_active) | set(previous.active):
+            tenant, bundle_id = pointer
+            wanted = wanted_active.get(pointer)
+            fallback = previous.active.get(pointer)
+            if wanted is not None and (tenant, bundle_id, wanted) in bundles:
+                active[pointer] = wanted
                 continue
+            name = bundle_id if tenant == self.default_tenant else f"{tenant}/{bundle_id}"
             reason = (
-                f"active pointer {bundle_id} -> {wanted} has no valid bundle"
+                f"active pointer {name} -> {wanted} has no valid bundle"
                 if wanted is not None
-                else f"active pointer for {bundle_id} missing"
+                else f"active pointer for {name} missing"
             )
-            if fallback is not None and (bundle_id, fallback) in bundles:
-                active[bundle_id] = fallback
+            if fallback is not None and (tenant, bundle_id, fallback) in bundles:
+                active[pointer] = fallback
                 reason += f"; kept {fallback}"
-            errors.append(LoadError(bundle_id, reason, _now()))
+            errors.append(LoadError(name, reason, _now()))
 
         self._state = StoreState(
             bundles=bundles,
@@ -222,7 +249,11 @@ class BundleStore:
         for error in errors:
             logger.warning("bundle.load_error location=%s error=%s", error.location, error.error)
         logger.info(
-            "bundle.reload bundles=%d active=%s errors=%d", len(bundles), dict(active), len(errors)
+            "bundle.reload bundles=%d active=%d tenants=%d errors=%d",
+            len(bundles),
+            len(active),
+            len({tenant for tenant, _ in active}),
+            len(errors),
         )
         return True
 

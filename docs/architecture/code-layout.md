@@ -71,9 +71,11 @@ umai-decision-engine/
 │   │   ├── validate.py            # semantic validation beyond the schema
 │   │   └── cli.py                 # keygen / validate / test / sign / verify
 │   ├── control_plane/             # ADR-0022 policy service: drafts, tests, publish, activate
-│   │   ├── app.py                 # FastAPI app (port 9200), bearer token
+│   │   ├── app.py                 # FastAPI app (port 9200), bearer token; every route authorized
+│   │   ├── authz.py               # ADR-0029 permission matrix, actor, tenant binding
+│   │   ├── actors.py              # ADR-0023 §1 on-behalf-of assertion (ES256) verification
 │   │   ├── service.py             # draft → validate → golden tests → publish; accepted cases
-│   │   ├── repository.py          # the only writer of the bundle source; atomic; changelog
+│   │   ├── repository.py          # the only writer of the bundle source, per tenant; changelog
 │   │   └── drafts.py              # SQLite draft store
 │   ├── golden/
 │   │   └── runner.py              # ADR-0015: golden cases → BundleStore + Evaluator → report

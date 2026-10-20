@@ -3,7 +3,10 @@
 The policy service is the only writer. A new version is written to a hidden temporary
 directory and renamed into place, so the engine never sees a half-written version; the active
 pointer is replaced atomically. Every publish and activation is appended to
-``<bundle_id>/changelog.jsonl`` (ignored by the engine's source).
+``<bundle_id>/changelog.jsonl`` (ignored by the engine's source) with its actor (ADR-0029).
+
+Guardrails belong to a tenant (policy-bundle 0.8): the default tenant's live directly under the
+policy root, every other tenant's under ``tenants/<tenant_id>/``; manifests name the owner.
 """
 
 from __future__ import annotations
@@ -20,10 +23,15 @@ import yaml
 from umai_decision_engine import __version__
 from umai_decision_engine.contracts.bundle import PolicyBundle
 from umai_decision_engine.policy.manifest import BundleManifest, sha256_hex, sign_manifest
-from umai_decision_engine.policy.sources import ACTIVE_FILE, BUNDLE_FILE, MANIFEST_FILE
+from umai_decision_engine.policy.sources import (
+    ACTIVE_FILE,
+    BUNDLE_FILE,
+    MANIFEST_FILE,
+    TENANTS_DIR,
+)
 from umai_decision_engine.policy.store import parse_bundle
 
-LATEST_CONTRACT = "0.7"
+LATEST_CONTRACT = "0.7"  # bundle.yaml contract; manifests carry tenant_id since 0.8
 CHANGELOG = "changelog.jsonl"
 TESTS_DIR = "tests"
 
@@ -47,8 +55,9 @@ def bundle_to_yaml(bundle: PolicyBundle, header: str) -> bytes:
 
 
 class GuardrailRepository:
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, owner: str | None = None) -> None:
         self.root = Path(root)
+        self.owner = owner  # tenant stamped into manifests; None only for legacy callers
 
     # ----------------------------------------------------------- reading
 
@@ -58,7 +67,10 @@ class GuardrailRepository:
         return sorted(
             p.name
             for p in self.root.iterdir()
-            if p.is_dir() and not p.name.startswith(".") and any(self._version_dirs(p.name))
+            if p.is_dir()
+            and not p.name.startswith(".")
+            and p.name != TENANTS_DIR
+            and any(self._version_dirs(p.name))
         )
 
     def _version_dirs(self, bundle_id: str) -> list[Path]:
@@ -106,8 +118,8 @@ class GuardrailRepository:
 
     # ----------------------------------------------------------- writing
 
-    def _log(self, bundle_id: str, entry: dict) -> None:
-        entry = {"at": datetime.now(UTC).isoformat(timespec="seconds"), **entry}
+    def _log(self, bundle_id: str, entry: dict, actor: dict | None) -> None:
+        entry = {"at": datetime.now(UTC).isoformat(timespec="seconds"), **entry, "actor": actor}
         with (self.root / bundle_id / CHANGELOG).open("a", encoding="utf-8", newline="\n") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
@@ -119,6 +131,7 @@ class GuardrailRepository:
         tests_dir: Path | None,
         note: str | None,
         signing_key: tuple[str, str] | None,
+        actor: dict | None = None,
     ) -> int:
         """Write ``bundle`` as the next version of its guardrail; returns the version number."""
 
@@ -136,6 +149,7 @@ class GuardrailRepository:
         manifest = BundleManifest(
             bundle_id=bundle_id,
             version=version,
+            tenant_id=self.owner,
             contract_version=LATEST_CONTRACT,
             engine=f">={__version__}",
             created_at=stamp,
@@ -170,10 +184,13 @@ class GuardrailRepository:
                 "note": note,
                 "signed": signing_key is not None,
             },
+            actor,
         )
         return version
 
-    def activate(self, bundle_id: str, version: int, note: str | None = None) -> int | None:
+    def activate(
+        self, bundle_id: str, version: int, note: str | None = None, actor: dict | None = None
+    ) -> int | None:
         if version not in self.versions(bundle_id):
             raise RepositoryError(f"{bundle_id} v{version} does not exist")
         self.load(bundle_id, version)  # must validate
@@ -185,5 +202,19 @@ class GuardrailRepository:
         self._log(
             bundle_id,
             {"action": "activate", "version": version, "previous": previous, "note": note},
+            actor,
         )
         return previous
+
+
+class GuardrailRepositories:
+    """One repository per tenant over a single policy root (policy-bundle 0.8 layout)."""
+
+    def __init__(self, root: Path, default_tenant: str) -> None:
+        self.root = Path(root)
+        self.default_tenant = default_tenant
+
+    def for_tenant(self, tenant_id: str) -> GuardrailRepository:
+        if tenant_id == self.default_tenant:
+            return GuardrailRepository(self.root, owner=tenant_id)
+        return GuardrailRepository(self.root / TENANTS_DIR / tenant_id, owner=tenant_id)

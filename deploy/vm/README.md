@@ -109,7 +109,18 @@ curl -sI $H/healthz | grep -i strict-transport-security
 Then sign in to the console at `$H/`, open the playground with synthetic data, and publish a
 guardrail change: the engine's `/v1/bundles` shows the new version, signed with your key id.
 
-## 6. What this deployment does not have
+## 6. Tenants and their bundles (policy-bundle 0.8)
+
+Bundles directly under the policy volume belong to the default tenant, which this stack sets to
+the console's tenant (`UMAI_CONSOLE_TENANT_ID`, default `console`). Every other tenant evaluates
+only bundles under `tenants/<tenant id>/` on the volume: a pilot tenant with its own API key gets
+`CONFIG_MISSING` until it has one. Give it a guardrail by publishing through the policy service
+with `X-Umai-Tenant: <tenant id>`, or by copying a signed version into
+`/data/policies/tenants/<tenant id>/<bundle id>/` and re-signing it there (the manifest's
+`tenant_id` must name the tenant). The policy service keeps the control token as the operator
+(`UMAI_ACTOR_ASSERTION=optional`) until the console signs on-behalf-of assertions.
+
+## 7. What this deployment does not have
 
 No WAF, no HA, no DR region, one shared API token (body `tenant_id` not bound to the credential,
 readiness T1), console basic auth instead of login, software-protected keys, no central log store;

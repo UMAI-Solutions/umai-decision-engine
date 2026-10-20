@@ -21,6 +21,9 @@ x-engine-env: &engine-env
   UMAI_DE_REQUIRE_SIGNED_BUNDLES: "true"
   UMAI_DE_KEY_REGISTRY_DIR: /data/policies/.keys  # signed per-tenant key snapshots (ADR-0023)
   UMAI_DE_REGION: ${UMAI_REGION:-sh}
+  # Bundles directly under the policy root belong to the default tenant (policy-bundle 0.8):
+  # the tenant the console evaluates as. Other tenants need bundles under tenants/<id>/.
+  UMAI_DE_DEFAULT_TENANT_ID: ${UMAI_CONSOLE_TENANT_ID:-console}
 
 services:
   seed:
@@ -85,6 +88,9 @@ services:
       <<: *engine-env
       UMAI_DE_SIGNING_KEY_FILE: /run/secrets/signing.key
       UMAI_DE_SIGNING_KEY_ID: ${UMAI_SIGNING_KEY_ID:?set in config.env}
+      # The console does not sign on-behalf-of assertions yet (credentials 0.2): until it does,
+      # the control token acts as the operator. Set required once the console signs.
+      UMAI_DE_ACTOR_ASSERTION: ${UMAI_ACTOR_ASSERTION:-optional}
     env_file: ["${UMAI_RUN_DIR:-/run/umai}/policy.env"]  # tokens + database URLs
     volumes:
       - policies:/data/policies

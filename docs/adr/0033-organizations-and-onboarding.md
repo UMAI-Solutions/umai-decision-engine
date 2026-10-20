@@ -227,7 +227,8 @@ named above. Where the reference says *unverified*, this ADR does not depend on 
   for owners and admins (ADR-0024 §3).
 - **Dependencies before the end-to-end test can pass:** the on-behalf-of assertion (ADR-0023
   §1); the permission matrix (ADR-0029 §3); tenant-owned bundles (ADR-0025 §8) for the starter
-  guardrail.
+  guardrail. Done in the engine on 2026-10-19 (verification, matrix, tenant-owned directory
+  layout, contract `organizations` 0.1); the console's signing of assertions remains.
 - **Product decisions recorded as open questions:** ADR-0029 §2 gives Community only `owner`
   and `admin`, while launch-plan stage 1 item 5 lists `owner`/`admin`/`viewer`; domain `auto`
   join depends on which is right. One Community organization per person is a proposal.

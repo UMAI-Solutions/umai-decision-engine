@@ -118,7 +118,12 @@ Tenancy (2026-10-18): per-tenant API keys with scopes and rate limits at admissi
 key management in the policy service (`/v1/tenants`, `/v1/tenants/{id}/keys`, signed registry
 snapshots), the tenant store `db/` (SQLAlchemy async + Alembic; Postgres row-level security
 with FORCE and `WITH CHECK`, SQLite for development; isolation tests in `tests/db/`, run in CI
-against a Postgres service container). Bundles are not tenant-owned yet (ADR-0025 §8).
+against a Postgres service container). Slice (b) groundwork (2026-10-19): bundles are tenant-owned (policy-bundle 0.8:
+`policies/tenants/<tenant>/`, signed `manifest.tenant_id`, unowned bundles belong to the default
+tenant; evaluation API 0.7 reads one tenant), the policy service verifies on-behalf-of assertions
+(credentials 0.2, `control_plane/actors.py`) and authorizes every route with the permission
+matrix (`control_plane/authz.py`, ADR-0029); contract `organizations` 0.1 (models only). Bundles
+move into the tenant store with `http_pull` later (ADR-0025 §8).
 Deployment (2026-10-17): single-VM starter on Azure (ADR-0032: `Dockerfile`, `deploy/vm/` Docker
 Compose with Caddy, `deploy/azure/main.bicep`); the console image lives in `umai-control-center`.
 SaaS readiness (2026-10-17): threat model, gap analysis, launch plan and eight proposed ADRs in

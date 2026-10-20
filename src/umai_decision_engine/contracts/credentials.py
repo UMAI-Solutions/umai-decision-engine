@@ -8,9 +8,11 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-CONTRACT_VERSION = "0.1"
+from umai_decision_engine.contracts.organizations import Role
+
+CONTRACT_VERSION = "0.1"  # key-registry snapshot payload version (unchanged in 0.2)
 
 KeyEnv = Literal["live", "test"]
 KeyRegion = Literal["eu", "us", "sh"]
@@ -87,3 +89,37 @@ class ApiKeyRecord(BaseModel):
     @property
     def status(self) -> str:
         return "revoked" if self.revoked_at else "active"
+
+
+# ----------------------------------------------------------- on-behalf-of assertion (0.2)
+
+ACTOR_ASSERTION_TYPE = "umai-actor+jwt"
+ACTOR_MAX_LIFETIME_S = 300
+
+
+class ActorAssertion(BaseModel):
+    """Claims of the on-behalf-of assertion the console signs for every policy-service call made
+    for a person (ADR-0023 §1): ES256 JWS, ``typ`` ``umai-actor+jwt``, at most five minutes.
+    ``tenant_id`` is absent before the person has chosen an organization; ``roles`` only make
+    sense with it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    iss: str = Field(min_length=1, max_length=200)
+    aud: str = Field(min_length=1, max_length=200)
+    sub: str = Field(min_length=1, max_length=255)
+    email: str | None = Field(None, max_length=254)
+    tenant_id: str | None = Field(None, min_length=1, max_length=128)
+    roles: list[Role] = Field(default_factory=list)
+    session_id: str = Field(min_length=1, max_length=128)
+    iat: int
+    exp: int
+    jti: str = Field(min_length=1, max_length=128)
+
+    @model_validator(mode="after")
+    def _lifetime_and_roles(self) -> ActorAssertion:
+        if not 0 < self.exp - self.iat <= ACTOR_MAX_LIFETIME_S:
+            raise ValueError(f"lifetime must be 1-{ACTOR_MAX_LIFETIME_S} s")
+        if self.roles and self.tenant_id is None:
+            raise ValueError("roles need a tenant_id")
+        return self

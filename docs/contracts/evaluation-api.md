@@ -1,6 +1,6 @@
 # Contract: evaluation API
 
-**Version:** 0.6 · **Endpoints:** `POST /v1/evaluate`, `GET /v1/bundles`, `POST /v1/bundles/reload`, `POST /v1/detect` (development) · **Health:** `GET /healthz`, `GET /readyz`
+**Version:** 0.7 · **Endpoints:** `POST /v1/evaluate`, `GET /v1/bundles`, `POST /v1/bundles/reload`, `POST /v1/detect` (development) · **Health:** `GET /healthz`, `GET /readyz`
 
 `/readyz` returns 200 only after Presidio analyzers are loaded and warmed up, the policy
 bundles are loaded, and the configured L1b provider answered a probe.
@@ -141,17 +141,26 @@ Credentials are held by server-side callers only (SDKs, the console's backend), 
 Admission answers 401 `invalid_credential`, 403 `tenant_mismatch` / `insufficient_scope` and
 429 `rate_limited` (`Retry-After`; token bucket per credential, `UMAI_DE_RATE_LIMIT_RPS` /
 `_BURST`) with a JSON body `{"detail": {"error": "<code>", "detail": "<text>"}}`; a
-refused request is never evaluated. Bundles are not tenant-owned yet, so `bundles:read` lists
-every loaded bundle (ADR-0025 §8 follow-up).
+refused request is never evaluated.
+
+**Bundles belong to a tenant** (ADR-0019 §2, [policy-bundle](policy-bundle.md) 0.8). An
+evaluation resolves `bundle.id` among its own tenant's bundles only; another tenant's bundle id
+resolves nothing (`CONFIG_MISSING`, the configured failure policy decides). The bundle routes
+read one tenant: the key's, or for the shared operator token the `X-Umai-Tenant` header (default:
+the deployment's default tenant, `UMAI_DE_DEFAULT_TENANT_ID`). A key that sends `X-Umai-Tenant`
+for another tenant gets 403 `tenant_mismatch`.
 
 ## `GET /v1/bundles`
 
-Loaded versions per bundle id, the active version, signature status and load errors. Used by
-operators and, later, the policy dashboard to confirm a published version is live (ADR-0013).
+One tenant's loaded versions per bundle id, the active version and signature status. Used by
+operators and the policy dashboard to confirm a published version is live (ADR-0013). Load
+errors (locations, never content) are listed for the shared operator token only; keys get an
+empty list.
 
 ```json
 {
   "source": "directory",
+  "tenant_id": "tenant-demo",
   "reloaded_at": "2026-10-16T09:00:00+00:00",
   "bundles": [ { "id": "gr-demo-data-protection", "active_version": 1,
                  "versions": [ { "version": 1, "sha256": "…", "signed": false, "key_id": null,
@@ -166,9 +175,10 @@ and returns `{"changed": true|false}`. The poller does the same every
 
 ## `GET /v1/bundles/{id}/versions/{version}`
 
-One loaded guardrail version with its content (policy data; bundles never contain secrets,
-ADR-0012) for the console's guardrail view: `{id, version, active, sha256, signed, key_id,
-loaded_at, bundle}`. 404 when that version is not loaded.
+One loaded guardrail version of the caller's tenant with its content (policy data; bundles
+never contain secrets, ADR-0012) for the console's guardrail view: `{id, version, tenant_id,
+active, sha256, signed, key_id, loaded_at, bundle}`. 404 when that version is not loaded for
+that tenant, including when it belongs to another tenant.
 
 ## `POST /v1/detect` (development only)
 
@@ -191,6 +201,10 @@ failure-policy decisions. HTTP 4xx only for malformed requests (schema violation
 
 ## Changelog
 
+- 0.7 (2026-10-19): bundles are tenant-owned: evaluation resolves only the request tenant's
+  bundles; `/v1/bundles` and `/v1/bundles/{id}/versions/{version}` read one tenant (the key's,
+  or `X-Umai-Tenant` / the default tenant for the operator token) and carry `tenant_id`; load
+  errors only for the operator token. Request shape unchanged.
 - 0.6 (2026-10-18): per-tenant API keys and scopes at admission (ADR-0023): `tenant_id` optional
   and derived from the credential; 403 `tenant_mismatch` / `insufficient_scope`, 429
   `rate_limited`, 400 `tenant_required`; error bodies carry an `error` code. Requests 0.2–0.6 accepted.

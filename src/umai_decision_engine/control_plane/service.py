@@ -20,6 +20,7 @@ from pydantic import ValidationError
 from umai_decision_engine.contracts.bundle import ALL_ROLES, PolicyBundle
 from umai_decision_engine.control_plane.repository import (
     TESTS_DIR,
+    GuardrailRepositories,
     GuardrailRepository,
     bundle_to_data,
     bundle_to_yaml,
@@ -158,12 +159,12 @@ def accept_cases(tests_dir: Path, accepted: dict[str, tuple[str, dict]]) -> None
 class PolicyService:
     def __init__(
         self,
-        repository: GuardrailRepository,
+        guardrails: GuardrailRepositories,
         drafts: DraftRepository,
         detector: EntityDetector,
         signing_key: tuple[str, str] | None = None,
     ) -> None:
-        self.repository = repository
+        self.guardrails = guardrails
         self.drafts = drafts
         self.detector = detector
         self.signing_key = signing_key
@@ -171,13 +172,14 @@ class PolicyService:
     # ----------------------------------------------------------- guardrails
 
     async def summary(self, tenant: TenantInfo, bundle_id: str) -> dict:
-        history = self.repository.changelog(bundle_id)
+        repository = self.guardrails.for_tenant(tenant.slug)
+        history = repository.changelog(bundle_id)
         published = {e["version"]: e for e in history if e.get("action") == "publish"}
         versions = []
-        for version in self.repository.versions(bundle_id):
+        for version in repository.versions(bundle_id):
             try:
-                bundle = self.repository.load(bundle_id, version)
-                manifest = self.repository.manifest(bundle_id, version)
+                bundle = repository.load(bundle_id, version)
+                manifest = repository.manifest(bundle_id, version)
                 entry = published.get(version, {})
                 versions.append(
                     {
@@ -200,25 +202,26 @@ class PolicyService:
         draft = await self.drafts.get(tenant, bundle_id)
         return {
             "id": bundle_id,
-            "active_version": self.repository.active(bundle_id),
+            "active_version": repository.active(bundle_id),
             "versions": versions,
             "draft": self.draft_view(draft) if draft else None,
             "history": history[-50:],
         }
 
     async def list(self, tenant: TenantInfo) -> list[dict]:
+        repository = self.guardrails.for_tenant(tenant.slug)
         drafts = await self.drafts.ids(tenant)
         out = []
-        for bundle_id in self.repository.ids():
-            active = self.repository.active(bundle_id)
+        for bundle_id in repository.ids():
+            active = repository.active(bundle_id)
             live = None
             if active:
                 try:
-                    live = self.repository.load(bundle_id, active)
+                    live = repository.load(bundle_id, active)
                 except Exception:  # listed without details
                     live = None
             policies = live.l0.policies if live else []
-            history = self.repository.changelog(bundle_id)
+            history = repository.changelog(bundle_id)
             out.append(
                 {
                     "id": bundle_id,
@@ -226,7 +229,7 @@ class PolicyService:
                     "description": live.description if live else None,
                     "mode": live.mode if live else None,
                     "active_version": active,
-                    "versions": self.repository.versions(bundle_id),
+                    "versions": repository.versions(bundle_id),
                     "has_draft": bundle_id in drafts,
                     # older bundles have no policies: count their detected types instead
                     "policies": len(policies),
@@ -261,11 +264,12 @@ class PolicyService:
     ) -> dict:
         if await self.drafts.get(tenant, bundle_id) is not None:
             raise ServiceError(409, f"guardrail {bundle_id} already has a draft")
-        version = base_version or self.repository.active(bundle_id)
+        repository = self.guardrails.for_tenant(tenant.slug)
+        version = base_version or repository.active(bundle_id)
         if version is None:
             raise ServiceError(404, f"guardrail {bundle_id} has no active version")
         try:
-            bundle = self.repository.load(bundle_id, version)
+            bundle = repository.load(bundle_id, version)
         except Exception as exc:
             raise ServiceError(404, str(exc)) from exc
         data = to_policy_form(bundle_to_data(bundle))
@@ -300,21 +304,28 @@ class PolicyService:
             raise ServiceError(422, "the draft is not valid", {"problems": problems})
         return draft, bundle
 
-    async def _run_tests(self, draft: DraftInfo, bundle: PolicyBundle, workdir: Path) -> RunReport:
+    async def _run_tests(
+        self,
+        repository: GuardrailRepository,
+        draft: DraftInfo,
+        bundle: PolicyBundle,
+        workdir: Path,
+    ) -> RunReport:
         version_dir = workdir / bundle.id / str(draft.base_version)
         version_dir.mkdir(parents=True)
         (version_dir / BUNDLE_FILE).write_bytes(
             bundle_to_yaml(bundle.model_copy(update={"version": draft.base_version}), "")
         )
-        base_tests = self.repository.version_dir(bundle.id, draft.base_version) / TESTS_DIR
+        base_tests = repository.version_dir(bundle.id, draft.base_version) / TESTS_DIR
         if base_tests.is_dir():
             shutil.copytree(base_tests, version_dir / TESTS_DIR)
         return await run_golden(version_dir, detector=self.detector)
 
     async def test_draft(self, tenant: TenantInfo, bundle_id: str) -> dict:
         draft, bundle = await self._valid_draft(tenant, bundle_id)
+        repository = self.guardrails.for_tenant(tenant.slug)
         with tempfile.TemporaryDirectory(prefix="umai-draft-") as tmp:
-            report = await self._run_tests(draft, bundle, Path(tmp))
+            report = await self._run_tests(repository, draft, bundle, Path(tmp))
         return report_to_data(report)
 
     async def publish(
@@ -325,10 +336,12 @@ class PolicyService:
         activate: bool,
         accept: list[str],
         note: str | None,
+        actor: dict,
     ) -> dict:
         draft, bundle = await self._valid_draft(tenant, bundle_id)
+        repository = self.guardrails.for_tenant(tenant.slug)
         with tempfile.TemporaryDirectory(prefix="umai-draft-") as tmp:
-            report = await self._run_tests(draft, bundle, Path(tmp))
+            report = await self._run_tests(repository, draft, bundle, Path(tmp))
             failing = {c.case_id: c for c in report.cases if not c.passed}
             unaccepted = sorted(set(failing) - set(accept))
             if report.errors or unaccepted:
@@ -343,14 +356,15 @@ class PolicyService:
             }
             if accepted:
                 accept_cases(tests_dir, accepted)
-            version = self.repository.publish(
+            version = repository.publish(
                 bundle,
                 base_version=draft.base_version,
                 tests_dir=tests_dir,
                 note=note,
                 signing_key=self.signing_key,
+                actor=actor,
             )
-        previous = self.repository.activate(bundle_id, version, note) if activate else None
+        previous = repository.activate(bundle_id, version, note, actor) if activate else None
         await self.drafts.delete(tenant, bundle_id)
         return {
             "version": version,
@@ -360,9 +374,13 @@ class PolicyService:
             "tests": {"total": len(report.cases)},
         }
 
-    def activate(self, bundle_id: str, version: int, note: str | None) -> dict:
+    def activate(
+        self, tenant: TenantInfo, bundle_id: str, version: int, note: str | None, actor: dict
+    ) -> dict:
         try:
-            previous = self.repository.activate(bundle_id, version, note)
+            previous = self.guardrails.for_tenant(tenant.slug).activate(
+                bundle_id, version, note, actor
+            )
         except Exception as exc:
             raise ServiceError(422, str(exc)) from exc
         return {"active_version": version, "previous_active": previous}

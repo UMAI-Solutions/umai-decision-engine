@@ -89,3 +89,38 @@ def test_json_examples_are_json() -> None:
             if "/*" in body or "…" in body.split('"')[0]:
                 continue
             json.loads(body)
+
+
+def test_organizations_examples() -> None:
+    from umai_decision_engine.contracts.organizations import (
+        Domain,
+        Invitation,
+        InvitationCreate,
+        Membership,
+        MyOrganization,
+        Organization,
+        OrganizationCreate,
+    )
+
+    blocks = _blocks("contracts/organizations.md", "json")
+    models = [
+        Organization,
+        MyOrganization,
+        Membership,
+        Invitation,
+        Domain,
+        OrganizationCreate,
+        InvitationCreate,
+    ]
+    assert len(blocks) == len(models)
+    for model, block in zip(models, blocks, strict=True):
+        model.model_validate_json(block)
+
+
+def test_credentials_examples() -> None:
+    from umai_decision_engine.contracts.credentials import ActorAssertion
+
+    record, snapshot, assertion = _blocks("contracts/credentials.md", "json")
+    json.loads(record)
+    json.loads(snapshot)
+    ActorAssertion.model_validate_json(assertion)
