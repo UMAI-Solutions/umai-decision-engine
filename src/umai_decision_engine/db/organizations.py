@@ -17,8 +17,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from umai_decision_engine.db.models import Invitation, Membership, Tenant, User
-from umai_decision_engine.db.repositories import Conflict, NotFound, TenantInfo
-from umai_decision_engine.db.session import global_session, tenant_session, user_session
+from umai_decision_engine.db.repositories import Conflict, NotFound, TenantInfo, tenant_info
+from umai_decision_engine.db.session import (
+    enter_tenant,
+    global_session,
+    tenant_session,
+    user_session,
+)
 
 OWNER = "owner"
 
@@ -33,6 +38,14 @@ def token_hash(token: str) -> str:
 
 class LastOwner(Exception):
     """The change would leave an organization without an active owner (ADR-0033 §5)."""
+
+
+class OwnerOnly(Exception):
+    """Only an owner grants, removes or changes ownership (ADR-0033 §5)."""
+
+
+class OwnedLimit(Exception):
+    """The person already owns as many organizations of the edition as allowed (ADR-0033 §4)."""
 
 
 class InvitationRefused(Exception):
@@ -215,10 +228,18 @@ class MembershipRepository:
             except IntegrityError as exc:
                 raise Conflict("already a member") from exc
 
-    async def change(self, tenant: TenantInfo, user_id: uuid.UUID, roles: list[str] | None) -> None:
-        """New roles, or removal (``roles`` None). Refused when no active owner would remain;
-        the tenant's memberships are locked first, so two owners cannot demote each other at the
-        same moment (ADR-0033 §5)."""
+    async def change(
+        self,
+        tenant: TenantInfo,
+        user_id: uuid.UUID,
+        roles: list[str] | None,
+        *,
+        may_change_owners: bool,
+    ) -> None:
+        """New roles, or removal (``roles`` None). The tenant's memberships are locked first and
+        every rule is checked on the locked rows, so concurrent changes cannot slip past them
+        (ADR-0033 §5): without ``may_change_owners`` (an owner acting) neither an owner nor the
+        owner role is touched, and an active owner must remain."""
 
         async with tenant_session(self.engine, tenant.id) as session:
             rows = list(
@@ -229,6 +250,12 @@ class MembershipRepository:
             target = next((m for m in rows if m.user_id == user_id), None)
             if target is None:
                 raise NotFound("no such member")
+            if not may_change_owners and (OWNER in target.roles or OWNER in (roles or [])):
+                raise OwnerOnly(
+                    "only an owner removes an owner"
+                    if roles is None
+                    else "only an owner grants or removes ownership"
+                )
 
             def roles_after(m: Membership) -> list[str] | None:
                 return m.roles if m.user_id != user_id else roles  # None: removed
@@ -242,6 +269,51 @@ class MembershipRepository:
                 await session.delete(target)
             else:
                 target.roles = list(roles)
+
+    async def create_with_owner(
+        self,
+        slug: str,
+        name: str,
+        region: str,
+        *,
+        edition: str,
+        owner: UserInfo,
+        owned_limit: int,
+        terms_version: str,
+    ) -> TenantInfo:
+        """The organization, its first owner, the terms they accepted and the per-person limit in
+        one transaction (ADR-0033 §4): no organization exists without its owner, and one
+        person's concurrent creations queue on their user row, so the limit holds."""
+
+        async with user_session(self.engine, owner.id) as session:
+            await session.execute(select(User.id).where(User.id == owner.id).with_for_update())
+            row = Tenant(
+                slug=slug,
+                name=name,
+                region=region,
+                status="active",
+                edition=edition,
+                created_by=owner.id,
+                terms_version=terms_version,
+                terms_accepted_by=owner.id,
+                terms_accepted_at=_now(),
+            )
+            session.add(row)
+            try:
+                await session.flush()
+            except IntegrityError as exc:
+                raise Conflict(f"tenant {slug} already exists") from exc
+            await enter_tenant(session, row.id)
+            session.add(Membership(tenant_id=row.id, user_id=owner.id, roles=[OWNER]))
+            await session.flush()
+            owned = await session.execute(
+                select(Membership.roles)
+                .join(Tenant, Tenant.id == Membership.tenant_id)
+                .where(Membership.user_id == owner.id, Tenant.edition == edition)
+            )
+            if sum(1 for (roles,) in owned if OWNER in roles) > owned_limit:
+                raise OwnedLimit(f"you already own {owned_limit} {edition} organization(s)")
+            return tenant_info(row)
 
     async def owned(self, user: UserInfo, edition: str) -> int:
         """How many organizations of ``edition`` the person owns (ADR-0033 §4 limit)."""

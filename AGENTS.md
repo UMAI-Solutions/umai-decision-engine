@@ -130,7 +130,7 @@ tenant; evaluation API 0.7 reads one tenant; 0.8: 422 bodies without the caller'
 closed; 0.9: 413 `input_too_large` above 32 000 characters, gap T2 closed), the policy service verifies on-behalf-of assertions
 (credentials 0.2, `control_plane/actors.py`) and authorizes every route with the permission
 matrix (`control_plane/authz.py`, ADR-0029). Organizations (2026-10-19, ADR-0033 store first):
-contract `organizations` 0.2, `db/organizations.py` (users, memberships with `member_self`,
+contract `organizations` 0.3, `db/organizations.py` (users, memberships with `member_self`,
 invitations; migration 0002), policy-service routes `/v1/organizations`, `/v1/me/organizations`,
 `/v1/invitations/accept`; roles read from the store; starter guardrail per organization. Bundles
 move into the tenant store with `http_pull` later (ADR-0025 §8).

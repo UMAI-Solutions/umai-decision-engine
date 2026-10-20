@@ -8,6 +8,7 @@ the Community limits, the invitation's addressee."""
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from typing import Any
@@ -21,16 +22,18 @@ from umai_decision_engine.contracts.organizations import (
     OrganizationCreate,
     Role,
     UserRef,
+    normalize_email,
 )
 from umai_decision_engine.control_plane.authz import Actor, assignable_roles
 from umai_decision_engine.db.organizations import (
-    OWNER,
     InvitationInfo,
     InvitationRefused,
     InvitationRepository,
     LastOwner,
     MemberInfo,
     MembershipRepository,
+    OwnedLimit,
+    OwnerOnly,
     UserInfo,
     UserRepository,
 )
@@ -131,9 +134,14 @@ class OrganizationService:
             raise OrganizationError(403, "actor_required", "this is done by a person")
         if not actor.email:
             raise OrganizationError(422, "email_required", "the assertion carries no e-mail")
-        return await self.users.upsert(
-            actor.sub, actor.email.strip().lower(), actor.email_verified, actor.name
-        )
+        try:
+            # Stored only as the contract can show it again (a member list never fails on it).
+            email = normalize_email(actor.email)
+        except ValueError:
+            raise OrganizationError(
+                422, "email_invalid", "the assertion's e-mail is not an e-mail address"
+            ) from None
+        return await self.users.upsert(actor.sub, email, actor.email_verified, actor.name)
 
     async def roles_of(self, actor: Actor) -> frozenset[Role]:
         """The person's roles in the assertion's tenant, from the store (ADR-0033 §1)."""
@@ -177,24 +185,38 @@ class OrganizationService:
             )
         if body.id in self.reserved:
             raise OrganizationError(409, "id_taken", f"{body.id} is reserved")
-        if await self.memberships.owned(user, COMMUNITY) >= self.max_owned_community:
+        try:
+            # Tenant, owner membership, accepted terms and the Community limit: one transaction.
+            tenant = await self.memberships.create_with_owner(
+                body.id,
+                body.name,
+                self.region,
+                edition=COMMUNITY,
+                owner=user,
+                owned_limit=self.max_owned_community,
+                terms_version=body.terms_version,
+            )
+        except Conflict as exc:
+            raise OrganizationError(409, "id_taken", f"{body.id} is taken") from exc
+        except OwnedLimit:
             raise OrganizationError(
                 403,
                 "community_limit_reached",
                 f"you already own {self.max_owned_community} Community organization(s)",
-            )
-        try:
-            tenant = await self.tenants.create(
-                body.id, body.name, self.region, edition=COMMUNITY, created_by=user.id
-            )
-        except Conflict as exc:
-            raise OrganizationError(409, "id_taken", f"{body.id} is taken") from exc
-        await self.memberships.add(tenant, user, [OWNER])
-        log.info("organization.created tenant=%s owner=%s", tenant.slug, user.id)
+            ) from None
+        log.info(
+            "organization.created tenant=%s owner=%s terms=%s",
+            tenant.slug,
+            user.id,
+            body.terms_version,
+        )
         starter = None
         if self.starter is not None:
             try:
-                starter = self.starter(tenant, {"type": "person", "sub": user.subject})
+                # File writes and signing: off the event loop.
+                starter = await asyncio.to_thread(
+                    self.starter, tenant, {"type": "person", "sub": user.subject}
+                )
             except Exception:  # the organization exists; the starter guardrail is reported missing
                 log.exception("organization.starter_failed tenant=%s", tenant.slug)
         return {"organization": organization_view(tenant), "starter_guardrail": starter}
@@ -222,37 +244,36 @@ class OrganizationService:
         self, tenant: TenantInfo, actor: Actor, user_id: uuid.UUID, roles: list[Role]
     ) -> dict[str, Any]:
         self._check_assignable(roles)
-        members = {m.user.id: m for m in await self.memberships.list(tenant)}
-        target = members.get(user_id)
-        if target is None:
-            raise OrganizationError(404, "not_found", "no such member")
-        granting_owner = Role.OWNER in roles or OWNER in target.roles
-        if granting_owner and Role.OWNER not in actor.roles:
-            raise OrganizationError(403, "forbidden", "only an owner grants or removes ownership")
-        try:
-            await self.memberships.change(tenant, user_id, [r.value for r in roles])
-        except LastOwner as exc:
-            raise OrganizationError(409, "last_owner", str(exc)) from exc
+        await self._change(tenant, actor, user_id, [r.value for r in roles])
         return member_view(
             next(m for m in await self.memberships.list(tenant) if m.user.id == user_id)
         )
 
     async def remove(self, tenant: TenantInfo, actor: Actor, user_id: uuid.UUID) -> None:
-        members = {m.user.id: m for m in await self.memberships.list(tenant)}
-        target = members.get(user_id)
-        if target is None:
-            raise OrganizationError(404, "not_found", "no such member")
-        if OWNER in target.roles and Role.OWNER not in actor.roles:
-            raise OrganizationError(403, "forbidden", "only an owner removes an owner")
+        await self._change(tenant, actor, user_id, None)
+
+    async def _change(
+        self, tenant: TenantInfo, actor: Actor, user_id: uuid.UUID, roles: list[str] | None
+    ) -> None:
+        """Roles or removal; the ownership rules are checked on the locked memberships, so a
+        concurrent grant cannot slip past them."""
+
         try:
-            await self.memberships.change(tenant, user_id, None)
+            await self.memberships.change(
+                tenant, user_id, roles, may_change_owners=Role.OWNER in actor.roles
+            )
+        except NotFound as exc:
+            raise OrganizationError(404, "not_found", "no such member") from exc
+        except OwnerOnly as exc:
+            raise OrganizationError(403, "forbidden", str(exc)) from exc
         except LastOwner as exc:
             raise OrganizationError(409, "last_owner", str(exc)) from exc
 
     async def leave(self, tenant: TenantInfo, actor: Actor) -> None:
         user = await self.person(actor)
         try:
-            await self.memberships.change(tenant, user.id, None)
+            # Leaving touches only the person's own membership, ownership included.
+            await self.memberships.change(tenant, user.id, None, may_change_owners=True)
         except NotFound as exc:
             raise OrganizationError(404, "not_found", "you are not a member") from exc
         except LastOwner as exc:

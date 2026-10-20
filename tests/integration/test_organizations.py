@@ -8,6 +8,7 @@ import asyncio
 import json
 import os
 import time
+import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -17,9 +18,12 @@ from sqlalchemy import select, text, update
 
 from tests.conftest import bundle_yaml
 from umai_decision_engine.contracts.credentials import ActorAssertion
+from umai_decision_engine.contracts.organizations import OrganizationCreate
 from umai_decision_engine.control_plane.actors import public_key_b64, sign_actor_assertion
 from umai_decision_engine.control_plane.app import create_app
-from umai_decision_engine.db.models import Invitation, Tenant
+from umai_decision_engine.control_plane.authz import Actor
+from umai_decision_engine.control_plane.organizations import OrganizationError
+from umai_decision_engine.db.models import Invitation, Membership, Tenant
 from umai_decision_engine.db.session import global_session, make_engine, tenant_session
 from umai_decision_engine.settings import Settings
 
@@ -329,3 +333,109 @@ def test_owner_creates_the_first_api_key_for_their_organization(api) -> None:
     body = response.json()
     assert body["key"]["created_by"] == "person:auth0|ada"
     assert body["secret"].startswith("umai_live_sh_") and body["published"] is True
+
+
+# ------------------------------------------------------------ review fixes (organizations 0.3)
+
+
+async def _tenant_id(api, slug: str = "acme-security"):
+    async with global_session(api.app.state.db) as session:
+        return await session.scalar(select(Tenant.id).where(Tenant.slug == slug))
+
+
+def test_ownership_is_checked_on_the_locked_memberships(api, monkeypatch) -> None:
+    """An admin's change must not demote an owner whom an owner promoted a moment earlier, after
+    the admin's request was read (the rule runs inside the locked transaction)."""
+
+    _create(api)
+    _accept(api, _invite(api, roles=("admin",)))  # grace: admin
+    _accept(api, _invite(api, email="lin@example.com"), who="lin")  # lin: viewer
+    lin = _user_id(api, "lin@example.com")
+    memberships = api.app.state.organizations.memberships
+    original = memberships.change
+
+    async def promoted_meanwhile(*args, **kwargs):
+        tenant_id = await _tenant_id(api)
+        async with tenant_session(api.app.state.db, tenant_id) as session:
+            await session.execute(
+                update(Membership)
+                .where(Membership.tenant_id == tenant_id, Membership.user_id == uuid.UUID(lin))
+                .values(roles=["owner"])
+            )
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(memberships, "change", promoted_meanwhile)
+    demote = api.patch(
+        f"/v1/organizations/acme-security/members/{lin}",
+        json={"roles": ["viewer"]},
+        headers=person("grace", tenant="acme-security"),
+    )
+    assert demote.status_code == 403 and _error(demote) == "forbidden"
+    monkeypatch.setattr(memberships, "change", original)
+    members = api.get(
+        "/v1/organizations/acme-security/members", headers=person("ada", tenant="acme-security")
+    ).json()["members"]
+    assert next(m["roles"] for m in members if m["user"]["email"] == "lin@example.com") == ["owner"]
+
+
+def test_concurrent_creations_keep_the_community_limit_and_leave_no_ownerless_tenant(
+    api,
+) -> None:
+    ada = Actor(kind="person", sub="auth0|ada", email="ada@example.com", email_verified=True)
+    service = api.app.state.organizations
+
+    async def create_two():
+        return await asyncio.gather(
+            service.create(ada, OrganizationCreate(**_org("First", "first-org"))),
+            service.create(ada, OrganizationCreate(**_org("Second", "second-org"))),
+            return_exceptions=True,
+        )
+
+    results = api.portal.call(create_two)
+    created = [r for r in results if isinstance(r, dict)]
+    refused = [r for r in results if isinstance(r, OrganizationError)]
+    assert len(created) == 1 and len(refused) == 1, results
+    assert refused[0].code == "community_limit_reached"
+    loser = "second-org" if created[0]["organization"]["id"] == "first-org" else "first-org"
+    assert api.portal.call(_tenant_id, api, loser) is None  # rolled back with its membership
+    mine = api.get("/v1/me/organizations", headers=person("ada")).json()["organizations"]
+    assert [o["roles"] for o in mine] == [["owner"]]
+
+
+def test_an_assertion_email_the_contract_cannot_show_is_refused(api) -> None:
+    response = api.post("/v1/organizations", json=_org(), headers=person("ada", "ada@localhost"))
+    assert response.status_code == 422 and _error(response) == "email_invalid"
+    assert api.portal.call(_tenant_id, api) is None
+
+
+def test_the_starter_guardrail_is_installed_off_the_event_loop(api) -> None:
+    service = api.app.state.organizations
+    install = service.starter
+    loops: list[bool] = []
+
+    def starter(tenant, actor):
+        try:
+            asyncio.get_running_loop()
+            loops.append(True)
+        except RuntimeError:
+            loops.append(False)
+        return install(tenant, actor)
+
+    service.starter = starter
+    try:
+        assert _create(api)["starter_guardrail"] == {"id": "gr-test", "version": 1}
+    finally:
+        service.starter = install
+    assert loops == [False]
+
+
+def test_the_accepted_terms_are_recorded(api) -> None:
+    _create(api)
+    tenant = api.portal.call(api.app.state.tenants.get, "acme-security")
+    members = api.get(
+        "/v1/organizations/acme-security/members", headers=person("ada", tenant="acme-security")
+    ).json()["members"]
+    assert tenant.terms_version == "1"
+    assert str(tenant.terms_accepted_by) == members[0]["user"]["id"]
+    assert tenant.terms_accepted_at is not None
+    assert tenant.terms_accepted_at.utcoffset() == timedelta(0)
