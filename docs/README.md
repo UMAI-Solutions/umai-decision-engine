@@ -20,6 +20,7 @@ docs/
 │   ├── decision-merge-and-failure.md   precedence, floor, budgets, failure modes
 │   ├── policy-lifecycle.md       edit in a dashboard → publish → live (design constraint)
 │   ├── deployment-and-editions.md  SaaS vs self-hosted, Community vs Enterprise, entitlements
+│   ├── sign-in-and-onboarding.md  sign-up → organization → invitation → first key; surfaces, branding, tests
 │   └── code-layout.md            target package layout and module boundaries
 ├── contracts/                    versioned data shapes (the source of truth for code)
 │   ├── README.md                 versioning rules

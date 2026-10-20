@@ -37,6 +37,12 @@ to the ADR or report. Mark questions that block a phase.
 | Q33 | Container image signing on Azure: Notation only, or Notation + cosign for self-hosted customers? Defender for Containers despite its EU Data Boundary exclusion? | S0 (launch plan P11) | eng + product | ADR-0031 §6 |
 | Q34 | Pin a new Entra tenant to the EU Data Boundary (irreversible; the US stack would then need its own tenant)? | S0/S1 (launch plan P12) | product + ops | ADR-0031 §11 |
 | Q35 | Auth0 for UMAI Cloud: public cloud EU region (Auth0 describes its public cloud as delivered on AWS) or Auth0 Private Cloud on Azure (Germany, contract pricing, 99.99% SLA)? Does the Azure constraint of ADR-0031 extend to an identity sub-processor? | S0 login (creating the EU Auth0 tenant) | product | ADR-0024 §4; `reference/identity-providers.md` (Auth0 hosting) |
+| Q39 | Community roles: `owner`/`admin` only (ADR-0029 §2) or `owner`/`admin`/`viewer` (launch plan stage 1 item 5)? Domain auto-join and the roles offered in invitations depend on it | Slice (b) | product | ADR-0033 §3.3 |
+| Q40 | May a person own only one Community organization (proposal), or more? | Slice (b) | product | ADR-0033 §4 |
+| Q41 | MFA for the owner before the first API key is shown (proposal), or a grace period after it? | Slice (b) | product | ADR-0024 §3, design S5, S8 |
+| Q42 | Pilot users (real people) in the non-production EU `umai-beta` Auth0 tenant before Q35, or pilots keep basic auth and only synthetic test users sign in there? | Slice (c) | product | Design §7, §11 point 8 |
+| Q43 | Target for time from sign-up to the first successful evaluate call (proposal: median under 10 minutes, nobody over 20)? | Onboarding done-criteria | product | Design §9.7 |
+| Q44 | Hosted sign-up: may it say "account already exists" (Auth0's default) or must it answer neutrally (no account enumeration)? | Slice (a) | product + eng | Design S1 |
 
 ## Answered
 
@@ -52,3 +58,6 @@ to the ADR or report. Mark questions that block a phase.
 | A7 | Does the OpenAI Decisions API return probabilities? | Yes for choice/score/predicate; any question may return `refusal` (→ review) | 2026-10-15 | `reference/openai-decisions-api.md` |
 | A9 | Cloud provider for UMAI Cloud (was Q28) | Azure, by product-owner constraint; EU first (West Europe / North Europe), US later; SaaS signing moves to ECDSA P-256 | 2026-10-17 | ADR-0031 (Proposed), `reference/azure-platform.md`, `security/azure-brief.md` |
 | A10 | SaaS identity service (was Q29) | Auth0 for UMAI Cloud (one Auth0 tenant per region, one organization per UMAI tenant), Keycloak for self-hosted; two adapters behind `IdentityBroker`. Public cloud or Private Cloud on Azure stays open as Q35 | 2026-10-18 | ADR-0024 §4 (product-owner decision), `reference/identity-providers.md` |
+| A11 | Product domain (was Q36) | `umaisolutions.com` (DNS at Cloudflare). Hosts: `login.dev.`, `beta.` and `login.beta.`, `eu.console.` and `login.eu.`; e-mail from `notify.umaisolutions.com` (the apex mail is Microsoft 365) | 2026-10-18 | Design §7 (product owner) |
+| A12 | Auth0 plan for development and beta (was Q37) | Free for now; a paid plan (B2B Essentials recommended) is purchased the week of 2026-10-25. Until then: no custom-domain prompts, no Pro MFA factors, 5 organizations, and the custom e-mail provider may be unavailable | 2026-10-18 | Design §7, §10 (product owner) |
+| A13 | E-mail sender (was Q38) | Azure Communication Services Email as a **temporary** sender, knowing it retires on 2028-09-30: the product owner creates the resources (data location Europe, domain `notify.umaisolutions.com`) before 2026-10-23; Auth0 uses it through its `azure_cs` provider, our e-mails through an `EmailSender` adapter; a long-term provider is chosen and moved to before the retirement. Test capture: Mailpit on `umai-beta` | 2026-10-18 | `reference/azure-platform.md` §10, design §7 (product owner) |

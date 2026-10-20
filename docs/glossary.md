@@ -34,6 +34,12 @@ is in English. Use the English term in code and docs.
 | Entitlement | Yetkilendirme / hak | A tenant's limits (monthly requests, max prompt size) and features (SSO, RBAC, SIEM, version pinning), loaded as signed data (ADR-0019). |
 | Licence file | Lisans dosyası | Signed entitlement record for a self-hosted install, verified offline. |
 | Tenant | Kiracı / müşteri | A customer organisation; in SaaS its identity comes from its API key. |
+| Organization | Kuruluş | The sign-in face of a tenant: one identity-service organization per tenant, mirrored from our tenant store (ADR-0033). |
+| Membership | Üyelik | A person's place in an organization, with roles; kept in our store, mirrored to the identity service. |
+| Invitation | Davet | Single-use, expiring offer to join an organization, bound to an e-mail address. |
+| Owner | Sahip | Role that may delete or hand over the organization; every organization keeps at least one. |
+| Verified domain | Doğrulanmış alan adı | An e-mail domain an organization has proved by DNS, used for join requests or auto-join. |
+| Hosted login | Barındırılan giriş sayfası | The identity service's own sign-in pages (Auth0 Universal Login, Keycloak login theme); the console never shows a password field. |
 | Data residency | Veri yerleşimi | The region whose stack processes and stores a tenant's data (EU or US). |
 | TCKN | T.C. Kimlik Numarası | 11-digit Turkish national ID with checksum. |
 | VKN | Vergi Kimlik Numarası | 10-digit Turkish tax ID with checksum. |

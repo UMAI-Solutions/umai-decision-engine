@@ -41,5 +41,6 @@ listed in [`../open-questions.md`](../open-questions.md) as blocking, and flag d
 | [0030](0030-audit-events-and-structured-telemetry.md) | Audit and decision events: append-only per tenant, exportable; telemetry allowlist | Proposed |
 | [0031](0031-umai-cloud-on-azure.md) | UMAI Cloud on Azure: West Europe / North Europe, ECDSA P-256 in Key Vault Premium, Flexible Server, Application Gateway (no Front Door), AKS + Notation, Managed Redis | Proposed |
 | [0032](0032-single-vm-starter-on-azure.md) | Single-VM starter on Azure: Docker Compose (Caddy, engine, policy service, console), Key Vault (or local-file) secrets, images shipped over SSH, ≈ $41–45/month; demos and pilots only | Accepted |
+| [0033](0033-organizations-and-onboarding.md) | Organizations and onboarding: the tenant store owns organizations, the identity service mirrors them; invitations, verified domains, last owner, region, first key | Accepted (2026-10-18; open points Q39–Q44) |
 
 New ADR: copy [`0000-template.md`](0000-template.md), or use skill `write-adr`.
