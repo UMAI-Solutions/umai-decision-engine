@@ -36,6 +36,7 @@ def create_app(
         state.evaluator = runtime.evaluator
         state.registry = runtime.registry
         state.admission = runtime.admission
+        state.applications = runtime.applications
         state.ready = True
         try:
             yield

@@ -298,21 +298,29 @@ authorization stay deterministic code (rule 3). An MCP gateway surface (`MCP_REQ
 `MCP_RESPONSE`) is a later stage; through option A, LiteLLM's and Portkey's MCP guardrail hooks
 reach it earlier.
 
-### 6.8 Gateways and provider credentials
+### 6.8 Applications, providers and provider credentials
 
-A **gateway** (ADR-0038, which replaced per-model routes on 2026-10-20) is tenant configuration,
-not policy. It has:
+An **application** (ADR-0039, which on 2026-10-20 replaced ADR-0038's gateways, which had
+replaced per-model routes) is the protected unit. It is tenant configuration, not policy, and has:
 
-- one provider connection: kind, base URL from an allow-list, credential mode;
-- one guardrail (bundle id);
-- stream mode, refusal style and explicit timeouts;
-- optional model aliases, a `models` allow-list and a fallback gateway.
+- one guardrail (bundle id), on the gateway and on the evaluation API alike;
+- its own keys; unbound callers name it with `X-Umai-Application`, or use the tenant's only one;
+- optional allowed providers, a `models` allow-list, aliases and a fallback target;
+- optional overrides of the gateway defaults.
 
-The model a caller sends passes through to the provider. Keys bind to a gateway; unbound callers
-name one with `X-Umai-Gateway`, or use the tenant's only gateway. Gateways live in one YAML file
-per tenant (the tenant store later, ADR-0025). The console edits them through the policy service
-(`/v1/gateways`) and the gateway hot-reloads them. Every decision event records the gateway id.
-The guardrail itself stays in the signed bundle (rule 8).
+The AI gateway has the organization's **providers**: kind, base URL from an allow-list,
+credential mode, region, one default. A built-in pass-through OpenAI provider exists in every
+organization and is the default unless another is marked (Q56). A bare model name goes to the
+default provider unchanged; `@<provider>/<model>` goes to that provider. The gateway's
+**defaults** (stream mode, refusal style, unscanned content, restoration, explicit timeouts)
+apply to every application unless it overrides them.
+
+All of it lives in one YAML file per tenant (the tenant store later, ADR-0025). The console edits
+it through the policy service (`/v1/applications`, `/v1/providers`, `/v1/gateway/settings`) and
+the engine and the gateway hot-reload it. The guardrail itself stays in the signed bundle
+(rule 8). Decision events carry the application with the WP6 detection records (ADR-0039
+Consequences); until then the gateway's `gateway.call` and `gateway.refused` log lines name it
+or the refusal code.
 
 Provider credentials (Q47):
 
@@ -417,7 +425,7 @@ Found while building WP2–WP5; none blocks the first customer's pilot.
 
 | # | Note | Where it belongs |
 |---|---|---|
-| N1 | Gateways are YAML files per tenant; the policy service manages them one by one (`/v1/gateways`, ADR-0038, 2026-10-20), the console's object model is under decision ([console information architecture](console-information-architecture.md), ADR-0039 Proposed) | WP7: console (`umai-control-center`); tenant store later if files stop scaling |
+| N1 | Applications and providers are one YAML file per tenant; the policy service manages them one by one (`/v1/applications`, `/v1/providers`, `/v1/gateway/settings`) and the console edits them (ADR-0039, accepted and built 2026-10-20) | Tenant store later if files stop scaling |
 | N2 | Decision events are not stored (no event sink yet); `X-Umai-Event-Id` names an evaluation that only the logs record | WP6 (ADR-0030) |
 | N3 | `window` streams run one full pipeline evaluation per release step; each logs a `decision` line. Fine for L0; with injection detection (WP4) on every step, measure cost and consider checking attacks only on the whole answer | WP4c benchmark |
 | N4 | A value masked inside tool-call arguments is stored as JSON source text; restoring it into plain content would show JSON escapes (only matters for values with quotes or backslashes) | gateway masking |

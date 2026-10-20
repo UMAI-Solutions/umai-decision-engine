@@ -202,23 +202,36 @@ class EntityDetector:
         tenant_id: str,
         config: L0Config,
         language_hint: str | None = None,
+        cache: bool = True,
     ) -> EntityDetectionResult:
-        """Detect in ``SEPARATOR.join(segments)``, scanning each segment on its own."""
+        """Detect in ``SEPARATOR.join(segments)``, scanning each segment on its own. ``cache``
+        False keeps one-off texts (answer checks while streaming) out of the cache."""
 
         key = self._key_provider(tenant_id)
         loop = asyncio.get_running_loop()
         call = functools.partial(
-            self._detect, segments, key=key, config=config, language_hint=language_hint
+            self._detect,
+            segments,
+            key=key,
+            config=config,
+            language_hint=language_hint,
+            use_cache=cache,
         )
         return await loop.run_in_executor(self._executor, call)
 
     def _detect(
-        self, segments: list[str], *, key: bytes, config: L0Config, language_hint: str | None
+        self,
+        segments: list[str],
+        *,
+        key: bytes,
+        config: L0Config,
+        language_hint: str | None,
+        use_cache: bool = True,
     ) -> EntityDetectionResult:
         started = time.perf_counter()
         text = SEPARATOR.join(segments)
         language = detect_language(text, language_hint)
-        cache = self.cache
+        cache = self.cache if use_cache else None
         scope = cache.scope(key, config, language) if cache is not None else b""
         scans: list[_Scan] = []
         for segment in segments:

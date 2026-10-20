@@ -90,7 +90,7 @@ python -m pytest -q                      # unit + integration tests, no network
 ruff check . ; ruff format --check .
 uvicorn umai_decision_engine.api.app:app --reload --port 9100   # reads policies/ and .env
 uvicorn umai_decision_engine.control_plane.app:app --port 9200  # policy service (ADR-0022)
-uvicorn umai_decision_engine.gateway.app:app --port 9300        # UMAI gateway (ADR-0034); gateways: gateways/<tenant>.yaml
+uvicorn umai_decision_engine.gateway.app:app --port 9300        # UMAI gateway (ADR-0034); applications/<tenant>.yaml
 python dev/local_stack.py engine | policy-service | console | gateway  # local stack (shared dev settings)
 python -m umai_decision_engine.policy.cli validate policies/<bundle_id>/<version>
 python -m umai_decision_engine.policy.cli test policies --require-tests   # golden tests (ADR-0015)
@@ -144,12 +144,16 @@ with `umai.sh set-secret`; Caddy's basic auth is a switch (`UMAI_CONSOLE_BASIC_A
 SaaS readiness (2026-10-17): threat model, gap analysis, launch plan and eight proposed ADRs in
 `docs/security/` and `docs/adr/0023`–`0031` (0031: UMAI Cloud runs on Azure); `tests/readiness/`
 measures the open gaps (xfail).
-UMAI gateway (2026-10-19/20, ADR-0034 to ADR-0038, contract `gateway-api` 0.9): `gateway/` on port
-9300 speaks OpenAI Chat Completions, the Responses API, embeddings and `/v1/models`; per-tenant
-gateways (ADR-0038: one provider connection and one guardrail each, models pass through, optional
-aliases and allow-list; YAML files, also managed through the policy service's `/v1/gateways`)
-with `pass_through` / `secret` / `none` credentials and fallbacks; keys bind to a gateway
-(credentials 0.5, tenant-store migration 0003); input, tool-result, answer and
+UMAI gateway (2026-10-19/20, ADR-0034 to ADR-0039, contract `gateway-api` 0.10): `gateway/` on port
+9300 speaks OpenAI Chat Completions, the Responses API, embeddings and `/v1/models`. Applications
+are the protected unit (ADR-0039): one guardrail on every path, its own keys (credentials 0.6,
+tenant-store migration 0004; evaluation API 0.10 takes the guardrail from the key's application),
+optional allowed providers, model names, aliases and a fallback target. The AI gateway has the
+organization's providers (a built-in pass-through OpenAI provider, the default unless another is
+marked; `@<provider>/<model>` picks one) with `pass_through` / `secret` / `none` credentials, and
+defaults an application may override. One YAML file per tenant (`applications.py`), managed
+through the policy service's `/v1/applications`, `/v1/providers` and `/v1/gateway/settings`;
+input, tool-result, answer and
 tool-call checks through the in-process pipeline, per-call placeholders restored for the caller,
 streaming modes `window` / `buffer` / `after`; Compose profile `gateway` on the single VM
 (`docs/workflow/gateway.md`). Prompt-attack detection (gateway WP4) is paused until L1: groundwork
@@ -168,7 +172,7 @@ since 2026-10-18 and on `umai-beta` since 2026-10-19).
 | Work on L1 rules or decision models | [`docs/architecture/l1-policy-decision.md`](docs/architecture/l1-policy-decision.md), skill `add-decision-provider` |
 | Work on L2 | [`docs/architecture/l2-llm-analyst.md`](docs/architecture/l2-llm-analyst.md) |
 | Change a request/response/tag shape | [`docs/contracts/`](docs/contracts/), skill `change-contract` |
-| Console structure, applications, how the AI gateway fits (Proposed) | [`docs/architecture/console-information-architecture.md`](docs/architecture/console-information-architecture.md), ADR-0039 |
+| Console structure, applications, how the AI gateway fits | [`docs/architecture/console-information-architecture.md`](docs/architecture/console-information-architecture.md), ADR-0039 |
 | Sign-in, onboarding, organizations, invitations, login branding | [`docs/architecture/sign-in-and-onboarding.md`](docs/architecture/sign-in-and-onboarding.md), ADR-0033, ADR-0024 |
 | UMAI secure gateway, guardrail hooks in other gateways | [`docs/architecture/ai-gateway.md`](docs/architecture/ai-gateway.md), [`docs/contracts/gateway-api.md`](docs/contracts/gateway-api.md), ADR-0034 to ADR-0036, [`docs/reference/ai-gateways.md`](docs/reference/ai-gateways.md) |
 | SaaS vs self-hosted, editions, quotas, tenancy | [`docs/architecture/deployment-and-editions.md`](docs/architecture/deployment-and-editions.md), ADR-0018, ADR-0019 |

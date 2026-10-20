@@ -99,26 +99,37 @@ l0:
 """
 
 
-def gateway(**overrides: Any) -> dict[str, Any]:
-    """One gateway, ``gw-eu``: OpenAI, pass-through, guardrail ``gr-gw``. The alias ``gpt-eu`` →
-    ``gpt-x`` keeps the provider model visible in assertions."""
+AZURE = {
+    "provider_id": "azure-eu",
+    "kind": "azure_openai",
+    "base_url": "https://res.openai.azure.com/openai/v1/",
+}
 
-    entry: dict[str, Any] = {
-        "gateway_id": "gw-eu",
-        "provider": {"kind": "openai", "base_url": "https://api.openai.com/v1"},
+
+def application(**overrides: Any) -> dict[str, Any]:
+    """One application, ``app-eu``, guardrail ``gr-gw``; its calls go to the built-in OpenAI
+    provider. The alias ``gpt-eu`` → ``gpt-x`` keeps the provider model visible in assertions."""
+
+    return {
+        "application_id": "app-eu",
         "guardrail": "gr-gw",
         "aliases": [{"name": "gpt-eu", "model": "gpt-x"}],
+        **overrides,
     }
-    for key, value in overrides.items():
-        if key == "provider":
-            entry["provider"] = {**entry["provider"], **value}
-        else:
-            entry[key] = value
-    return entry
 
 
-def gateway_yaml(*entries: dict[str, Any], **overrides: Any) -> str:
-    return json.dumps({"gateways": list(entries) or [gateway(**overrides)]})
+def app_yaml(
+    *apps: dict[str, Any],
+    providers: list[dict[str, Any]] | None = None,
+    gateway: dict[str, Any] | None = None,
+    **overrides: Any,
+) -> str:
+    data: dict[str, Any] = {"applications": list(apps) or [application(**overrides)]}
+    if providers:
+        data["providers"] = providers
+    if gateway:
+        data["gateway"] = gateway
+    return json.dumps(data)
 
 
 def completion(content: str | None, *, tool_calls: list | None = None) -> dict[str, Any]:
@@ -216,22 +227,24 @@ def make_gateway(write_bundle, detector, tmp_path, upstream):
     def _make(
         *,
         mode: str = "ENFORCE",
-        gateways: str | None = None,
+        applications: str | None = None,
         guardrail: str | None = None,
         **settings: Any,
     ) -> TestClient:
         write_bundle(guardrail or GUARDRAIL.format(mode=mode), bundle_id="gr-gw", active=1)
-        gateways_dir = tmp_path / "gateways"
-        gateways_dir.mkdir(exist_ok=True)
-        (gateways_dir / "tenant-a.yaml").write_text(gateways or gateway_yaml(), encoding="utf-8")
+        applications_dir = tmp_path / "applications"
+        applications_dir.mkdir(exist_ok=True)
+        (applications_dir / "tenant-a.yaml").write_text(
+            applications or app_yaml(), encoding="utf-8"
+        )
         settings.setdefault("env", "development")
         cfg = Settings(
             policy_dir=write_bundle.root,
             bundle_poll_interval_s=0,
             l0_threads=1,
             default_tenant_id="tenant-a",
-            gateways_dir=gateways_dir,
-            gateways_poll_interval_s=0,
+            applications_dir=applications_dir,
+            applications_poll_interval_s=0,
             **settings,
         )
         app = create_gateway_app(
@@ -277,10 +290,10 @@ def finish_reasons(events: list[Any]) -> list[str]:
     ]
 
 
-# ------------------------------------------------------------------ gateways and admission
+# ------------------------------------------------------------------ applications and admission
 
 
-def test_models_lists_the_gateways_names(make_gateway) -> None:
+def test_models_lists_the_applications_names(make_gateway) -> None:
     client = make_gateway()
     body = client.get("/v1/models").json()
     assert body == {
@@ -290,7 +303,7 @@ def test_models_lists_the_gateways_names(make_gateway) -> None:
 
 
 def test_a_model_outside_the_list_is_404_in_openai_shape(make_gateway, upstream) -> None:
-    client = make_gateway(gateways=gateway_yaml(models=["gpt-4.1-mini"]))
+    client = make_gateway(applications=app_yaml(models=["gpt-4.1-mini"]))
     response = client.post(
         "/v1/chat/completions",
         json={"model": "nope", "messages": [{"role": "user", "content": "x"}]},
@@ -307,17 +320,43 @@ def test_a_model_outside_the_list_is_404_in_openai_shape(make_gateway, upstream)
         assert ok.status_code == 200
 
 
-def test_any_model_passes_through_without_a_list(make_gateway, upstream) -> None:
+def test_any_model_passes_through_to_the_default_provider(make_gateway, upstream) -> None:
     client = make_gateway()
     response = client.post(
         "/v1/chat/completions",
         json={"model": "gpt-4.1-mini", "messages": [{"role": "user", "content": "x"}]},
     )
     assert response.status_code == 200
-    assert response.headers["X-Umai-Gateway"] == "gw-eu"
+    assert response.headers["X-Umai-Application"] == "app-eu"
     assert upstream.last_body["model"] == "gpt-4.1-mini"
+    assert str(upstream.requests[-1].url) == "https://api.openai.com/v1/chat/completions"
     assert ask(client, "x").status_code == 200
     assert upstream.last_body["model"] == "gpt-x"  # the alias
+
+
+def test_the_provider_prefix_picks_another_provider(make_gateway, upstream) -> None:
+    client = make_gateway(applications=app_yaml(providers=[AZURE]))
+    body = {"model": "@azure-eu/hr-deploy", "messages": [{"role": "user", "content": "x"}]}
+    response = client.post("/v1/chat/completions", json=body)
+    assert response.status_code == 200
+    request = upstream.requests[-1]
+    assert str(request.url) == "https://res.openai.azure.com/openai/v1/chat/completions"
+    assert upstream.last_body["model"] == "hr-deploy"
+    assert request.headers["api-key"] == "sk-test"  # pass-through, Azure's header
+    unknown = client.post("/v1/chat/completions", json={**body, "model": "@nowhere/x"})
+    assert unknown.status_code == 404
+    assert unknown.json()["error"]["code"] == "unknown_provider"
+
+
+def test_an_application_limited_to_providers(make_gateway, upstream) -> None:
+    client = make_gateway(
+        applications=app_yaml(application(providers=["azure-eu"]), providers=[AZURE])
+    )
+    refused = ask(client, "x")  # alias gpt-eu → gpt-x on the default provider, OpenAI
+    assert refused.status_code == 403
+    assert refused.json()["error"]["code"] == "provider_not_allowed"
+    body = {"model": "@azure-eu/hr-deploy", "messages": [{"role": "user", "content": "x"}]}
+    assert client.post("/v1/chat/completions", json=body).status_code == 200
 
 
 def test_a_model_name_with_free_text_is_refused_before_any_log(make_gateway, upstream) -> None:
@@ -332,7 +371,7 @@ def test_a_model_name_with_free_text_is_refused_before_any_log(make_gateway, ups
 
 
 def test_models_without_a_list_are_the_providers(make_gateway, upstream) -> None:
-    client = make_gateway(gateways=gateway_yaml(aliases=[]))
+    client = make_gateway(applications=app_yaml(aliases=[]))
     upstream.reply = lambda body: {"object": "list", "data": [{"id": "gpt-4.1-mini"}]}
     response = client.get("/v1/models")
     assert response.status_code == 200
@@ -342,31 +381,31 @@ def test_models_without_a_list_are_the_providers(make_gateway, upstream) -> None
     assert request.headers["authorization"] == "Bearer sk-test"
 
 
-TWO_GATEWAYS = (
-    gateway(),
-    gateway(
-        gateway_id="gw-azure",
-        provider={"kind": "azure_openai", "base_url": "https://res.openai.azure.com/openai/v1/"},
-    ),
+TWO_APPLICATIONS = (
+    application(),
+    application(application_id="app-hr", providers=["azure-eu"]),
 )
 
 
-def test_several_gateways_need_a_name(make_gateway, upstream) -> None:
-    client = make_gateway(gateways=gateway_yaml(*TWO_GATEWAYS))
-    response = ask(client, "selam")
+def test_several_applications_need_a_name(make_gateway, upstream, caplog) -> None:
+    client = make_gateway(applications=app_yaml(*TWO_APPLICATIONS, providers=[AZURE]))
+    with caplog.at_level(logging.INFO, logger="umai.gateway"):
+        response = ask(client, "selam")
     assert response.status_code == 400
-    assert response.json()["error"]["code"] == "gateway_required"
+    assert response.json()["error"]["code"] == "application_required"
+    assert "gateway.refused" in caplog.text and "code=application_required" in caplog.text
+    assert "selam" not in caplog.text
     named = client.post(
         "/v1/chat/completions",
-        json={"model": "gpt-eu", "messages": [{"role": "user", "content": "selam"}]},
-        headers={"X-Umai-Gateway": "gw-azure"},
+        json={"model": "@azure-eu/hr", "messages": [{"role": "user", "content": "selam"}]},
+        headers={"X-Umai-Application": "app-hr"},
     )
     assert named.status_code == 200
-    assert named.headers["X-Umai-Gateway"] == "gw-azure"
+    assert named.headers["X-Umai-Application"] == "app-hr"
     assert upstream.requests[-1].url.host == "res.openai.azure.com"
-    unknown = client.get("/v1/models", headers={"X-Umai-Gateway": "gw-gone"})
+    unknown = client.get("/v1/models", headers={"X-Umai-Application": "app-gone"})
     assert unknown.status_code == 404
-    assert unknown.json()["error"]["code"] == "unknown_gateway"
+    assert unknown.json()["error"]["code"] == "unknown_application"
 
 
 def _registry(tmp_path, *keys: tuple[Any, str | None]) -> Any:
@@ -381,50 +420,51 @@ def _registry(tmp_path, *keys: tuple[Any, str | None]) -> Any:
                 secret_sha256=k.secret_sha256,
                 env="live",
                 region="sh",
-                scopes=[Scope.GATEWAY],
-                gateway_id=gateway_id,
+                scopes=[Scope.GATEWAY, Scope.EVALUATE],
+                application_id=application_id,
                 status="active",
             )
-            for k, gateway_id in keys
+            for k, application_id in keys
         ],
     )
     (directory / "tenant-a.json").write_text(snapshot.model_dump_json(), encoding="utf-8")
     return directory
 
 
-def test_a_bound_key_uses_its_gateway_and_no_other(make_gateway, upstream, tmp_path) -> None:
+def test_a_key_uses_its_application_and_no_other(make_gateway, upstream, tmp_path) -> None:
     bound, orphan = generate_key("live", "sh"), generate_key("live", "sh")
     client = make_gateway(
-        gateways=gateway_yaml(*TWO_GATEWAYS),
+        applications=app_yaml(*TWO_APPLICATIONS, providers=[AZURE]),
         env="test",
-        key_registry_dir=_registry(tmp_path, (bound, "gw-azure"), (orphan, "gw-gone")),
+        key_registry_dir=_registry(tmp_path, (bound, "app-hr"), (orphan, "app-gone")),
         require_signed_bundles=False,
     )
-    body = {"model": "gpt-eu", "messages": [{"role": "user", "content": "selam"}]}
+    body = {"model": "@azure-eu/hr", "messages": [{"role": "user", "content": "selam"}]}
     as_bound = {"Authorization": f"Bearer {bound.presentation}"}
     response = client.post("/v1/chat/completions", json=body, headers=as_bound)
     assert response.status_code == 200
     assert upstream.requests[-1].url.host == "res.openai.azure.com"
     other = client.post(
-        "/v1/chat/completions", json=body, headers={**as_bound, "X-Umai-Gateway": "gw-eu"}
+        "/v1/chat/completions", json=body, headers={**as_bound, "X-Umai-Application": "app-eu"}
     )
     assert other.status_code == 403
-    assert other.json()["error"]["code"] == "gateway_mismatch"
+    assert other.json()["error"]["code"] == "application_mismatch"
     gone = client.post(
         "/v1/chat/completions",
         json=body,
         headers={"Authorization": f"Bearer {orphan.presentation}"},
     )
     assert gone.status_code == 404
-    assert gone.json()["error"]["code"] == "unknown_gateway"
+    assert gone.json()["error"]["code"] == "unknown_application"
 
 
-def test_gateway_outside_the_allow_list_is_not_loaded(make_gateway) -> None:
-    client = make_gateway(gateways=gateway_yaml(provider={"base_url": "https://evil.example/v1"}))
+def test_a_provider_outside_the_allow_list_is_not_loaded(make_gateway) -> None:
+    evil = {"provider_id": "evil", "kind": "openai", "base_url": "https://evil.example/v1"}
+    client = make_gateway(applications=app_yaml(providers=[evil]))
     response = client.get("/v1/models")
     assert response.status_code == 404
-    assert response.json()["error"]["code"] == "unknown_gateway"
-    errors = client.app.state.gateways.errors
+    assert response.json()["error"]["code"] == "unknown_application"
+    errors = client.app.state.applications.errors
     assert errors and "allow-list" in errors[0][1]
 
 
@@ -521,7 +561,7 @@ def test_blocked_input_never_reaches_the_upstream(make_gateway, upstream) -> Non
 
 
 def test_refusal_message_style_answers_200(make_gateway, upstream) -> None:
-    client = make_gateway(gateways=gateway_yaml(refusal="message", refusal_text="Engellendi."))
+    client = make_gateway(applications=app_yaml(refusal="message", refusal_text="Engellendi."))
     response = ask(client, f"Kart {CARD}")
     assert response.status_code == 200
     choice = response.json()["choices"][0]
@@ -548,7 +588,7 @@ def test_unscannable_parts_follow_the_route(make_gateway, upstream) -> None:
     response = client.post("/v1/chat/completions", json=body)
     assert response.status_code == 400 and response.json()["error"]["code"] == "unsupported_content"
 
-    client = make_gateway(gateways=gateway_yaml(unscanned_parts="pass_unscanned"))
+    client = make_gateway(applications=app_yaml(unscanned_parts="pass_unscanned"))
     response = client.post("/v1/chat/completions", json=body)
     assert response.status_code == 200
     assert response.headers["X-Umai-Unscanned-Parts"] == "1"
@@ -618,15 +658,10 @@ def test_pass_through_needs_the_provider_key(make_gateway, upstream) -> None:
 
 
 def test_azure_and_secret_credentials(make_gateway, upstream) -> None:
-    gateways = gateway_yaml(
-        provider={
-            "kind": "azure_openai",
-            "base_url": "https://res.openai.azure.com/openai/v1/",
-            "credential": "secret",
-            "secret": "azure-eu",
-        }
+    azure = {**AZURE, "credential": "secret", "secret": "azure-eu", "default": True}
+    client = make_gateway(
+        applications=app_yaml(providers=[azure]), gateway_provider_keys={"azure-eu": "az-secret"}
     )
-    client = make_gateway(gateways=gateways, gateway_provider_keys={"azure-eu": "az-secret"})
     assert ask(client, "selam").status_code == 200
     request = upstream.requests[-1]
     assert request.headers["api-key"] == "az-secret"
@@ -635,11 +670,11 @@ def test_azure_and_secret_credentials(make_gateway, upstream) -> None:
 
 
 def test_missing_deployment_secret_is_a_clear_error(make_gateway) -> None:
-    secret = {"credential": "secret", "secret": "absent"}
-    client = make_gateway(gateways=gateway_yaml(provider=secret))
+    openai = {"provider_id": "openai", "credential": "secret", "secret": "absent"}
+    client = make_gateway(applications=app_yaml(providers=[openai]))
     response = ask(client, "selam")
     assert response.status_code == 500
-    assert response.json()["error"]["code"] == "gateway_misconfigured"
+    assert response.json()["error"]["code"] == "provider_misconfigured"
 
 
 def test_upstream_errors_pass_through(make_gateway, upstream) -> None:
@@ -688,7 +723,7 @@ def test_blocked_answer_is_refused(make_gateway, upstream) -> None:
     assert body.error.umai is not None and body.error.umai.phase == "POST_LLM"
     assert CARD not in response.text
 
-    client = make_gateway(gateways=gateway_yaml(refusal="message"))
+    client = make_gateway(applications=app_yaml(refusal="message"))
     response = ask(client, "Bir test kartı yaz")
     choice = response.json()["choices"][0]
     assert choice["finish_reason"] == "content_filter" and CARD not in response.text
@@ -710,7 +745,7 @@ def test_tool_call_arguments_get_the_callers_value_back(make_gateway, upstream) 
 
 
 def test_restoration_can_be_switched_off(make_gateway, upstream) -> None:
-    client = make_gateway(gateways=gateway_yaml(restore_placeholders=False))
+    client = make_gateway(applications=app_yaml(restore_placeholders=False))
     upstream.reply = lambda body: completion("<TR_TCKN_1> kayıtlı.")
     response = ask(client, f"TC kimlik {TCKN}")
     assert response.json()["choices"][0]["message"]["content"] == "<TR_TCKN_1> kayıtlı."
@@ -733,7 +768,7 @@ def test_logs_carry_no_content(make_gateway, upstream, caplog) -> None:
 
 @pytest.mark.parametrize("mode", ["window", "buffer", "after"])
 def test_stream_restores_split_placeholders(make_gateway, upstream, mode) -> None:
-    client = make_gateway(gateways=gateway_yaml(stream_mode=mode))
+    client = make_gateway(applications=app_yaml(stream_mode=mode))
     upstream.stream = text_stream("Kimlik ", "<TR_", "TCKN_1> kayıtlı", ", tamam.")
     response = ask(client, f"TC kimlik {TCKN}", stream=True)
     assert response.status_code == 200
@@ -776,7 +811,7 @@ def test_stream_block_ends_with_content_filter(make_gateway, upstream) -> None:
 
 
 def test_stream_buffer_mode_can_still_refuse_with_an_error(make_gateway, upstream) -> None:
-    client = make_gateway(gateways=gateway_yaml(stream_mode="buffer"))
+    client = make_gateway(applications=app_yaml(stream_mode="buffer"))
     upstream.stream = text_stream("Kart ", CARD)
     response = ask(client, "Bir kart yaz", stream=True)
     assert response.status_code == 400
@@ -820,7 +855,7 @@ def test_stream_tool_calls_are_released_whole(make_gateway, upstream) -> None:
 
 
 def test_stream_refused_input_with_message_style(make_gateway, upstream) -> None:
-    client = make_gateway(gateways=gateway_yaml(refusal="message", refusal_text="Engellendi."))
+    client = make_gateway(applications=app_yaml(refusal="message", refusal_text="Engellendi."))
     events = stream_events(ask(client, f"Kart {CARD}", stream=True))
     assert streamed_text(events) == "Engellendi."
     assert finish_reasons(events) == ["content_filter"]
@@ -861,19 +896,19 @@ def test_openai_sdk_works_unchanged(make_gateway, upstream) -> None:
     assert refused.value.code == "umai_blocked"
 
 
-def test_gateway_file_example_in_the_contract_parses() -> None:
+def test_applications_file_example_in_the_contract_parses() -> None:
     import re
     from pathlib import Path
 
     import yaml
 
-    from umai_decision_engine.contracts.gateway import Gateway
+    from umai_decision_engine.contracts.gateway import ApplicationFile
 
     doc = (Path(__file__).resolve().parents[2] / "docs/contracts/gateway-api.md").read_text(
         encoding="utf-8"
     )
     (block,) = re.findall(r"```yaml\n(.*?)```", doc, re.S)
-    Gateway.model_validate(yaml.safe_load(textwrap.dedent(block)))
+    ApplicationFile.model_validate(yaml.safe_load(textwrap.dedent(block)))
 
 
 def test_stream_never_releases_the_rest_of_an_entity_longer_than_the_hold_back(
@@ -936,7 +971,7 @@ def test_tool_call_with_a_blocked_value_is_refused(make_gateway, upstream) -> No
     assert response.json()["error"]["umai"]["phase"] == "TOOL_INPUT"
     assert CARD not in response.text
 
-    client = make_gateway(gateways=gateway_yaml(refusal="message"))
+    client = make_gateway(applications=app_yaml(refusal="message"))
     choice = ask(client, "Ödemeyi yap").json()["choices"][0]
     assert choice["finish_reason"] == "content_filter"
     assert "tool_calls" not in choice["message"]

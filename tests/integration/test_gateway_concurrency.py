@@ -11,7 +11,7 @@ import json
 import httpx
 import pytest
 
-from tests.integration.test_gateway import GUARDRAIL, gateway_yaml
+from tests.integration.test_gateway import GUARDRAIL, app_yaml
 from umai_decision_engine.gateway.app import create_gateway_app
 from umai_decision_engine.settings import Settings
 
@@ -49,17 +49,17 @@ def echo(request: httpx.Request) -> httpx.Response:
 async def test_concurrent_calls_keep_their_own_values(write_bundle, detector, tmp_path) -> None:
     SEEN.clear()
     write_bundle(GUARDRAIL.format(mode="ENFORCE"), bundle_id="gr-gw", active=1)
-    gateways = tmp_path / "gateways"
-    gateways.mkdir()
-    (gateways / "tenant-a.yaml").write_text(gateway_yaml(), encoding="utf-8")
+    applications = tmp_path / "applications"
+    applications.mkdir()
+    (applications / "tenant-a.yaml").write_text(app_yaml(), encoding="utf-8")
     settings = Settings(
         env="development",
         policy_dir=write_bundle.root,
         bundle_poll_interval_s=0,
         l0_threads=2,
         default_tenant_id="tenant-a",
-        gateways_dir=gateways,
-        gateways_poll_interval_s=0,
+        applications_dir=applications,
+        applications_poll_interval_s=0,
         rate_limit_rps=None,
     )
     app = create_gateway_app(

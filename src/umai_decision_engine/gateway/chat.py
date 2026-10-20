@@ -25,9 +25,10 @@ from umai_decision_engine.contracts.common import Action, Phase
 from umai_decision_engine.contracts.credentials import Scope
 from umai_decision_engine.contracts.evaluation import Subject
 from umai_decision_engine.contracts.gateway import (
-    GATEWAY_ID,
-    MODEL_NAME,
-    Gateway,
+    APPLICATION_ID,
+    MODEL_REF,
+    Application,
+    ResolveError,
     Route,
     UmaiDecisionInfo,
 )
@@ -39,6 +40,11 @@ from umai_decision_engine.gateway.content import (
     text_size,
 )
 from umai_decision_engine.gateway.errors import GatewayHTTPError, from_admission
+from umai_decision_engine.gateway.fields import (
+    check_chat_request,
+    clean_chat_answer,
+    clean_chat_upstream,
+)
 from umai_decision_engine.gateway.guard import CallContext, Check, Guard, strictest
 from umai_decision_engine.gateway.masking import MaskSession
 from umai_decision_engine.gateway.tools import (
@@ -54,9 +60,9 @@ router = APIRouter()
 log = logging.getLogger("umai.gateway")
 
 PROVIDER_KEY_HEADER = "x-umai-provider-key"
-GATEWAY_HEADER = "x-umai-gateway"
-_GATEWAY_ID = re.compile(GATEWAY_ID)
-_MODEL_NAME = re.compile(MODEL_NAME)
+APPLICATION_HEADER = "x-umai-application"
+_APPLICATION_ID = re.compile(APPLICATION_ID)
+_MODEL_REF = re.compile(MODEL_REF)
 
 
 @dataclass
@@ -95,10 +101,10 @@ class Call:
 
 @dataclass(frozen=True)
 class Caller:
-    """Who is calling: the tenant, and the gateway the key is bound to (ADR-0038)."""
+    """Who is calling: the tenant, and the application the key belongs to (ADR-0039)."""
 
     tenant: str
-    gateway_id: str | None = None
+    application_id: str | None = None
 
 
 def _admit(request: Request) -> Caller:
@@ -114,7 +120,7 @@ def _admit(request: Request) -> Caller:
         raise GatewayHTTPError(403, "insufficient_scope", "scope gateway is required")
     # The shared operator token and the open development mode act as the default tenant.
     tenant = principal.tenant_id or state.settings.default_tenant_id
-    return Caller(tenant, principal.gateway_id)
+    return Caller(tenant, principal.application_id)
 
 
 async def _read_body(request: Request) -> dict[str, Any]:
@@ -136,55 +142,63 @@ async def _read_body(request: Request) -> dict[str, Any]:
     return body
 
 
-def _gateway(request: Request, caller: Caller) -> Gateway:
-    """The call's gateway: the key's, else ``X-Umai-Gateway``, else the tenant's only one
-    (gateway-api 0.9, ADR-0038 §3). A bound key never moves to another gateway."""
+def _application(request: Request, caller: Caller) -> Application:
+    """The call's application: the key's, else ``X-Umai-Application``, else the tenant's only one
+    (gateway-api 0.10, ADR-0039 §4). A key never moves to another application."""
 
-    table = request.app.state.gateways
-    named = (request.headers.get(GATEWAY_HEADER) or "").strip() or None
-    if named is not None and not _GATEWAY_ID.match(named):
-        raise GatewayHTTPError(404, "unknown_gateway", "no such gateway for this tenant")
-    if caller.gateway_id is not None:
-        if named is not None and named != caller.gateway_id:
-            raise GatewayHTTPError(403, "gateway_mismatch", "this key belongs to another gateway")
-        named = caller.gateway_id
+    table = request.app.state.applications
+    named = (request.headers.get(APPLICATION_HEADER) or "").strip() or None
+    if named is not None and not _APPLICATION_ID.match(named):
+        raise GatewayHTTPError(404, "unknown_application", "no such application")
+    if caller.application_id is not None:
+        if named is not None and named != caller.application_id:
+            raise GatewayHTTPError(
+                403, "application_mismatch", "this key belongs to another application"
+            )
+        named = caller.application_id
     if named is not None:
-        gateway = table.get(caller.tenant, named)
-        if gateway is None:
-            raise GatewayHTTPError(404, "unknown_gateway", "no such gateway for this tenant")
-        return gateway
-    gateways = table.gateways(caller.tenant)
-    if len(gateways) == 1:
-        return gateways[0]
-    if not gateways:
-        raise GatewayHTTPError(404, "unknown_gateway", "this tenant has no gateway")
+        app = table.application(caller.tenant, named)
+        if app is None:
+            raise GatewayHTTPError(404, "unknown_application", "no such application")
+        return app
+    apps = table.applications(caller.tenant)
+    if len(apps) == 1:
+        return apps[0]
+    if not apps:
+        raise GatewayHTTPError(404, "unknown_application", "this organization has no application")
     raise GatewayHTTPError(
         400,
-        "gateway_required",
-        "this key is not bound to a gateway: name one in the X-Umai-Gateway header",
+        "application_required",
+        "this key does not belong to an application: name one in the X-Umai-Application header",
     )
 
 
 def _target(request: Request, caller: Caller, model: str) -> tuple[Route, Route | None]:
-    """The call target for ``model`` on the caller's gateway, and its fallback's if any."""
+    """The call target for ``model`` sent by the caller's application, and its fallback."""
 
-    if not _MODEL_NAME.match(model):
+    if not _MODEL_REF.match(model):
         raise GatewayHTTPError(400, "invalid_request", "model is not a model name", param="model")
-    gateway = _gateway(request, caller)
-    if not gateway.accepts(model):
-        raise GatewayHTTPError(
-            404, "model_not_allowed", "this gateway does not offer that model", param="model"
-        )
-    fallback = None
-    if gateway.fallback is not None:
-        backup = request.app.state.gateways.get(caller.tenant, gateway.fallback)
-        if backup is not None and backup.accepts(model):
-            fallback = backup.resolve(model)
-    return gateway.resolve(model), fallback
+    app = _application(request, caller)
+    content = request.app.state.applications.tenant(caller.tenant)
+    try:
+        route = content.resolve(app, model)
+        fallback = content.resolve(app, app.fallback, check_models=False) if app.fallback else None
+    except ResolveError as exc:
+        raise GatewayHTTPError(exc.status, exc.code, str(exc), param="model") from None
+    table = request.app.state.applications
+    for target in (route, fallback):
+        if target is not None and not table.permits(target.upstream.base_url):
+            raise GatewayHTTPError(
+                403,
+                "provider_not_allowed",
+                "this deployment does not allow calls to that provider's address",
+                param="model",
+            )
+    return route, fallback
 
 
 def call_headers(request_id: str, route: Route) -> dict[str, str]:
-    return {"X-Umai-Request-Id": request_id, "X-Umai-Gateway": route.route_id}
+    return {"X-Umai-Request-Id": request_id, "X-Umai-Application": route.route_id}
 
 
 FALLBACK_STATUSES = frozenset({429, 500, 502, 503, 504})
@@ -196,7 +210,7 @@ def _deployment_key(settings: Settings, route: Route) -> str | None:
     secret = settings.gateway_provider_keys.get(route.secret or "")
     if secret is None:
         raise GatewayHTTPError(
-            500, "gateway_misconfigured", "the gateway's provider key is not configured"
+            500, "provider_misconfigured", "the provider's key is not configured"
         )
     return secret.get_secret_value()
 
@@ -223,7 +237,7 @@ async def send_upstream(
     call.used_fallback = fallback.route_id
     call.headers["X-Umai-Fallback"] = fallback.route_id
     log.info(
-        "gateway.fallback request_id=%s gateway=%s fallback=%s reason=%s",
+        "gateway.fallback request_id=%s application=%s fallback=%s reason=%s",
         call.ctx.request_id,
         call.route.route_id,
         fallback.route_id,
@@ -247,7 +261,7 @@ def _provider_key(request: Request, route: Route) -> str | None:
             raise GatewayHTTPError(
                 400,
                 "provider_key_required",
-                "this gateway needs the provider key in the X-Umai-Provider-Key header",
+                "this provider needs your provider key in the X-Umai-Provider-Key header",
             )
         return key
     return _deployment_key(request.app.state.settings, route)
@@ -327,16 +341,26 @@ def refusal_error(call: Call, check: Check) -> GatewayHTTPError:
 
 @router.get("/v1/models")
 async def list_models(request: Request) -> Response:
-    """The gateway's ``models`` and alias names; without either, the provider's own list."""
+    """The application's ``models`` and alias names; without either, its provider's own list."""
 
     caller = _admit(request)
-    gateway = _gateway(request, caller)
-    names = gateway.listed_models()
-    headers = {"X-Umai-Gateway": gateway.gateway_id}
+    app = _application(request, caller)
+    names = app.listed_models()
+    headers = {"X-Umai-Application": app.application_id}
     if names:
         data = [{"id": n, "object": "model", "created": 0, "owned_by": "umai"} for n in names]
         return JSONResponse({"object": "list", "data": data}, headers=headers)
-    route = gateway.resolve("models")
+    content = request.app.state.applications.tenant(caller.tenant)
+    provider = content.models_provider(app)
+    if provider is None:
+        raise GatewayHTTPError(404, "unknown_provider", "this application has no usable provider")
+    route = content.resolve(app, f"@{provider.provider_id}/models", check_models=False)
+    if not request.app.state.applications.permits(route.upstream.base_url):
+        raise GatewayHTTPError(
+            403,
+            "provider_not_allowed",
+            "this deployment does not allow calls to that provider's address",
+        )
     response = await request.app.state.upstream.get(
         route, _provider_key(request, route), path="models"
     )
@@ -373,10 +397,11 @@ async def chat_completions(request: Request) -> Response:
         raise GatewayHTTPError(
             400,
             "unsupported_content",
-            "this gateway does not accept content parts the guardrail cannot scan "
+            "this application does not accept content parts the guardrail cannot scan "
             "(images, audio, files)",
             param="messages",
         )
+    check_chat_request(body)
     limit = state.settings.gateway_max_input_chars
     if text_size(segments) > limit:
         raise GatewayHTTPError(
@@ -400,6 +425,7 @@ async def chat_completions(request: Request) -> Response:
 
     upstream_body = copy.deepcopy(body)
     upstream_body["model"] = route.upstream.model
+    clean_chat_upstream(upstream_body)
     if segments:
         results = await input_checks(call, segments, chat_tool_action(body["messages"]))
         worst = strictest([check for check, _ in results])
@@ -468,6 +494,7 @@ async def _finish(call: Call, response: Any, *, client_model: str) -> Response:
         ) from None
     if isinstance(data, dict) and isinstance(data.get("choices"), list):
         await check_answer(call, data["choices"])
+        clean_chat_answer(data)
     usage = data.get("usage") if isinstance(data, dict) else None
     _log(call, status=response.status_code, usage=usage)
     return JSONResponse(
@@ -544,7 +571,7 @@ def _log(
 ) -> None:
     usage = usage if isinstance(usage, dict) else {}
     log.info(
-        "gateway.call request_id=%s tenant=%s gateway=%s upstream=%s/%s stream=%s status=%s "
+        "gateway.call request_id=%s tenant=%s application=%s upstream=%s/%s stream=%s status=%s "
         "input=%s output=%s refused=%s upstream_error=%s fallback=%s prompt_tokens=%s "
         "completion_tokens=%s total_ms=%s",
         call.ctx.request_id,

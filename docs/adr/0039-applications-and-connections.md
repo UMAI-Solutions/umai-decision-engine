@@ -1,11 +1,11 @@
 # ADR-0039 — Applications as the protected unit; the AI gateway as one way to connect
 
-- **Status:** Proposed (2026-10-20). Not applied: no engine, contract or console change until
-  the product owner accepts it
+- **Status:** Accepted (product owner, 2026-10-20: "start coding and implement the planned
+  console design"); implemented, see [Implementation](#implementation)
 - **Date:** 2026-10-20
 - **Deciders:** product owner; engineering proposal
-- **Amends (if accepted):** ADR-0038 (the gateway object becomes the application, providers move
-  to the AI gateway's own list); the evaluation API (an application's guardrail binds its API calls)
+- **Amends:** ADR-0038 (the gateway object becomes the application, providers move to the AI
+  gateway's own list); the evaluation API (an application's guardrail binds its API calls)
 - **Analysis:** [console information architecture](../architecture/console-information-architecture.md)
 
 ## Context
@@ -96,3 +96,24 @@ The console analysis found:
   prefix resolution and key binding.
 - **Revisit** if a customer needs different guardrails for one application on different paths,
   or per-model guardrails.
+
+## Implementation
+
+2026-10-20, engine branch `feat/applications` and console branch `feat/applications-console`:
+
+- **Engine:** contracts gateway-api 0.10, credentials 0.6 (snapshot 0.3; 0.2 snapshots with
+  `gateway_id` still verify), evaluation-api 0.10; one file per tenant,
+  `<UMAI_DE_APPLICATIONS_DIR>/<tenant>.yaml`, read by the engine and the gateway
+  (`applications.py`) and written by the policy service (`/v1/applications`, `/v1/providers`,
+  `/v1/gateway/settings`); migration 0004 renames `api_keys.gateway_id` to `application_id`;
+  the gateway logs refusals before the guardrail as `gateway.refused` (code and request id).
+- **Console:** the structure of Decision 6 without Reports and Integrations (WP6, Q58); Overview, Applications
+  (add, guardrail, connection snippet with the first key, gateway options, keys), AI Gateway
+  (Overview, Providers, Settings), API & SDKs, Detections (explain an error).
+- **Answered with the design:** Q53 (this ADR), Q55 (an application's guardrail binds its API
+  calls), Q58 (WP6 sections hidden). **Built as proposed, still open:** Q56 (a built-in OpenAI
+  provider, pass-through, is the default until another provider is marked default).
+  **Not built:** Q54 (developer role; administrators create keys), Q57 (per-application Monitor
+  only).
+- **Not in the console yet:** aliases, fallback and per-application overrides are edited in the
+  file or through the API; the "Stored in UMAI" provider key (Q47).

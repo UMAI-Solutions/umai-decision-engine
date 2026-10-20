@@ -86,6 +86,16 @@ def test_cache_never_mixes_tenants_or_configurations(cached, core_config) -> Non
     assert cached.cache.hits == hits  # another configuration: a miss
 
 
+def test_one_off_checks_stay_out_of_the_cache(cached, core_config) -> None:
+    before = len(cached.cache)
+    asyncio.run(
+        cached.adetect_segments(
+            ["Bir kerelik cevap: TC 10000000146"], tenant_id="t1", config=core_config, cache=False
+        )
+    )
+    assert len(cached.cache) == before
+
+
 def test_cache_holds_no_text_or_values(cached, core_config) -> None:
     _segments(cached, HISTORY, core_config)
     stored = repr(list(cached.cache._entries.items()))

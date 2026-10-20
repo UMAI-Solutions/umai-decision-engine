@@ -42,6 +42,11 @@ from umai_decision_engine.gateway.chat import (
 )
 from umai_decision_engine.gateway.content import ContentError, Segment, text_size
 from umai_decision_engine.gateway.errors import GatewayHTTPError
+from umai_decision_engine.gateway.fields import (
+    check_responses_request,
+    clean_responses_answer,
+    clean_responses_upstream,
+)
 from umai_decision_engine.gateway.guard import CallContext, Check, strictest
 from umai_decision_engine.gateway.masking import MaskSession
 from umai_decision_engine.gateway.streaming import AnswerStream, ChoiceState, sse_events
@@ -273,10 +278,11 @@ async def create_response(request: Request) -> Response:
         raise GatewayHTTPError(
             400,
             "unsupported_content",
-            "this gateway does not accept input the guardrail cannot scan "
+            "this application does not accept input the guardrail cannot scan "
             "(images, audio, files, tool outputs other than text)",
             param="input",
         )
+    check_responses_request(body)
     limit = state.settings.gateway_max_input_chars
     if text_size(segments) > limit:
         raise GatewayHTTPError(
@@ -298,6 +304,7 @@ async def create_response(request: Request) -> Response:
     stream = body.get("stream") is True
     upstream_body = copy.deepcopy(body)
     upstream_body["model"] = route.upstream.model
+    clean_responses_upstream(upstream_body)
     if segments:
         results = await input_checks(call, segments, actions.get)
         worst = strictest([check for check, _ in results])
@@ -336,6 +343,7 @@ async def create_response(request: Request) -> Response:
         ) from None
     if isinstance(data, dict):
         await check_output(call, data)
+        clean_responses_answer(data)
     _log(call, status=response.status_code, usage=_usage(data))
     return JSONResponse(
         data, status_code=response.status_code, headers={**passthrough, **_decision_headers(call)}

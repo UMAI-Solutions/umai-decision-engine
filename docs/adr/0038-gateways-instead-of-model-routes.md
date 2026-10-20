@@ -1,7 +1,8 @@
 # ADR-0038 — Gateways instead of per-model routes: one provider connection and one guardrail per gateway, models pass through
 
 - **Status:** Accepted (product owner, 2026-10-20: "redesign"; the guardrail is chosen when the
-  gateway is created)
+  gateway is created); amended by ADR-0039 (the gateway becomes the application, providers move
+  to the AI gateway's own list)
 - **Date:** 2026-10-20
 - **Deciders:** product owner; engineering proposal
 - **Amends:** ADR-0034 §6 (routes as tenant configuration): the configuration unit is now the
