@@ -53,10 +53,15 @@ def _validate(args: argparse.Namespace) -> int:
 def _test(args: argparse.Namespace) -> int:
     # Imported here: loads Presidio, which keygen/sign/verify do not need.
     from umai_decision_engine.golden.runner import format_report, run_golden
+    from umai_decision_engine.settings import Settings
 
     logging.getLogger("umai.de").setLevel(logging.ERROR)  # the report already lists problems
     keys = dict(item.split("=", 1) for item in args.public_key or [])
-    report = asyncio.run(run_golden(Path(args.path), public_keys=keys))
+    # Bundles directly under the root belong to the deployment's default tenant, as in the engine.
+    default_tenant = args.default_tenant or Settings().default_tenant_id
+    report = asyncio.run(
+        run_golden(Path(args.path), public_keys=keys, default_tenant=default_tenant)
+    )
     for line in format_report(report, require_tests=args.require_tests):
         print(line)
     return 0 if report.ok(require_tests=args.require_tests) else 1
@@ -106,6 +111,11 @@ def main(argv: list[str] | None = None) -> int:
         "--require-tests", action="store_true", help="fail when an active version has no tests"
     )
     p.add_argument("--public-key", action="append", metavar="KEY_ID=BASE64")
+    p.add_argument(
+        "--default-tenant",
+        metavar="TENANT",
+        help="owner of bundles directly under the root (default: UMAI_DE_DEFAULT_TENANT_ID)",
+    )
     p.set_defaults(func=_test)
     p = sub.add_parser("sign")
     p.add_argument("bundle_dir")
