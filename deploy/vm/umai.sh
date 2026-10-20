@@ -11,12 +11,12 @@
 # Non-secret settings: /opt/umai/config.env (see config.env.example). Secrets come from Key Vault
 # (UMAI_KEY_VAULT set; managed identity) or, until Key Vault is available, from the root-only file
 # /opt/umai/secrets.env (ADR-0032 §5). Containers only ever see /run/umai, cleared at reboot.
+# UMAI_CONFIG, UMAI_SECRETS and UMAI_RUN_DIR move these paths (tests; UMAI_RUN_DIR as in Compose).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG=/opt/umai/config.env
-SECRETS=/opt/umai/secrets.env
-RUN=/run/umai
+CONFIG="${UMAI_CONFIG:-/opt/umai/config.env}"
+SECRETS="${UMAI_SECRETS:-/opt/umai/secrets.env}"
 APP_UID=10001  # user in the engine image (Dockerfile)
 CONSOLE_UID=1001  # user in the console image (umai-control-center Dockerfile)
 
@@ -24,9 +24,15 @@ CONSOLE_UID=1001  # user in the console image (umai-control-center Dockerfile)
 set -a; . "$CONFIG"; set +a
 : "${UMAI_BACKUP_ACCOUNT:?}"
 UMAI_KEY_VAULT="${UMAI_KEY_VAULT:-}"
+RUN="${UMAI_RUN_DIR:-/run/umai}"
 UMAI_CONSOLE_BASIC_AUTH="${UMAI_CONSOLE_BASIC_AUTH:-true}"  # unset keeps the gate of earlier releases
 UMAI_ACTOR_KEY_ID="${UMAI_ACTOR_KEY_ID:-console-1}"
 UMAI_GATEWAY="${UMAI_GATEWAY:-false}"  # true: run the UMAI gateway (Compose profile "gateway")
+# A security gate is never switched off by a typo ("False", "no", "yes" …): refuse to go on.
+if [[ "$UMAI_CONSOLE_BASIC_AUTH" != "true" && "$UMAI_CONSOLE_BASIC_AUTH" != "false" ]]; then
+  echo "umai: UMAI_CONSOLE_BASIC_AUTH in $CONFIG must be true or false" >&2
+  exit 1
+fi
 
 compose() {
   local profiles=()
@@ -34,15 +40,27 @@ compose() {
   docker compose --project-directory "$HERE" --env-file "$CONFIG" "${profiles[@]}" "$@"
 }
 
-# ship.sh replaces the Caddyfile by extracting a new file, and umai.sh rewrites the console gate,
-# but Caddy's single-file bind mounts keep the old files open, so a change only takes effect after
-# a restart (seconds of downtime).
-caddy_follow_config() {
-  if ! compose exec -T caddy cat /etc/caddy/Caddyfile </dev/null 2>/dev/null | cmp -s - "$HERE/Caddyfile" ||
-    ! compose exec -T caddy cat /run/umai/console-gate.caddy </dev/null 2>/dev/null | cmp -s - "$RUN/console-gate.caddy"; then
-    echo "umai: Caddy configuration changed, restarting caddy"
-    compose restart caddy >/dev/null
+# ship.sh replaces the Caddyfile by extracting a new file, and umai.sh rewrites the console gate
+# and the console's actor key, but a single-file bind mount keeps the old file open, so a change
+# only takes effect after a restart (seconds of downtime). Compose recreates a service only when
+# its own configuration changed (the policy service, for a new actor public key), never for this.
+follow_files() {  # $1 = service, then pairs: path in the container, file on the host
+  local service="$1" changed=""
+  shift
+  while (($#)); do
+    compose exec -T "$service" cat "$1" </dev/null 2>/dev/null | cmp -s - "$2" || changed=1
+    shift 2
+  done
+  if [[ -n "$changed" ]]; then
+    echo "umai: $service files changed, restarting $service"
+    compose restart "$service" >/dev/null
   fi
+}
+
+follow_config() {
+  follow_files caddy /etc/caddy/Caddyfile "$HERE/Caddyfile" \
+    /run/umai/console-gate.caddy "$RUN/console-gate.caddy"
+  follow_files console /run/secrets/actor.pem "$RUN/actor.pem"  # rotated UMAI_CONSOLE_ACTOR_KEY
 }
 
 imds_token() {  # $1 = resource
@@ -71,7 +89,11 @@ new_actor_key() { openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256
 ensure_local_secret() {  # $1 = name, $2 = generator (default new_hex); local-file mode: generate once
   [[ -n "$UMAI_KEY_VAULT" ]] && return 0
   grep -q "^$1=" "$SECRETS" 2>/dev/null && return 0
-  printf "%s='%s'\n" "$1" "$("${2:-new_hex}")" >>"$SECRETS"
+  local value  # assigned first: a failure inside printf's arguments would store an empty secret
+  value="$("${2:-new_hex}")"
+  [[ -n "$value" ]] || { echo "umai: could not generate $1; nothing stored" >&2; exit 1; }
+  printf "%s='%s'\n" "$1" "$value" >>"$SECRETS"
+  unset value
 }
 
 put() {  # $1 = file, $2 = owner uid, stdin = content
@@ -227,10 +249,13 @@ backup() {
   echo "backup: uploaded $name"
 }
 
+# Sourced (tests): define the functions only.
+[[ "${BASH_SOURCE[0]}" == "$0" ]] || return 0
+
 case "${1:-}" in
   init) init ;;
   secrets) secrets ;;
-  up) secrets; compose up -d --no-build --remove-orphans; caddy_follow_config; docker image prune -f >/dev/null ;;
+  up) secrets; compose up -d --no-build --remove-orphans; follow_config; docker image prune -f >/dev/null ;;
   backup) backup ;;
   status) compose ps ;;
   set-secret) set_secret "${2:-}" ;;
