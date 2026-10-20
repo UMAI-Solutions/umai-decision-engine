@@ -186,6 +186,10 @@ in code (AGENTS.md rule 8).
 | NER | Off by default. If enabled: `HuggingFaceNerRecognizer`, ideally run only when patterns or policy require it; budget 30–80 ms (hypothesis). |
 | Pattern-only budget | p95 < 20 ms for a 4 kB input. Measured 2026-10-17 (dev machine, one thread, all 27 types): business text 4 kB p95 11 ms, 16 kB p95 41 ms; entity-dense text (≈160 entities per 4 kB) 4 kB p95 25 ms. The six core types alone: 4 kB p95 6 ms (business) / 16 ms (dense). Cost drivers were libphonenumber parsing of national-format candidates and per-candidate context scoring — fixed by `requires_context` and cached context windows. |
 | Long inputs | Inputs above `l0.max_chars` are chunked with overlap; offsets are re-based. |
+| Conversations | A target of several messages or attachment parts is scanned one part at a time and spans re-based onto the parts joined with `"
+
+"`; a match or context word does not cross a message boundary (ADR-0037). |
+| Detection cache | Per process, `UMAI_DE_L0_CACHE_ENTRIES` (default 20 000, `0` off): per scanned part, the types, spans, scores and value hashes found, keyed by an HMAC of tenant hashing key, phase configuration, language and text; never the text or values. A resent conversation costs its new messages: measured on the pilot VM, a full scan costs ≈ 2.9 ms per 1 000 characters (ADR-0037). |
 | Concurrency | `analyze()` is synchronous and CPU-bound, thread-safety undocumented: process pool or one engine per worker thread, never on the event loop. |
 | Regex safety | `REGEX_TIMEOUT_SECONDS=1` (integer only). Tenant regexes are validated at bundle load. |
 | Offline | No runtime model downloads: models vendored in the image, `HF_HUB_OFFLINE=1` (required for on-prem). |

@@ -275,7 +275,7 @@ async def create_response(request: Request) -> Response:
             "(images, audio, files, tool outputs other than text)",
             param="input",
         )
-    limit = state.settings.max_input_chars
+    limit = state.settings.gateway_max_input_chars
     if text_size(segments) > limit:
         raise GatewayHTTPError(
             413, "input_too_large", f"the text content exceeds {limit} characters"

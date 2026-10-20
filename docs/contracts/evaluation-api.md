@@ -61,7 +61,11 @@ not part of this API ([ADR-0010](../adr/0010-l2-asynchronous-review.md)).
 | `flags.trace` | bool | no | Include the per-layer `trace` in the response |
 
 Which content L0 scans is set by `l0.target` in the bundle (`LAST_MESSAGE`,
-`FULL_HISTORY`, `ATTACHMENTS`, `FULL_CONTEXT`, same values as `umai-engine`).
+`FULL_HISTORY`, `ATTACHMENTS`, `FULL_CONTEXT`, same values as `umai-engine`). A target of
+several messages or parts is scanned one part at a time; spans refer to the parts joined with
+`"
+
+"` (ADR-0037).
 
 ## Response — `EvaluationResponse`
 

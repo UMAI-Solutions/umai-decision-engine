@@ -25,11 +25,18 @@ def _attachments(content: Content) -> list[str]:
     return parts
 
 
-def extract_target_text(content: Content, target: TargetScope) -> str:
+def extract_target_segments(content: Content, target: TargetScope) -> list[str]:
+    """The texts L0 scans, one per message or attachment part. L0 scans each on its own
+    (ADR-0037) and reports spans in ``SEPARATOR.join(segments)``."""
+
     if target == "LAST_MESSAGE":
-        return _focus_message(content)
+        return [_focus_message(content)]
     if target == "FULL_HISTORY":
-        return SEPARATOR.join(m.content for m in content.messages)
+        return [m.content for m in content.messages]
     if target == "ATTACHMENTS":
-        return SEPARATOR.join(_attachments(content))
-    return SEPARATOR.join([*(m.content for m in content.messages), *_attachments(content)])
+        return _attachments(content)
+    return [*(m.content for m in content.messages), *_attachments(content)]
+
+
+def extract_target_text(content: Content, target: TargetScope) -> str:
+    return SEPARATOR.join(extract_target_segments(content, target))

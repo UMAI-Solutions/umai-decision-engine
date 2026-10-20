@@ -82,7 +82,7 @@ async def create_embeddings(request: Request) -> Response:
             "token arrays cannot be scanned on this route",
             param="input",
         )
-    limit = state.settings.max_input_chars
+    limit = state.settings.gateway_max_input_chars
     if sum(len(t) for _, t in texts) > limit:
         raise GatewayHTTPError(
             413, "input_too_large", f"the text content exceeds {limit} characters"

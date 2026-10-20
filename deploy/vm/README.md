@@ -177,7 +177,8 @@ The gateway answers OpenAI-compatible calls on the same hostname: `/v1/chat/comp
 4. Check: `curl https://$UMAI_HOSTNAME/v1/models -H "Authorization: Bearer <key or token>"`.
    Clients use `base_url=https://<hostname>/v1` with the official OpenAI SDKs.
 
-Caddy's body cap (512 KB) also applies to gateway calls. Switching the gateway off later: set
+Caddy caps request bodies at 4 MB on the gateway paths (a whole conversation per call, up to
+`UMAI_DE_GATEWAY_MAX_INPUT_CHARS`, default 256 000 characters) and 512 KB elsewhere. Switching the gateway off later: set
 `UMAI_GATEWAY=false` and run `docker compose -p umai stop gateway` once (a profiled container is
 not removed by `up`).
 

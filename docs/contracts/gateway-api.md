@@ -1,6 +1,6 @@
 # Contract: gateway API
 
-**Version:** 0.7 · **Status:** implemented for Chat Completions and the Responses API,
+**Version:** 0.8 · **Status:** implemented for Chat Completions and the Responses API,
 non-streaming and streaming, and for embeddings (input checks): routes, input, tool-result, answer and tool-call checks, masking,
 restoration and refusals (WP2, WP3, WP5; [design](../architecture/ai-gateway.md) §8) · **Endpoints**
 (gateway host, e.g. `eu.gateway.<domain>`): `POST /v1/chat/completions`, `POST /v1/responses`, `POST /v1/embeddings`,
@@ -8,7 +8,8 @@ restoration and refusals (WP2, WP3, WP5; [design](../architecture/ai-gateway.md)
 **Health:** `GET /healthz`, `GET /readyz` · **Code:** `src/umai_decision_engine/gateway/`,
 models in `contracts/gateway.py` · **Decisions:** [ADR-0034](../adr/0034-umai-secure-gateway.md),
 [ADR-0035](../adr/0035-raw-content-zone-l0-and-gateway.md),
-[ADR-0036](../adr/0036-checks-continue-after-masking.md)
+[ADR-0036](../adr/0036-checks-continue-after-masking.md),
+[ADR-0037](../adr/0037-per-message-l0-scanning-and-cache.md)
 
 The gateway speaks the provider's wire format, OpenAI Chat Completions. It reads and may rewrite
 only the fields this document names; every other request and response field passes through
@@ -138,7 +139,11 @@ names a deployment-held key; tenant-managed keys: Q47).
 | anything else | Forwarded unchanged, never interpreted |
 
 Limits: the body is at most `UMAI_DE_GATEWAY_MAX_REQUEST_BYTES` (413 `request_too_large`); the
-scanned text at most `UMAI_DE_MAX_INPUT_CHARS` characters (413 `input_too_large`).
+scanned text, which is the whole conversation resent on every turn, at most
+`UMAI_DE_GATEWAY_MAX_INPUT_CHARS` characters (default 256 000, about 64 000 tokens; 413
+`input_too_large`). The engine API's `UMAI_DE_MAX_INPUT_CHARS` (32 000) does not apply here. L0
+scans each message on its own and does not scan a message it has seen before, so a turn costs
+its new messages (ADR-0037).
 
 ## Checks in one call
 
@@ -322,6 +327,9 @@ latency. No record carries prompt, answer, provider key or mask map (ADR-0035).
 
 ## Changelog
 
+- 0.8 (2026-10-20): the gateway's own input limit `UMAI_DE_GATEWAY_MAX_INPUT_CHARS` (default
+  256 000 characters) instead of the engine API's 32 000; messages scanned one by one and
+  cached (ADR-0037). No shape changes.
 - 0.7 (2026-10-20): route management in the policy service: `GET` / `PUT /v1/gateway/routes`,
   actions `gateway.route.read` / `gateway.route.write`.
 - 0.6 (2026-10-19): `fallback` routes (one retry on another upstream on 429 / 5xx / unreachable /

@@ -456,12 +456,27 @@ def test_history_tool_call_arguments_are_masked(make_gateway, upstream) -> None:
 
 
 def test_size_and_shape_limits(make_gateway) -> None:
-    client = make_gateway(max_input_chars=1_000)
+    client = make_gateway(gateway_max_input_chars=1_000)
     assert ask(client, "x" * 1_001).status_code == 413
     response = client.post("/v1/chat/completions", content=b"{not json")
     assert response.status_code == 400 and response.json()["error"]["code"] == "invalid_request"
     response = client.post("/v1/chat/completions", json={"model": "gpt-eu", "messages": []})
     assert response.status_code == 400
+
+
+def test_a_long_conversation_has_the_gateway_limit(make_gateway, upstream) -> None:
+    """The engine API's input limit is not the gateway's: a conversation grows with every
+    turn and is resent whole (gateway-api 0.8)."""
+
+    client = make_gateway(max_input_chars=1_000, gateway_max_input_chars=5_000)
+    turns = [
+        {"role": "user" if i % 2 == 0 else "assistant", "content": "haftalık rapor özeti " * 20}
+        for i in range(9)
+    ]
+    turns[-1]["content"] += " TC kimlik 10000000146"
+    response = client.post("/v1/chat/completions", json={"model": "gpt-eu", "messages": turns})
+    assert response.status_code == 200
+    assert upstream.last_body["messages"][-1]["content"].endswith("TC kimlik <TR_TCKN_1>")
 
 
 # ------------------------------------------------------------------ credentials and upstream

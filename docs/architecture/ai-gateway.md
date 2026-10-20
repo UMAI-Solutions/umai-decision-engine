@@ -415,13 +415,13 @@ Found while building WP2–WP5; none blocks the first customer's pilot.
 | N5 | `include_usage` is added only for `openai` / `azure_openai` upstreams; self-hosted servers may report no usage in streams | usage ledger (WP6) |
 | N6 | Upstream region is recorded, not enforced per tenant | regional stack (ADR-0026) |
 | N7 | The upstream allow-list checks host names, not what they resolve to (DNS pointing an allowed name at a private address) | before tenant-edited routes (WP7) |
-| N8 | Every turn re-scans the whole history; long agent conversations cost L0 time per turn. A per-message decision cache keyed by HMAC (no content) is possible if measurements ask for it | gateway benchmark |
+| N8 | Done 2026-10-20 (ADR-0037): L0 scans each message on its own and caches what it found per message (types, spans, value hashes; never text), so a resent history is not rescanned and a turn costs its new messages | — |
 | N9 | Engine and gateway processes keep separate per-key rate-limit buckets | Redis buckets (ADR-0023 §7) |
-| N10 | Done 2026-10-19: Compose profile `gateway` (port 9300), Caddy routes the OpenAI paths on the same hostname with streaming flush, provider keys through `umai.sh` (deploy/vm/README §7). Caddy's 512 KB body cap applies to gateway calls (images) | WP8 |
+| N10 | Done 2026-10-19: Compose profile `gateway` (port 9300), Caddy routes the OpenAI paths on the same hostname with streaming flush, provider keys through `umai.sh` (deploy/vm/README §7). Caddy's body cap is 4 MB on the gateway paths since 2026-10-20 (512 KB elsewhere); large images may still exceed it | WP8 |
 | N11 | Anthropic Messages surface (OpenAI Responses done in gateway-api 0.4) | when a customer needs it |
 | N13 | `window` streams show the first words after about hold-back + step = 160 upstream characters (≈ 0.4 s at 100 tokens/s, ≈ 1 s at 40 tokens/s; [report](../../evals/reports/2026-10-19-gateway-latency-wp3/summary.md)). A smaller hold-back halves that but lets entities longer than it (long URLs, API keys) be released in part before they are recognised; the rest is then never released. 128 stays the default until a customer asks | route or deployment setting |
 | N12 | The OpenAI key used for live tests sits in the tracked file `.env.example` of the main checkout (not committed by this work): move it to `.env` (ignored) and rotate it if it was ever pushed | product owner |
-| N14 | The gateway refuses a call whose scanned text (the whole history, `FULL_HISTORY`) exceeds `UMAI_DE_MAX_INPUT_CHARS` (32 000) with 413 `input_too_large`: long chats and agent loops with large tool results reach it. Measure L0 time at 64–128 k characters on the pilot VM, then raise the limit for the gateway container or scan only new messages (N8) | before the customer's agent traffic |
+| N14 | Done 2026-10-20 (ADR-0037, gateway-api 0.8): the 32 000-character engine-API limit refused chats of 15–20 long turns (the gateway scans the whole history). Measured on umai-beta (B2s): a full scan costs ≈ 2.9 ms per 1 000 characters (32 k: 92 ms, 128 k: 372 ms, 256 k: 773 ms). Now `UMAI_DE_GATEWAY_MAX_INPUT_CHARS` = 256 000 and the L0 cache keeps a turn to its new messages; the first call of a long existing history still pays the full scan | — |
 
 ## 10. Decisions needed
 

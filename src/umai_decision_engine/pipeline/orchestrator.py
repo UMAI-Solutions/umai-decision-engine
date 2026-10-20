@@ -39,7 +39,7 @@ from umai_decision_engine.contracts.evaluation import (
 from umai_decision_engine.l0.detector import EntityDetector
 from umai_decision_engine.l0.hashing import TenantKeyError
 from umai_decision_engine.l0.recognizers.catalog import TAG_BY_ENTITY
-from umai_decision_engine.l0.target import extract_target_text
+from umai_decision_engine.l0.target import SEPARATOR, extract_target_segments
 from umai_decision_engine.pipeline.failure import config_failure_decision, failure_decision
 from umai_decision_engine.pipeline.l0_gate import decide_l0
 from umai_decision_engine.pipeline.l0_policies import phase_config, type_rules
@@ -199,10 +199,11 @@ class Evaluator:
         rules = type_rules(bundle.l0)
         l0_config = phase_config(bundle.l0, rules, request.phase)
         try:
-            text = extract_target_text(request.content, target or bundle.l0.target)
+            segments = extract_target_segments(request.content, target or bundle.l0.target)
+            text = SEPARATOR.join(segments)
             l0_result = await asyncio.wait_for(
-                self._detector.adetect(
-                    text,
+                self._detector.adetect_segments(
+                    segments,
                     tenant_id=request.tenant_id,
                     config=l0_config,
                     language_hint=request.content.language,

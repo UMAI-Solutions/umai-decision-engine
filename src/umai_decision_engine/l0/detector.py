@@ -3,6 +3,10 @@
 Presidio's ``analyze()`` is synchronous and CPU-bound and its thread-safety is
 undocumented, so every worker thread owns its own ``AnalyzerEngine`` and the async API
 runs detection in a dedicated thread pool, never on the event loop.
+
+Text made of several segments (messages, attachment parts) is scanned one segment at a time
+and the spans are reported in ``SEPARATOR.join(segments)``; with a cache, a segment seen
+before is not scanned again (ADR-0037).
 """
 
 from __future__ import annotations
@@ -24,6 +28,7 @@ from umai_decision_engine.contracts.entities import (
     EntityDetectionResult,
     EntitySummary,
 )
+from umai_decision_engine.l0.cache import DetectionCache
 from umai_decision_engine.l0.context import has_context
 from umai_decision_engine.l0.hashing import KeyProvider, value_hash
 from umai_decision_engine.l0.normalize import normalize
@@ -36,6 +41,7 @@ from umai_decision_engine.l0.recognizers.catalog import (
 from umai_decision_engine.l0.recognizers.custom import custom_recognizers
 from umai_decision_engine.l0.recognizers.network import registrable_domain, url_domain
 from umai_decision_engine.l0.redact import PlaceholderAllocator, apply_redaction
+from umai_decision_engine.l0.target import SEPARATOR
 
 logger = logging.getLogger("umai.de.l0")
 
@@ -87,6 +93,27 @@ class _Hit:
     priority: int
 
 
+@dataclass(frozen=True)
+class _Found:
+    """An accepted entity of one segment, in the segment's original coordinates."""
+
+    type: str
+    start: int
+    end: int
+    score: float
+    recognizer: str
+    validated: bool | None
+    value_hash: str
+
+
+@dataclass(frozen=True)
+class _Scan:
+    """What scanning one segment produced: no text, no values (ADR-0037)."""
+
+    entities: tuple[_Found, ...]
+    normalized_length: int
+
+
 def _chunks(text: str, size: int) -> list[tuple[int, str]]:
     if len(text) <= size:
         return [(0, text)]
@@ -109,11 +136,16 @@ def _resolve_overlaps(hits: list[_Hit]) -> list[_Hit]:
 
 
 class EntityDetector:
-    def __init__(self, key_provider: KeyProvider, *, threads: int = 4) -> None:
+    def __init__(
+        self, key_provider: KeyProvider, *, threads: int = 4, cache_entries: int = 0
+    ) -> None:
         self._key_provider = key_provider
         self._local = threading.local()
         self._executor = ThreadPoolExecutor(max_workers=threads, thread_name_prefix="umai-l0")
         self._threads = threads
+        self.cache: DetectionCache[_Scan] | None = (
+            DetectionCache(cache_entries) if cache_entries > 0 else None
+        )
 
     # ----------------------------------------------------------- lifecycle
 
@@ -139,7 +171,7 @@ class EntityDetector:
 
         def _warm() -> None:
             barrier.wait(timeout=30)
-            self._detect(sample, key=b"warm-up", config=config, language_hint="tr")
+            self._scan(sample, key=b"warm-up", config=config, language="tr")
 
         futures = [self._executor.submit(_warm) for _ in range(self._threads)]
         for future in futures:
@@ -154,23 +186,91 @@ class EntityDetector:
         self, text: str, *, tenant_id: str, config: L0Config, language_hint: str | None = None
     ) -> EntityDetectionResult:
         key = self._key_provider(tenant_id)
-        return self._detect(text, key=key, config=config, language_hint=language_hint)
+        return self._detect([text], key=key, config=config, language_hint=language_hint)
 
     async def adetect(
         self, text: str, *, tenant_id: str, config: L0Config, language_hint: str | None = None
     ) -> EntityDetectionResult:
+        return await self.adetect_segments(
+            [text], tenant_id=tenant_id, config=config, language_hint=language_hint
+        )
+
+    async def adetect_segments(
+        self,
+        segments: list[str],
+        *,
+        tenant_id: str,
+        config: L0Config,
+        language_hint: str | None = None,
+    ) -> EntityDetectionResult:
+        """Detect in ``SEPARATOR.join(segments)``, scanning each segment on its own."""
+
         key = self._key_provider(tenant_id)
         loop = asyncio.get_running_loop()
         call = functools.partial(
-            self._detect, text, key=key, config=config, language_hint=language_hint
+            self._detect, segments, key=key, config=config, language_hint=language_hint
         )
         return await loop.run_in_executor(self._executor, call)
 
     def _detect(
-        self, text: str, *, key: bytes, config: L0Config, language_hint: str | None
+        self, segments: list[str], *, key: bytes, config: L0Config, language_hint: str | None
     ) -> EntityDetectionResult:
         started = time.perf_counter()
+        text = SEPARATOR.join(segments)
         language = detect_language(text, language_hint)
+        cache = self.cache
+        scope = cache.scope(key, config, language) if cache is not None else b""
+        scans: list[_Scan] = []
+        for segment in segments:
+            scan = cache.get(scope, segment) if cache is not None else None
+            if scan is None:
+                scan = self._scan(segment, key=key, config=config, language=language)
+                if cache is not None:
+                    cache.put(scope, segment, scan)
+            scans.append(scan)
+
+        allocator = PlaceholderAllocator()
+        detected: list[DetectedEntity] = []
+        offset = 0
+        for segment, scan in zip(segments, scans, strict=True):
+            for found in scan.entities:
+                detected.append(
+                    DetectedEntity(
+                        type=found.type,
+                        start=found.start + offset,
+                        end=found.end + offset,
+                        score=found.score,
+                        recognizer=found.recognizer,
+                        validated=found.validated,
+                        value_hash=found.value_hash,
+                        placeholder=allocator.placeholder(found.type, found.value_hash),
+                    )
+                )
+            offset += len(segment) + len(SEPARATOR)
+
+        summary: dict[str, tuple[int, set[str]]] = {}
+        for entity in detected:
+            count, hashes = summary.get(entity.type, (0, set()))
+            hashes.add(entity.value_hash)
+            summary[entity.type] = (count + 1, hashes)
+
+        normalized = sum(s.normalized_length for s in scans) + len(SEPARATOR) * max(
+            len(scans) - 1, 0
+        )
+        return EntityDetectionResult(
+            entities=detected,
+            summary=[
+                EntitySummary(type=t, count=c, distinct=len(h)) for t, (c, h) in summary.items()
+            ],
+            redacted_text=apply_redaction(
+                text, [(e.start, e.end, e.placeholder) for e in detected]
+            ),
+            language=language,
+            truncated=normalized > config.max_chars,
+            latency_ms=round((time.perf_counter() - started) * 1000, 3),
+        )
+
+    def _scan(self, text: str, *, key: bytes, config: L0Config, language: str) -> _Scan:
         norm = normalize(text)
         engine = self._engine()
         entities = [e for e in config.entities if e in SPECS_BY_ENTITY]
@@ -222,41 +322,20 @@ class EntityDetector:
                 if k not in raw or raw[k].score < hit.score:
                     raw[k] = hit
 
-        allocator = PlaceholderAllocator()
-        detected: list[DetectedEntity] = []
+        found: list[_Found] = []
         for hit in _resolve_overlaps(list(raw.values())):
             spec = specs[hit.type]
             canonical = spec.canonical(norm.text[hit.start : hit.end])
-            digest = value_hash(key, hit.type, canonical)
             o_start, o_end = norm.to_original(hit.start, hit.end)
-            detected.append(
-                DetectedEntity(
+            found.append(
+                _Found(
                     type=hit.type,
                     start=o_start,
                     end=o_end,
                     score=hit.score,
                     recognizer=hit.recognizer,
                     validated=hit.validated,
-                    value_hash=digest,
-                    placeholder=allocator.placeholder(hit.type, digest),
+                    value_hash=value_hash(key, hit.type, canonical),
                 )
             )
-
-        summary: dict[str, tuple[int, set[str]]] = {}
-        for entity in detected:
-            count, hashes = summary.get(entity.type, (0, set()))
-            hashes.add(entity.value_hash)
-            summary[entity.type] = (count + 1, hashes)
-
-        return EntityDetectionResult(
-            entities=detected,
-            summary=[
-                EntitySummary(type=t, count=c, distinct=len(h)) for t, (c, h) in summary.items()
-            ],
-            redacted_text=apply_redaction(
-                text, [(e.start, e.end, e.placeholder) for e in detected]
-            ),
-            language=language,
-            truncated=len(norm.text) > config.max_chars,
-            latency_ms=round((time.perf_counter() - started) * 1000, 3),
-        )
+        return _Scan(entities=tuple(found), normalized_length=len(norm.text))

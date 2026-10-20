@@ -65,7 +65,9 @@ async def start_runtime(
     )
     await asyncio.to_thread(store.reload, force=True)
     owns_detector = detector is None
-    detector = detector or EntityDetector(cfg.tenant_key, threads=cfg.l0_threads)
+    detector = detector or EntityDetector(
+        cfg.tenant_key, threads=cfg.l0_threads, cache_entries=cfg.l0_cache_entries
+    )
     await asyncio.to_thread(detector.warm_up)
     registry = None
     if cfg.key_registry_dir is not None:

@@ -45,5 +45,6 @@ listed in [`../open-questions.md`](../open-questions.md) as blocking, and flag d
 | [0034](0034-umai-secure-gateway.md) | UMAI secure gateway: OpenAI-compatible pass-through proxy in this repository (FastAPI, httpx, in-process pipeline), guardrails in and out, routes as tenant configuration, pass-through provider keys; no embedded gateway product | Accepted (2026-10-19; not built) |
 | [0035](0035-raw-content-zone-l0-and-gateway.md) | The raw-content zone is L0 and the gateway forwarder; raw content leaves only to the caller and the route's upstream, memory only | Accepted (2026-10-19) |
 | [0036](0036-checks-continue-after-masking.md) | Masking does not end the evaluation: attack and agent-action checks run on the masked text; only L0 `BLOCK` / `STEP_UP_APPROVAL` are terminal | Accepted (2026-10-19; effective with L1) |
+| [0037](0037-per-message-l0-scanning-and-cache.md) | L0 scans a multi-part target one message at a time with a per-process detection cache (types, spans, value hashes; never text), so a resent conversation is not rescanned; the gateway gets its own input limit (256 000 characters) | Accepted (2026-10-20) |
 
 New ADR: copy [`0000-template.md`](0000-template.md), or use skill `write-adr`.

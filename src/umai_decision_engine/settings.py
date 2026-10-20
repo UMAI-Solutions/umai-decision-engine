@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     # Cloud generates and wraps one key per tenant instead (ADR-0027 §5).
     tenant_hmac_master_key: SecretStr | None = None  # base64, at least 32 bytes
     l0_threads: int = Field(4, ge=1, le=64)
+    # Per-process cache of per-message L0 results (ADR-0037): a resent conversation is not
+    # rescanned. Types, spans and value hashes only, never text. 0 disables it.
+    l0_cache_entries: int = Field(20_000, ge=0, le=1_000_000)
 
     # API access. Shared operator token (ADR-0016; self-hosted) and/or per-tenant API keys
     # from signed registry snapshots (ADR-0023). Outside development at least one of the two
@@ -96,6 +99,10 @@ class Settings(BaseSettings):
     # Never logged; never sent anywhere but the route's upstream (ADR-0035 §4).
     gateway_provider_keys: dict[str, SecretStr] = Field(default_factory=dict)
     gateway_max_request_bytes: int = Field(16_000_000, ge=10_000, le=200_000_000)
+    # Characters the gateway scans per call: the whole history, resent every turn (gateway-api
+    # 0.8). Larger than max_input_chars because a conversation grows; the L0 cache keeps a
+    # turn's cost to its new messages (ADR-0037).
+    gateway_max_input_chars: int = Field(256_000, ge=1_000, le=4_000_000)
     # Streaming "window" mode: characters held back so an entity or placeholder split across
     # chunks is never released half-checked (contract gateway-api, Streaming).
     gateway_stream_holdback_chars: int = Field(128, ge=32, le=4096)

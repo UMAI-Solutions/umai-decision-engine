@@ -36,6 +36,7 @@ umai-decision-engine/
 │   │   │   └── catalog.py         # core entity specs, tag codes; extended types go here
 │   │   ├── validators.py          # checksum functions (pure, heavily tested)
 │   │   ├── hashing.py             # HMAC per tenant
+│   │   ├── cache.py               # ADR-0037: per-message detection cache (no text, no values)
 │   │   └── redact.py              # placeholder generation
 │   ├── rules/                     # deterministic, shared by the L0 gate and L1a
 │   │   ├── facts.py               # request + L0 summary → facts (no content, no values)
