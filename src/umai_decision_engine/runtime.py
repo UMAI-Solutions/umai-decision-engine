@@ -8,6 +8,7 @@ import asyncio
 import contextlib
 from dataclasses import dataclass, field
 
+from umai_decision_engine.applications import AllowList, ApplicationTable
 from umai_decision_engine.l0.detector import EntityDetector
 from umai_decision_engine.pipeline.orchestrator import Evaluator
 from umai_decision_engine.policy.sources import DirectorySource
@@ -27,6 +28,7 @@ class Runtime:
     evaluator: Evaluator
     registry: KeyRegistry | None
     admission: Admission
+    applications: ApplicationTable
     owns_detector: bool
     tasks: list[asyncio.Task] = field(default_factory=list)
 
@@ -85,6 +87,8 @@ async def start_runtime(
         else None,
         development=cfg.env == "development",
     )
+    applications = ApplicationTable(cfg.applications_dir, AllowList(cfg.gateway_upstream_allowlist))
+    await asyncio.to_thread(applications.reload, force=True)
     runtime = Runtime(
         settings=cfg,
         store=store,
@@ -92,10 +96,13 @@ async def start_runtime(
         evaluator=Evaluator(store, detector, cfg),
         registry=registry,
         admission=admission,
+        applications=applications,
         owns_detector=owns_detector,
     )
     if cfg.bundle_poll_interval_s > 0:
         runtime.poll(store.poll(cfg.bundle_poll_interval_s))
     if registry is not None and cfg.key_registry_poll_interval_s > 0:
         runtime.poll(registry.poll(cfg.key_registry_poll_interval_s))
+    if cfg.applications_poll_interval_s > 0:
+        runtime.poll(applications.poll(cfg.applications_poll_interval_s))
     return runtime

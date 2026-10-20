@@ -7,7 +7,7 @@ import json
 from tests.integration.test_gateway import (  # noqa: F401  (fixtures)
     CARD,
     EMAIL,
-    gateway_yaml,
+    app_yaml,
     make_gateway,
     upstream,
 )
@@ -43,7 +43,7 @@ def test_texts_are_masked_before_embedding(make_gateway, upstream) -> None:  # n
 
 def test_blocked_text_is_never_embedded(make_gateway, upstream) -> None:  # noqa: F811
     # Embeddings always refuse with 400, whatever the refusal style.
-    client = make_gateway(gateways=gateway_yaml(refusal="message"))
+    client = make_gateway(applications=app_yaml(refusal="message"))
     response = client.post("/v1/embeddings", json={"model": "gpt-eu", "input": [f"Kart {CARD}"]})
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "umai_blocked"
@@ -55,7 +55,7 @@ def test_token_arrays_follow_the_route(make_gateway, upstream) -> None:  # noqa:
     client = make_gateway()
     response = client.post("/v1/embeddings", json={"model": "gpt-eu", "input": [1, 2, 3]})
     assert response.status_code == 400 and response.json()["error"]["code"] == "unsupported_content"
-    client = make_gateway(gateways=gateway_yaml(unscanned_parts="pass_unscanned"))
+    client = make_gateway(applications=app_yaml(unscanned_parts="pass_unscanned"))
     response = client.post("/v1/embeddings", json={"model": "gpt-eu", "input": [[1, 2], "metin"]})
     assert response.status_code == 200
     assert response.headers["X-Umai-Unscanned-Parts"] == "1"

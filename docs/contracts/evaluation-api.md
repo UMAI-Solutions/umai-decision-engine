@@ -1,6 +1,6 @@
 # Contract: evaluation API
 
-**Version:** 0.9 · **Endpoints:** `POST /v1/evaluate`, `GET /v1/bundles`, `POST /v1/bundles/reload`, `POST /v1/detect` (development) · **Health:** `GET /healthz`, `GET /readyz`
+**Version:** 0.10 · **Endpoints:** `POST /v1/evaluate`, `GET /v1/bundles`, `POST /v1/bundles/reload`, `POST /v1/detect` (development) · **Health:** `GET /healthz`, `GET /readyz`
 
 `/readyz` returns 200 only after Presidio analyzers are loaded and warmed up, the policy
 bundles are loaded, and the configured L1b provider answered a probe.
@@ -44,7 +44,7 @@ not part of this API ([ADR-0010](../adr/0010-l2-asynchronous-review.md)).
 | `request_id` | string | yes | Echoed; used as trace id |
 | `timestamp` | RFC 3339 string | yes | Caller time |
 | `tenant_id` | string | no (0.6) | The credential's tenant is authoritative (ADR-0023 §5): omitted → filled from the API key; present → must equal it, else 403 `tenant_mismatch`. Required with the shared operator token (400 `tenant_required`). Selects HMAC key and history namespace |
-| `bundle.id` | string | yes | Policy bundle to evaluate against |
+| `bundle.id` | string | yes, unless the key belongs to an application (0.10) | Policy bundle to evaluate against. A key that belongs to an application ([credentials](credentials.md) 0.6) is evaluated with the application's guardrail: omitted → filled with it; another id or `bundle_inline` → 403 `guardrail_mismatch`; the key's application missing or disabled → 403 `unknown_application`. Any other caller must name it (422 `bundle_required`) |
 | `bundle.version` | int | no | Explicit version; omitted → the bundle's **active** version (ADR-0012) |
 | `bundle_inline` | PolicyBundle | no | R&D only: evaluate against an inline bundle; disabled unless `settings.allow_inline_bundles` |
 | `phase` | Phase | yes | |
@@ -245,6 +245,10 @@ applies, visibly. The check runs after admission and schema validation.
 
 ## Changelog
 
+- 0.10 (2026-10-20): one guardrail per application on every path (ADR-0039 §2): `bundle` is
+  optional for a key that belongs to an application, whose guardrail applies; errors
+  `guardrail_mismatch`, `unknown_application` (403) and `bundle_required` (422). Requests
+  0.2–0.10 accepted.
 - 0.9 (2026-10-19): prompt-size limit: HTTP 413 `input_too_large` with `limit`, `size` and
   `unit: "characters"` above `UMAI_DE_MAX_INPUT_CHARS` (default 32 000) over all message and
   artifact content, on `/v1/evaluate` and `/v1/detect` (gap T2; ADR-0019 amendment, Q19).

@@ -11,8 +11,8 @@ touching anyone's .env files (development only; values already in the environmen
 
     python dev/local_stack.py engine | policy-service | console | gateway
 
-The gateway (port 9300) and the policy service share ``.data/gateways``, so gateways saved
-through ``PUT /v1/gateways/{id}`` reach the gateway within seconds.
+The engine, the gateway (port 9300) and the policy service share ``.data/applications``, so
+applications and providers saved through the policy service apply within seconds.
 
 The console is looked for next to this repository; ``UMAI_CONSOLE_DIR`` overrides that.
 """
@@ -46,7 +46,7 @@ def engine_token() -> str:
 def shared_settings() -> None:
     os.environ.setdefault("UMAI_DE_DEFAULT_TENANT_ID", "console")
     os.environ.setdefault("UMAI_DE_KEY_REGISTRY_DIR", str(DATA / "key-registry"))
-    os.environ.setdefault("UMAI_DE_GATEWAYS_DIR", str(DATA / "gateways"))
+    os.environ.setdefault("UMAI_DE_APPLICATIONS_DIR", str(DATA / "applications"))
 
 
 def run_engine() -> int:

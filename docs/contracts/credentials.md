@@ -1,6 +1,6 @@
 # Contract: credentials
 
-**Version:** 0.5 · **Producer → consumer:** control plane → engines (key-registry snapshot), control plane ↔ console (key records), console → policy service (on-behalf-of assertion) · **Decisions:** [ADR-0023](../adr/0023-identity-planes-and-api-keys.md), [ADR-0029](../adr/0029-authorization-roles-and-four-eyes.md)
+**Version:** 0.6 · **Producer → consumer:** control plane → engines (key-registry snapshot), control plane ↔ console (key records), console → policy service (on-behalf-of assertion) · **Decisions:** [ADR-0023](../adr/0023-identity-planes-and-api-keys.md), [ADR-0029](../adr/0029-authorization-roles-and-four-eyes.md)
 
 Three shapes: the **API key record** the console manages, the **key-registry snapshot** the
 control plane publishes per tenant and every engine loads like a bundle (verify → validate →
@@ -34,7 +34,7 @@ Sent as `Authorization: Bearer <key>` only; never in a query string.
   "env": "live",
   "region": "eu",
   "scopes": ["evaluate"],
-  "gateway_id": null,
+  "application_id": null,
   "created_by": "control-token",
   "created_at": "2026-10-18T09:00:00Z",
   "expires_at": null,
@@ -46,12 +46,14 @@ Sent as `Authorization: Bearer <key>` only; never in a query string.
 
 `scopes` ⊆ `evaluate`, `gateway`, `bundles:read`, `usage:read` for customer keys (default `evaluate`;
 `gateway` admits the key at the UMAI gateway, [gateway-api](gateway-api.md));
-`bundles:reload` is a control-plane scope that customer keys cannot hold. `gateway_id` (0.5,
-ADR-0038) binds a key to one gateway of its tenant: the gateway then uses that gateway for every
-call of the key and refuses any other. It is set when the key is created (`POST
-/v1/tenants/{id}/keys` with `{"name", "gateway_id"}`; the gateway must exist; `scopes` then
-default to `["gateway"]` and must contain `gateway`) and cannot change; create a new key to move
-an application. `null`: not bound (the caller names the gateway, see gateway-api). `status` is derived
+`bundles:reload` is a control-plane scope that customer keys cannot hold. `application_id` (0.6,
+ADR-0039; `gateway_id` in 0.5) says which application a key belongs to. The key then works on
+every connection of that application: on the gateway it selects the application and refuses any
+other ([gateway-api](gateway-api.md)), on the evaluation API the application's guardrail applies
+and a request naming another is refused ([evaluation-api](evaluation-api.md) 0.10). It is set
+when the key is created (`POST /v1/tenants/{id}/keys` with `{"name", "application_id"}`; the
+application must exist; `scopes` then default to `["evaluate", "gateway"]`) and cannot change;
+create a new key to move an application. `null`: the key belongs to no application. `status` is derived
 (`revoked` when `revoked_at` is set). `last_used_at` is reserved: engines do not write to the
 store, so it stays `null` until usage telemetry exists.
 
@@ -62,7 +64,7 @@ plane; engines poll the directory (`UMAI_DE_KEY_REGISTRY_POLL_INTERVAL_S`, defau
 
 ```json
 {
-  "contract_version": "0.2",
+  "contract_version": "0.3",
   "tenant_id": "tenant-demo",
   "generated_at": "2026-10-18T09:00:05Z",
   "keys": [
@@ -71,8 +73,8 @@ plane; engines poll the directory (`UMAI_DE_KEY_REGISTRY_POLL_INTERVAL_S`, defau
       "secret_sha256": "<64 hex>",
       "env": "live",
       "region": "eu",
-      "scopes": ["gateway"],
-      "gateway_id": "hr-assistant",
+      "scopes": ["evaluate", "gateway"],
+      "application_id": "hr-assistant",
       "status": "active",
       "expires_at": null
     }
@@ -84,8 +86,8 @@ plane; engines poll the directory (`UMAI_DE_KEY_REGISTRY_POLL_INTERVAL_S`, defau
 
 | Field | Notes |
 |---|---|
-| `contract_version` | `0.2` since credentials 0.5 (entries may carry `gateway_id`); engines still accept `0.1` files |
-| `keys[].gateway_id` | The key's gateway (0.5); absent when the key is not bound |
+| `contract_version` | `0.3` since credentials 0.6 (entries may carry `application_id`); engines still accept `0.1` and `0.2` files (0.2 calls the field `gateway_id`; its signature covers that name) |
+| `keys[].application_id` | The key's application (0.6); absent when the key belongs to none |
 | `keys[].status` | `active` or `revoked`; revoked keys stay listed so a reload can never resurrect one |
 | `signing_key_id`, `signature` | Ed25519 over the JSON of the snapshot without `signature`, with the control plane's bundle-signing key; verified against `UMAI_DE_BUNDLE_PUBLIC_KEYS`. Required whenever signed bundles are required (everything but development) |
 
@@ -152,6 +154,9 @@ assertion names no tenant); 403 `tenant_mismatch` (the target tenant is not the 
 
 ## Changelog
 
+- 0.6 (2026-10-20): `application_id` replaces `gateway_id` (ADR-0039): a key belongs to an
+  application and works on all its connections (scopes default to `evaluate` and `gateway`);
+  snapshot payload `contract_version` 0.3 (0.1 and 0.2 still read); tenant-store migration 0004.
 - 0.5 (2026-10-20): `gateway_id` binds a key to one gateway (ADR-0038): on key records, on
   key creation and on registry entries; snapshot payload `contract_version` 0.2 (0.1 still read).
 - 0.4 (2026-10-19): scope `gateway` for the UMAI gateway (ADR-0034); snapshot payload unchanged.

@@ -19,8 +19,8 @@ from umai_decision_engine.contracts.common import (
 )
 from umai_decision_engine.contracts.entities import EntitySummary
 
-CONTRACT_VERSION = "0.9"
-_ACCEPTED_REQUEST_VERSIONS = Literal["0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9"]
+CONTRACT_VERSION = "0.10"
+_ACCEPTED_REQUEST_VERSIONS = Literal["0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "0.10"]
 
 # ------------------------------------------------------------------ request
 
@@ -88,7 +88,9 @@ class EvaluationRequest(ContractModel):
     # 0.6: optional; the credential's tenant is authoritative and fills it (ADR-0023 §5).
     # Required when the caller uses the shared operator token (self-hosted, ADR-0016).
     tenant_id: str | None = Field(None, min_length=1, max_length=128)
-    bundle: BundleRef
+    # 0.10: optional for a key that belongs to an application, whose guardrail applies; required
+    # otherwise (ADR-0039 §2).
+    bundle: BundleRef | None = None
     bundle_inline: PolicyBundle | None = None
     phase: Phase
     content: Content

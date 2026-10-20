@@ -94,25 +94,28 @@ def run(args: argparse.Namespace) -> Path:
         return httpx.Response(200, json=state["reply"])
 
     work = Path(tempfile.mkdtemp(prefix="umai-gw-bench-"))
-    gateways = work / "gateways"
-    gateways.mkdir()
-    # One gateway per streaming mode; the model name doubles as the gateway's id.
-    gateway_list = [
-        {
-            "gateway_id": f"r-{mode}",
-            "provider": {"kind": "openai", "credential": "none"},
-            "guardrail": BUNDLE,
-            "aliases": [{"name": f"r-{mode}", "model": "m"}],
-            "stream_mode": mode,
-        }
-        for mode in ("window", "buffer", "after")
-    ]
-    (gateways / "default.yaml").write_text(json.dumps({"gateways": gateway_list}), encoding="utf-8")
+    applications = work / "applications"
+    applications.mkdir()
+    # One application per streaming mode; the model name doubles as the application's id. The
+    # built-in OpenAI provider is replaced by one without a credential (the fake upstream).
+    content = {
+        "providers": [{"provider_id": "openai", "kind": "openai", "credential": "none"}],
+        "applications": [
+            {
+                "application_id": f"r-{mode}",
+                "guardrail": BUNDLE,
+                "aliases": [{"name": f"r-{mode}", "model": "m"}],
+                "stream_mode": mode,
+            }
+            for mode in ("window", "buffer", "after")
+        ],
+    }
+    (applications / "default.yaml").write_text(json.dumps(content), encoding="utf-8")
     settings = Settings(
         env="development",
         policy_dir=ROOT / "policies",
-        gateways_dir=gateways,
-        gateways_poll_interval_s=0,
+        applications_dir=applications,
+        applications_poll_interval_s=0,
         bundle_poll_interval_s=0,
         l0_threads=1,
         log_level="WARNING",
@@ -166,7 +169,7 @@ def run(args: argparse.Namespace) -> Path:
                 return client.post(
                     "/v1/chat/completions",
                     json=payload,
-                    headers={"X-Umai-Gateway": payload["model"]},
+                    headers={"X-Umai-Application": payload["model"]},
                 )
 
             for _ in range(5):

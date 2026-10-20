@@ -273,7 +273,7 @@ async def create_response(request: Request) -> Response:
         raise GatewayHTTPError(
             400,
             "unsupported_content",
-            "this gateway does not accept input the guardrail cannot scan "
+            "this application does not accept input the guardrail cannot scan "
             "(images, audio, files, tool outputs other than text)",
             param="input",
         )

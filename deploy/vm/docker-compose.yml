@@ -25,6 +25,9 @@ x-engine-env: &engine-env
   # Bundles directly under the policy root belong to the default tenant (policy-bundle 0.8):
   # the tenant the console evaluates as. Other tenants need bundles under tenants/<id>/.
   UMAI_DE_DEFAULT_TENANT_ID: ${UMAI_CONSOLE_TENANT_ID:-console}
+  # Applications and the AI gateway's providers, one <tenant>.yaml each (gateway-api 0.10): the
+  # policy service writes them; the engine and the gateway read them (ADR-0039).
+  UMAI_DE_APPLICATIONS_DIR: /data/applications
 
 services:
   seed:
@@ -66,9 +69,12 @@ services:
     image: umai-decision-engine:current
     environment:
       <<: *engine-env
-    env_file: ["${UMAI_RUN_DIR:-/run/umai}/engine.env"]
+    env_file:
+      - "${UMAI_RUN_DIR:-/run/umai}/engine.env"   # operator token, tenant HMAC keys
+      - "${UMAI_RUN_DIR:-/run/umai}/routes.env"   # provider allow-list (applications files)
     volumes:
       - policies:/data/policies:ro
+      - "${UMAI_APPLICATIONS:-/opt/umai/applications}:/data/applications:ro"
     depends_on:
       seed: { condition: service_completed_successfully }
     healthcheck:
@@ -92,13 +98,12 @@ services:
       # The console signs an on-behalf-of assertion for every person (credentials 0.3); the
       # control token alone may only run operator actions. Public key: policy.env (umai.sh).
       UMAI_DE_ACTOR_ASSERTION: ${UMAI_ACTOR_ASSERTION:-required}
-      UMAI_DE_GATEWAYS_DIR: /data/gateways  # written by PUT / DELETE /v1/gateways/{id}
     env_file:
       - "${UMAI_RUN_DIR:-/run/umai}/policy.env"  # tokens, database URLs, actor public key
-      - "${UMAI_RUN_DIR:-/run/umai}/routes.env"  # upstream allow-list for gateway validation
+      - "${UMAI_RUN_DIR:-/run/umai}/routes.env"  # provider allow-list for validation
     volumes:
       - policies:/data/policies
-      - "${UMAI_GATEWAYS:-/opt/umai/gateways}:/data/gateways"
+      - "${UMAI_APPLICATIONS:-/opt/umai/applications}:/data/applications"
       - "${UMAI_RUN_DIR:-/run/umai}/signing.key:/run/secrets/signing.key:ro"
     depends_on:
       seed: { condition: service_completed_successfully }
@@ -121,14 +126,13 @@ services:
     command: ["uvicorn", "umai_decision_engine.gateway.app:app", "--host", "0.0.0.0", "--port", "9300", "--no-server-header"]
     environment:
       <<: *engine-env
-      UMAI_DE_GATEWAYS_DIR: /data/gateways  # <tenant>.yaml, hot-reloaded
     env_file:
       - "${UMAI_RUN_DIR:-/run/umai}/engine.env"   # operator token, tenant HMAC keys
       - "${UMAI_RUN_DIR:-/run/umai}/gateway.env"  # provider keys (gateway only)
       - "${UMAI_RUN_DIR:-/run/umai}/routes.env"   # upstream allow-list (also the policy service)
     volumes:
       - policies:/data/policies:ro
-      - "${UMAI_GATEWAYS:-/opt/umai/gateways}:/data/gateways:ro"
+      - "${UMAI_APPLICATIONS:-/opt/umai/applications}:/data/applications:ro"
     depends_on:
       seed: { condition: service_completed_successfully }
     healthcheck:

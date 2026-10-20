@@ -54,7 +54,10 @@ class Action(StrEnum):
     MEMBER_REMOVE = "member.remove"
     INVITATION_MANAGE = "invitation.manage"
     DOMAIN_MANAGE = "domain.manage"
-    # gateways (gateway-api 0.9, ADR-0038): tenant configuration, not policy
+    # applications (ADR-0039) and the AI gateway's providers and defaults (gateway-api 0.10):
+    # tenant configuration, not policy
+    APPLICATION_READ = "application.read"
+    APPLICATION_WRITE = "application.write"
     GATEWAY_READ = "gateway.read"
     GATEWAY_WRITE = "gateway.write"
 
@@ -108,6 +111,8 @@ MATRIX: dict[Action, Rule] = {
     Action.MEMBER_REMOVE: _r(_O, _A),
     Action.INVITATION_MANAGE: _r(_O, _A),
     Action.DOMAIN_MANAGE: _r(_O, _A),
+    Action.APPLICATION_READ: _r(_O, _A, _E, _P, _V, operator=True),
+    Action.APPLICATION_WRITE: _r(_O, _A, operator=True),
     Action.GATEWAY_READ: _r(_O, _A, _E, _P, _V, operator=True),
     Action.GATEWAY_WRITE: _r(_O, _A, operator=True),
 }

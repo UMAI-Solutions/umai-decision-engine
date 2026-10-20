@@ -81,7 +81,7 @@ async def create_embeddings(request: Request) -> Response:
         raise GatewayHTTPError(
             400,
             "unsupported_content",
-            "token arrays cannot be scanned on this gateway",
+            "token arrays cannot be scanned for this application",
             param="input",
         )
     limit = state.settings.gateway_max_input_chars

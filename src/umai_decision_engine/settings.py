@@ -82,11 +82,12 @@ class Settings(BaseSettings):
     starter_guardrail: str | None = "gr-demo-data-protection"  # copied into new organizations
     disposable_email_domains: list[str] = Field(default_factory=list)  # added to the built-in list
 
-    # Gateway (ADR-0034, ADR-0038, contract gateway-api). Gateways: one YAML file per tenant,
-    # <gateways_dir>/<tenant_id>.yaml, hot-reloaded. Provider base URLs must match an
+    # Applications (ADR-0039, contract gateway-api): one YAML file per tenant,
+    # <applications_dir>/<tenant_id>.yaml, hot-reloaded; read by the engine API and the gateway.
+    # Provider base URLs must match an
     # allow-list entry: scheme://host-glob[:port]; http only where an entry says so.
-    gateways_dir: Path = Path("gateways")
-    gateways_poll_interval_s: float = Field(5.0, ge=0)  # 0 disables polling
+    applications_dir: Path = Path("applications")
+    applications_poll_interval_s: float = Field(5.0, ge=0)  # 0 disables polling
     gateway_upstream_allowlist: list[str] = Field(
         default_factory=lambda: [
             "https://api.openai.com",

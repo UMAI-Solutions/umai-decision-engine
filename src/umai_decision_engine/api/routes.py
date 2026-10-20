@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from umai_decision_engine.contracts.credentials import Scope
 from umai_decision_engine.contracts.evaluation import (
     BundleInfo,
+    BundleRef,
     DetectedEntityView,
     DetectResponse,
     EvaluationRequest,
@@ -71,6 +72,44 @@ def _enforce_input_size(request: Request, body: EvaluationRequest) -> None:
         raise HTTPException(status_code=413, detail=detail.model_dump(mode="json"))
 
 
+def _bind_application(
+    request: Request, principal: Principal, body: EvaluationRequest
+) -> EvaluationRequest:
+    """One guardrail per application on every path (evaluation API 0.10, ADR-0039 §2): a key that
+    belongs to an application is evaluated with the application's guardrail; any other caller
+    names the guardrail in ``bundle``."""
+
+    if principal.application_id is None:
+        if body.bundle is None:
+            raise HTTPException(
+                422,
+                {
+                    "error": "bundle_required",
+                    "detail": "name the guardrail in bundle.id (only an application's key may "
+                    "leave it out)",
+                },
+            )
+        return body
+    tenant = body.tenant_id or request.app.state.store.default_tenant
+    app = request.app.state.applications.application(tenant, principal.application_id)
+    if app is None:
+        raise HTTPException(
+            403, {"error": "unknown_application", "detail": "this key's application is not active"}
+        )
+    if body.bundle_inline is not None or (
+        body.bundle is not None and body.bundle.id != app.guardrail
+    ):
+        raise HTTPException(
+            403,
+            {
+                "error": "guardrail_mismatch",
+                "detail": "this key's application is protected by another guardrail",
+            },
+        )
+    version = body.bundle.version if body.bundle is not None else None
+    return body.model_copy(update={"bundle": BundleRef(id=app.guardrail, version=version)})
+
+
 @router.get("/healthz")
 async def healthz() -> dict[str, str]:
     return {"status": "ok"}
@@ -101,6 +140,7 @@ async def evaluate(
 ) -> EvaluationResponse:
     _require_ready(request)
     body = body.model_copy(update={"tenant_id": principal.bind_tenant(body.tenant_id)})
+    body = _bind_application(request, principal, body)
     _enforce_input_size(request, body)
     try:
         return await request.app.state.evaluator.evaluate(body)
@@ -119,6 +159,7 @@ async def detect(
         raise HTTPException(status_code=404)
     _require_ready(request)
     body = body.model_copy(update={"tenant_id": principal.bind_tenant(body.tenant_id)})
+    body = _bind_application(request, principal, body)
     _enforce_input_size(request, body)
     try:
         loaded, missing = state.evaluator.resolve_bundle(body)

@@ -4,18 +4,19 @@ record carries the SHA-256 of the secret, never the secret."""
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
-from umai_decision_engine.contracts.gateway import GATEWAY_ID
+from umai_decision_engine.contracts.gateway import APPLICATION_ID
 from umai_decision_engine.contracts.organizations import Role
 
-# Key-registry snapshot payload version: 0.1 until credentials 0.4, 0.2 since 0.5 (entries
-# may carry gateway_id). Engines read both.
-CONTRACT_VERSION = "0.2"
+# Key-registry snapshot payload version: 0.1 until credentials 0.4, 0.2 in 0.5 (entries may
+# carry gateway_id), 0.3 since 0.6 (application_id). Engines read all three.
+CONTRACT_VERSION = "0.3"
 
 KeyEnv = Literal["live", "test"]
 KeyRegion = Literal["eu", "us", "sh"]
@@ -49,7 +50,10 @@ class KeyRegistryEntry(BaseModel):
     env: KeyEnv
     region: KeyRegion
     scopes: list[Scope]
-    gateway_id: str | None = Field(None, pattern=GATEWAY_ID)  # credentials 0.5, ADR-0038
+    # The key's application (credentials 0.6, ADR-0039); 0.2 snapshots call it gateway_id.
+    application_id: str | None = Field(
+        None, pattern=APPLICATION_ID, validation_alias=AliasChoices("application_id", "gateway_id")
+    )
     status: Literal["active", "revoked"]
     expires_at: datetime | None = None
 
@@ -61,7 +65,7 @@ class KeyRegistrySnapshot(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    contract_version: Literal["0.1", "0.2"] = CONTRACT_VERSION
+    contract_version: Literal["0.1", "0.2", "0.3"] = CONTRACT_VERSION
     tenant_id: str = Field(min_length=1, max_length=128)
     generated_at: datetime
     keys: list[KeyRegistryEntry]
@@ -70,7 +74,15 @@ class KeyRegistrySnapshot(BaseModel):
 
     def signing_payload(self) -> bytes:
         unsigned = self.model_copy(update={"signature": None})
-        return unsigned.model_dump_json(exclude_none=True).encode("utf-8")
+        if self.contract_version != "0.2":
+            return unsigned.model_dump_json(exclude_none=True).encode("utf-8")
+        # 0.2 snapshots were signed with the field's old name; rebuild that exact payload.
+        data = unsigned.model_dump(mode="json", exclude_none=True)
+        data["keys"] = [
+            {("gateway_id" if k == "application_id" else k): v for k, v in entry.items()}
+            for entry in data["keys"]
+        ]
+        return json.dumps(data, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 
 
 class ApiKeyRecord(BaseModel):
@@ -85,7 +97,7 @@ class ApiKeyRecord(BaseModel):
     env: KeyEnv
     region: KeyRegion
     scopes: list[Scope]
-    gateway_id: str | None = None  # the gateway the key is bound to (0.5, ADR-0038)
+    application_id: str | None = None  # the application the key belongs to (0.6, ADR-0039)
     created_by: str
     created_at: datetime
     expires_at: datetime | None = None
