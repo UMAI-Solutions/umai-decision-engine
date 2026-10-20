@@ -22,6 +22,7 @@ docs/
 │   ├── deployment-and-editions.md  SaaS vs self-hosted, Community vs Enterprise, entitlements
 │   ├── sign-in-and-onboarding.md  sign-up → organization → invitation → first key; surfaces, branding, tests
 │   ├── ai-gateway.md             UMAI secure gateway: fit, options, design, build plan (ADR-0034)
+│   ├── console-information-architecture.md  console structure, security first; the gateway under Connect (ADR-0039, Proposed)
 │   └── code-layout.md            target package layout and module boundaries
 ├── contracts/                    versioned data shapes (the source of truth for code)
 │   ├── README.md                 versioning rules

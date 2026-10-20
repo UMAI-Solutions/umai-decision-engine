@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 780" width="1200" height="780">
+<rect x="0" y="0" width="1200" height="780" rx="0" fill="#f7f8fa" stroke="#f7f8fa" stroke-width="1"/>
+<rect x="0" y="0" width="1200" height="48" rx="0" fill="#111" stroke="#111" stroke-width="1"/>
+<text x="20" y="30" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#fff" text-anchor="start">UMAI</text>
+<text x="1180" y="30" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#d1d5db" text-anchor="end">Smarttech · Owner   ·   batu</text>
+<rect x="0" y="48" width="200" height="732" rx="0" fill="#f7f8fa" stroke="#f7f8fa" stroke-width="1"/>
+<line x1="200" y1="48" x2="200" y2="780" stroke="#d9dbe0"/>
+<text x="20" y="80" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" font-weight="700" fill="#9ca3af" text-anchor="start"></text>
+<text x="28" y="102" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">Overview</text>
+<text x="20" y="136" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" font-weight="700" fill="#9ca3af" text-anchor="start">PROTECT</text>
+<text x="28" y="158" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">Guardrails</text>
+<rect x="10" y="172" width="180" height="30" rx="6" fill="#fff" stroke="#d9dbe0" stroke-width="1"/>
+<text x="28" y="192" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#111111" text-anchor="start">Applications</text>
+<text x="28" y="226" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">Playground</text>
+<text x="20" y="260" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" font-weight="700" fill="#9ca3af" text-anchor="start">INVESTIGATE</text>
+<text x="28" y="282" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">Detections</text>
+<text x="28" y="316" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">Reports</text>
+<text x="20" y="350" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" font-weight="700" fill="#9ca3af" text-anchor="start">CONNECT</text>
+<text x="28" y="372" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">AI Gateway</text>
+<text x="28" y="406" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">API &amp; SDKs</text>
+<text x="28" y="440" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">Integrations</text>
+<text x="20" y="474" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" font-weight="700" fill="#9ca3af" text-anchor="start">ORGANIZATION</text>
+<text x="28" y="496" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">Members</text>
+<text x="28" y="530" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">Settings</text>
+<text x="232" y="76" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#6b7280" text-anchor="start">Applications</text>
+<text x="232" y="116" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="24" font-weight="600" fill="#111111" text-anchor="start">Applications</text>
+<text x="232" y="140" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13.5" font-weight="400" fill="#6b7280" text-anchor="start">The AI applications and agents UMAI protects. Each has a guardrail and its own keys.</text>
+<rect x="1032" y="98" width="136" height="34" rx="6" fill="#0f62fe" stroke="#0f62fe" stroke-width="1"/>
+<text x="1100.0" y="120" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#fff" text-anchor="middle">Add application</text>
+<rect x="0" y="0" width="1200" height="780" rx="0" fill="#000000" fill-opacity="0.35" stroke="none" stroke-width="1"/>
+<rect x="330" y="96" width="540" height="640" rx="12" fill="#fff" stroke="#d9dbe0" stroke-width="1"/>
+<text x="354" y="134" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="18" font-weight="600" fill="#111111" text-anchor="start">Add application</text>
+<text x="354" y="158" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#6b7280" text-anchor="start">One per app or agent, so each is protected and visible on its own.</text>
+<text x="354" y="192" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="500" fill="#6b7280" text-anchor="start">Name</text>
+<rect x="354" y="200" width="492" height="34" rx="6" fill="#fff" stroke="#d9dbe0" stroke-width="1"/>
+<text x="364" y="222" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#111111" text-anchor="start">HR assistant</text>
+<text x="354" y="262" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="500" fill="#6b7280" text-anchor="start">Guardrail</text>
+<rect x="354" y="270" width="492" height="34" rx="6" fill="#fff" stroke="#d9dbe0" stroke-width="1"/>
+<text x="364" y="292" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#111111" text-anchor="start">HR strict  ·  v3 live  ·  Enforcing</text>
+<text x="828" y="292" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#6b7280" text-anchor="start">▾</text>
+<text x="354" y="324" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="start">Every request and answer of this application is checked by it.</text>
+<circle cx="860" cy="282" r="11" fill="#fef3c7" stroke="#92400e"/>
+<text x="860" y="286" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#92400e" text-anchor="middle">1</text>
+<text x="354" y="366" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="500" fill="#6b7280" text-anchor="start">How will it connect?</text>
+<rect x="354" y="378" width="492" height="64" rx="8" fill="#fff" stroke="#0f62fe" stroke-width="1.5"/>
+<circle cx="376" cy="402" r="7" fill="#fff" stroke="#0f62fe" stroke-width="4"/>
+<text x="392" y="406" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#111111" text-anchor="start">Through the UMAI AI Gateway</text>
+<text x="392" y="426" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="start">Change the base URL of your OpenAI SDK. No code changes.</text>
+<rect x="354" y="452" width="492" height="64" rx="8" fill="#fff" stroke="#d9dbe0" stroke-width="1"/>
+<circle cx="376" cy="476" r="7" fill="#fff" stroke="#9ca3af" stroke-width="1.5"/>
+<text x="392" y="480" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#111111" text-anchor="start">With the UMAI API</text>
+<text x="392" y="500" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="start">Call UMAI before and after your model calls (SDK or HTTP).</text>
+<rect x="354" y="526" width="492" height="64" rx="8" fill="#fff" stroke="#d9dbe0" stroke-width="1"/>
+<circle cx="376" cy="550" r="7" fill="#fff" stroke="#9ca3af" stroke-width="1.5"/>
+<text x="392" y="554" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#6b7280" text-anchor="start">Through your gateway (LiteLLM, Kong, Azure APIM)</text>
+<text x="392" y="574" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="start">Coming: a plug-in for the gateway you already run.</text>
+<circle cx="860" cy="396" r="11" fill="#fef3c7" stroke="#92400e"/>
+<text x="860" y="400" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#92400e" text-anchor="middle">2</text>
+<text x="354" y="616" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="400" fill="#6b7280" text-anchor="start">You can add the other way later. The key works for both.</text>
+<line x1="330" y1="662" x2="870" y2="662" stroke="#d9dbe0"/>
+<rect x="598" y="680" width="71" height="34" rx="6" fill="#fff" stroke="#d9dbe0" stroke-width="1"/>
+<text x="633.5" y="702" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="500" fill="#111111" text-anchor="middle">Cancel</text>
+<rect x="686" y="680" width="136" height="34" rx="6" fill="#0f62fe" stroke="#0f62fe" stroke-width="1"/>
+<text x="754.0" y="702" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#fff" text-anchor="middle">Add application</text>
+</svg>

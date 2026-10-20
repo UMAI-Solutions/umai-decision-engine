@@ -168,6 +168,7 @@ since 2026-10-18 and on `umai-beta` since 2026-10-19).
 | Work on L1 rules or decision models | [`docs/architecture/l1-policy-decision.md`](docs/architecture/l1-policy-decision.md), skill `add-decision-provider` |
 | Work on L2 | [`docs/architecture/l2-llm-analyst.md`](docs/architecture/l2-llm-analyst.md) |
 | Change a request/response/tag shape | [`docs/contracts/`](docs/contracts/), skill `change-contract` |
+| Console structure, applications, how the AI gateway fits (Proposed) | [`docs/architecture/console-information-architecture.md`](docs/architecture/console-information-architecture.md), ADR-0039 |
 | Sign-in, onboarding, organizations, invitations, login branding | [`docs/architecture/sign-in-and-onboarding.md`](docs/architecture/sign-in-and-onboarding.md), ADR-0033, ADR-0024 |
 | UMAI secure gateway, guardrail hooks in other gateways | [`docs/architecture/ai-gateway.md`](docs/architecture/ai-gateway.md), [`docs/contracts/gateway-api.md`](docs/contracts/gateway-api.md), ADR-0034 to ADR-0036, [`docs/reference/ai-gateways.md`](docs/reference/ai-gateways.md) |
 | SaaS vs self-hosted, editions, quotas, tenancy | [`docs/architecture/deployment-and-editions.md`](docs/architecture/deployment-and-editions.md), ADR-0018, ADR-0019 |

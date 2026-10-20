@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 820" width="1200" height="820">
+<rect x="0" y="0" width="1200" height="820" rx="0" fill="#f7f8fa" stroke="#f7f8fa" stroke-width="1"/>
+<rect x="0" y="0" width="1200" height="48" rx="0" fill="#111" stroke="#111" stroke-width="1"/>
+<text x="20" y="30" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#fff" text-anchor="start">UMAI</text>
+<text x="1180" y="30" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#d1d5db" text-anchor="end">Smarttech · Owner   ·   batu</text>
+<rect x="0" y="48" width="200" height="772" rx="0" fill="#f7f8fa" stroke="#f7f8fa" stroke-width="1"/>
+<line x1="200" y1="48" x2="200" y2="820" stroke="#d9dbe0"/>
+<text x="20" y="80" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" font-weight="700" fill="#9ca3af" text-anchor="start"></text>
+<text x="28" y="102" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">Overview</text>
+<text x="20" y="136" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" font-weight="700" fill="#9ca3af" text-anchor="start">PROTECT</text>
+<text x="28" y="158" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">Guardrails</text>
+<text x="28" y="192" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">Applications</text>
+<text x="28" y="226" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">Playground</text>
+<text x="20" y="260" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" font-weight="700" fill="#9ca3af" text-anchor="start">INVESTIGATE</text>
+<rect x="10" y="262" width="180" height="30" rx="6" fill="#fff" stroke="#d9dbe0" stroke-width="1"/>
+<text x="28" y="282" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#111111" text-anchor="start">Detections</text>
+<text x="28" y="316" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">Reports</text>
+<text x="20" y="350" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" font-weight="700" fill="#9ca3af" text-anchor="start">CONNECT</text>
+<text x="28" y="372" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">AI Gateway</text>
+<text x="28" y="406" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">API &amp; SDKs</text>
+<text x="28" y="440" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">Integrations</text>
+<text x="20" y="474" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" font-weight="700" fill="#9ca3af" text-anchor="start">ORGANIZATION</text>
+<text x="28" y="496" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">Members</text>
+<text x="28" y="530" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">Settings</text>
+<text x="232" y="76" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#6b7280" text-anchor="start">Detections  ›  gw-63e4…7055e2</text>
+<text x="232" y="116" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="24" font-weight="600" fill="#111111" text-anchor="start">Blocked request</text>
+<text x="232" y="140" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13.5" font-weight="400" fill="#6b7280" text-anchor="start">CRM agent · through the AI Gateway · 20 Oct, 14:02</text>
+<rect x="1032" y="98" width="136" height="34" rx="6" fill="#fff" stroke="#d9dbe0" stroke-width="1"/>
+<text x="1100.0" y="120" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="500" fill="#111111" text-anchor="middle">Copy request id</text>
+<rect x="232" y="160" width="936" height="30" rx="6" fill="#fef3c7" stroke="#f59e0b" stroke-width="1" stroke-dasharray="5 4"/>
+<text x="244" y="180" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="600" fill="#92400e" text-anchor="start">Needs detection records (WP6). Today: the panel below explains the error the application received.</text>
+<rect x="232" y="204" width="600" height="270" rx="10" fill="#fff" stroke="#d9dbe0" stroke-width="1"/>
+<text x="252" y="234" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#111111" text-anchor="start">Why it was blocked</text>
+<rect x="252" y="250" width="560" height="56" rx="8" fill="#fdecec" stroke="#fca5a5" stroke-width="1"/>
+<text x="268" y="274" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13.5" font-weight="600" fill="#991b1b" text-anchor="start">Blocked before it reached the model (input check)</text>
+<text x="268" y="294" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#991b1b" text-anchor="start">Message 2 (user) contains a credit card number: CREDIT_CARD</text>
+<text x="252" y="336" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="500" fill="#6b7280" text-anchor="start">Policy</text>
+<text x="380" y="336" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#111111" text-anchor="start">Financial data (payment-data) · Block</text>
+<text x="252" y="366" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="500" fill="#6b7280" text-anchor="start">Guardrail</text>
+<text x="380" y="366" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#111111" text-anchor="start">Data protection (KVKK) · v4 · Enforcing</text>
+<text x="252" y="396" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="500" fill="#6b7280" text-anchor="start">Value</text>
+<text x="380" y="396" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#111111" text-anchor="start">Never stored or shown. Only its type and position.</text>
+<text x="252" y="440" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="500" fill="#0f62fe" text-anchor="start">Expected for this application?  Ask a policy editor for an exception ›</text>
+<circle cx="820" cy="262" r="11" fill="#fef3c7" stroke="#92400e"/>
+<text x="820" y="266" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#92400e" text-anchor="middle">1</text>
+<rect x="852" y="204" width="316" height="270" rx="10" fill="#fff" stroke="#d9dbe0" stroke-width="1"/>
+<text x="872" y="234" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#111111" text-anchor="start">Request</text>
+<text x="872" y="252" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="500" fill="#6b7280" text-anchor="start">Application</text>
+<text x="872" y="270" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#111111" text-anchor="start">CRM agent · key crm-prod</text>
+<text x="872" y="296" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="500" fill="#6b7280" text-anchor="start">Connected through</text>
+<text x="872" y="314" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#111111" text-anchor="start">AI Gateway</text>
+<text x="872" y="340" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="500" fill="#6b7280" text-anchor="start">Model</text>
+<text x="872" y="358" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#111111" text-anchor="start">gpt-4.1-mini · OpenAI</text>
+<text x="872" y="384" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="500" fill="#6b7280" text-anchor="start">Checks</text>
+<text x="872" y="402" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#111111" text-anchor="start">Input: Blocked  ·  Answer: —</text>
+<text x="872" y="428" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="500" fill="#6b7280" text-anchor="start">Latency</text>
+<text x="872" y="446" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#111111" text-anchor="start">54 ms (nothing sent to a model)</text>
+<rect x="232" y="494" width="936" height="270" rx="10" fill="#fff" stroke="#d9dbe0" stroke-width="1"/>
+<text x="252" y="524" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#111111" text-anchor="start">Explain an error (works today)</text>
+<text x="252" y="544" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#6b7280" text-anchor="start">Paste the error your application received; the console explains it. Nothing leaves your browser.</text>
+<rect x="252" y="560" width="440" height="180" rx="6" fill="#f3f4f6" stroke="#f3f4f6" stroke-width="1"/>
+<text x="266" y="588" font-family="Consolas, Menlo, monospace" font-size="12" font-weight="400" fill="#1f2937" text-anchor="start">{&quot;error&quot;: {</text>
+<text x="266" y="610" font-family="Consolas, Menlo, monospace" font-size="12" font-weight="400" fill="#1f2937" text-anchor="start">  &quot;code&quot;: &quot;umai_blocked&quot;,</text>
+<text x="266" y="632" font-family="Consolas, Menlo, monospace" font-size="12" font-weight="400" fill="#1f2937" text-anchor="start">  &quot;umai&quot;: {&quot;phase&quot;: &quot;PRE_LLM&quot;,</text>
+<text x="266" y="654" font-family="Consolas, Menlo, monospace" font-size="12" font-weight="400" fill="#1f2937" text-anchor="start">    &quot;entities&quot;: [&quot;CREDIT_CARD&quot;],</text>
+<text x="266" y="676" font-family="Consolas, Menlo, monospace" font-size="12" font-weight="400" fill="#1f2937" text-anchor="start">    &quot;matched&quot;: [&quot;payment-data&quot;]}}}</text>
+<text x="716" y="590" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#111111" text-anchor="start">→  Blocked before the model: a credit card number</text>
+<text x="716" y="614" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#111111" text-anchor="start">     in the input. Policy: Financial data (Block).</text>
+<text x="716" y="650" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#6b7280" text-anchor="start">Also explains connection errors: provider key missing,</text>
+<text x="716" y="672" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="400" fill="#6b7280" text-anchor="start">model not allowed, key of another application, …</text>
+<circle cx="1185" cy="530" r="11" fill="#fef3c7" stroke="#92400e"/>
+<text x="1185" y="534" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#92400e" text-anchor="middle">2</text>
+</svg>
