@@ -49,10 +49,14 @@ The console analysis found:
      application may override.
    - A bare model name goes to the default provider; `@<provider>/<model>` goes to that provider.
 4. **Keys bind to an application**, with ADR-0038's selection rules renamed:
-   1. the key's application;
-   2. otherwise `X-Umai-Application`;
-   3. otherwise the organization's only application;
-   4. otherwise `application_required`.
+   1. the key's application. An `X-Umai-Application` header naming another one is refused
+      (403 `application_mismatch`); a key whose application is missing or disabled is refused
+      (404 `unknown_application`) and never moves to another;
+   2. otherwise `X-Umai-Application` (an unknown or disabled application: 404
+      `unknown_application`);
+   3. otherwise the organization's only enabled application;
+   4. otherwise `application_required` (400) when it has several, and `unknown_application`
+      (404) when it has none.
 
    One key is valid on all connections of its application.
 5. **"Gateway" names the product area and its address only.**
@@ -117,3 +121,8 @@ The console analysis found:
   only).
 - **Not in the console yet:** aliases, fallback and per-application overrides are edited in the
   file or through the API; the "Stored in UMAI" provider key (Q47).
+- **Review fixes (2026-10-20, gateway-api 0.12):** Decision 4 states the refusals the gateway
+  sends (`application_mismatch`, `unknown_application` for none), as gateway-api 0.10 already
+  did; changing an existing application's guardrail needs `guardrail.activate` (ADR-0029); the
+  default provider no longer moves to the built-in OpenAI provider when it is re-saved or
+  deleted; a bound key cannot pin an older guardrail version on the evaluation API (0.11).
