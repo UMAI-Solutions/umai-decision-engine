@@ -21,7 +21,7 @@ from pathlib import Path
 import yaml
 
 from umai_decision_engine import __version__
-from umai_decision_engine.contracts.bundle import PolicyBundle
+from umai_decision_engine.contracts.bundle import CONTRACT_VERSION, PolicyBundle
 from umai_decision_engine.policy.manifest import BundleManifest, sha256_hex, sign_manifest
 from umai_decision_engine.policy.sources import (
     ACTIVE_FILE,
@@ -31,7 +31,6 @@ from umai_decision_engine.policy.sources import (
 )
 from umai_decision_engine.policy.store import parse_bundle
 
-LATEST_CONTRACT = "0.7"  # bundle.yaml contract; manifests carry tenant_id since 0.8
 CHANGELOG = "changelog.jsonl"
 TESTS_DIR = "tests"
 
@@ -133,11 +132,13 @@ class GuardrailRepository:
         signing_key: tuple[str, str] | None,
         actor: dict | None = None,
     ) -> int:
-        """Write ``bundle`` as the next version of its guardrail; returns the version number."""
+        """Write ``bundle`` as the next version of its guardrail; returns the version number.
+        The bundle is written from the model, so it is stamped with the current contract
+        version whatever version it was loaded from."""
 
         bundle_id = bundle.id
         version = max(self.versions(bundle_id), default=0) + 1
-        final = bundle.model_copy(update={"version": version, "contract_version": LATEST_CONTRACT})
+        final = bundle.model_copy(update={"version": version, "contract_version": CONTRACT_VERSION})
         stamp = datetime.now(UTC).replace(microsecond=0)
         header = (
             f"# Published by the policy service (ADR-0022) on {stamp.isoformat()}\n"
@@ -150,7 +151,7 @@ class GuardrailRepository:
             bundle_id=bundle_id,
             version=version,
             tenant_id=self.owner,
-            contract_version=LATEST_CONTRACT,
+            contract_version=CONTRACT_VERSION,
             engine=f">={__version__}",
             created_at=stamp,
             sha256=sha256_hex(data),

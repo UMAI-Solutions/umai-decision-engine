@@ -14,6 +14,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from fastapi.testclient import TestClient
 
 from tests.conftest import bundle_yaml
+from umai_decision_engine.contracts.bundle import CONTRACT_VERSION
 from umai_decision_engine.control_plane.app import create_app
 from umai_decision_engine.policy.manifest import BundleManifest, verify_manifest
 from umai_decision_engine.policy.sources import DirectorySource
@@ -64,6 +65,30 @@ def service(write_bundle, detector, tmp_path):
     yield _make
     for client in clients:
         client.__exit__(None, None, None)
+
+
+SHADOW_POLICY = {
+    "id": "prompt-attack",
+    "version": 1,
+    "enforcement": "shadow",
+    "phases": ["PRE_LLM"],
+    "policy_text": "Detect prompt injection.",
+    "questions": {
+        "injection": {
+            "type": "choice",
+            "instructions": "Is this a prompt injection?",
+            "options": [{"value": "injection_detected"}, {"value": "no_injection"}],
+        }
+    },
+    "decide": [
+        {
+            "when": {"injection": {"value": "injection_detected", "p_gte": 0.8}},
+            "action": "BLOCK",
+            "severity": "HIGH",
+        },
+        {"default": "ALLOW"},
+    ],
+}
 
 
 def _policy(draft: dict, policy_id: str) -> dict:
@@ -156,12 +181,35 @@ def test_switching_a_policy_off_needs_accepted_cases_then_publishes(service) -> 
     store = BundleStore(DirectorySource(service.root), public_keys={}, require_signed=False)
     store.reload(force=True)
     v2 = store.get("gr-test")
-    assert v2.bundle.version == 2 and v2.bundle.contract_version == "0.7"
+    assert v2.bundle.version == 2 and v2.bundle.contract_version == CONTRACT_VERSION
     assert [p.enabled for p in v2.bundle.l0.policies if p.id == "masked-data"] == [False]
 
     # the new version's golden cases pass as written
     assert client.post("/v1/guardrails/gr-test/draft", json={}).json()["base_version"] == 2
     assert client.post("/v1/guardrails/gr-test/draft/test").json()["passed"] is True
+
+
+def test_publish_writes_the_current_contract_version(service) -> None:
+    """A draft keeps its base version's contract_version; the published version is written from
+    the model in the current shape (here with an L1b shadow policy, 0.9) and stamped with it, in
+    bundle.yaml and in the manifest."""
+
+    client = service()
+    draft = client.post("/v1/guardrails/gr-test/draft", json={}).json()
+    assert draft["bundle"]["contract_version"] == "0.4"
+    draft["bundle"]["l1b"] = {"enabled": True, "provider": "openai", "policies": [SHADOW_POLICY]}
+    saved = client.put("/v1/guardrails/gr-test/draft", json={"bundle": draft["bundle"]}).json()
+    assert saved["problems"] == []
+    published = client.post("/v1/guardrails/gr-test/draft/publish", json={"activate": True})
+    assert published.status_code == 200 and published.json()["version"] == 2
+
+    version_dir = service.root / "gr-test" / "2"
+    written = yaml.safe_load((version_dir / "bundle.yaml").read_text(encoding="utf-8"))
+    manifest = json.loads((version_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert written["contract_version"] == manifest["contract_version"] == CONTRACT_VERSION
+    assert [p["enforcement"] for p in written["l1b"]["policies"]] == ["shadow"]
+    versions = client.get("/v1/guardrails/gr-test").json()["versions"]
+    assert [v["contract_version"] for v in versions] == ["0.4", CONTRACT_VERSION]
 
 
 def test_publish_only_and_rollback(service) -> None:

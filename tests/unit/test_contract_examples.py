@@ -5,11 +5,13 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from typing import get_args
 
 import pytest
 import yaml
 
 from umai_decision_engine.contracts.bundle import (
+    CONTRACT_VERSION,
     ConditionGroup,
     DecideRule,
     L1aConfig,
@@ -70,6 +72,15 @@ def test_policy_bundle_examples() -> None:
     for shape in shapes:
         bundle = PolicyBundle.model_validate(yaml.safe_load(shape))
         assert validate_bundle(bundle) == []
+
+
+def test_policy_bundle_contract_version_is_current() -> None:
+    # The policy service stamps CONTRACT_VERSION on every publish: it must be the newest version
+    # the model accepts and the one the contract document declares.
+    accepted = get_args(PolicyBundle.model_fields["contract_version"].annotation)
+    assert accepted[-1] == CONTRACT_VERSION
+    text = (DOCS / "contracts/policy-bundle.md").read_text(encoding="utf-8")
+    assert f"**Version:** {CONTRACT_VERSION}\n" in text
 
 
 def test_l1_doc_examples() -> None:

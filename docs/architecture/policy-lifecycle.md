@@ -27,7 +27,7 @@ roll back: move the pointer to v6 → engines return to v6
 | Test | control plane + engine | Golden cases in the version's `tests/` ([policy-tests](../contracts/policy-tests.md), ADR-0015), run by the same runner as `cli test` and CI today; playground = single input evaluated with an inline bundle (dev/test engines only, synthetic data) |
 | Preview impact | engine replay job | Re-evaluate the last N stored decision events with the candidate: "38 of 1 240 decisions would change", with diffs. The L0 gate (`on_detect`, exceptions) and L1 only use entity types/counts, facts and redacted text, which events keep. Recognizer changes cannot be replayed (need raw content) → synthetic cases only |
 | Approve | control plane | Roles: editor, approver; four-eyes for production; diff between versions |
-| Publish | control plane | Build `bundle.yaml` + `manifest.json` (hash, Ed25519 signature); version becomes immutable |
+| Publish | control plane | Build `bundle.yaml` + `manifest.json` (hash, Ed25519 signature) at the current bundle contract version, whatever version the draft started from; version becomes immutable |
 | Activate | control plane | Move the active pointer per bundle id (and later per environment / tenant / traffic share) |
 | Propagate | engine | Poll with ETag (default every ~5–10 s) and/or push signal; verify → validate → compile → atomic swap; in-flight requests finish on the old version |
 | Monitor | engine + dashboard | Engines report active version and load errors; decision metrics by bundle version |
