@@ -1,4 +1,5 @@
-"""Policy bundle (docs/contracts/policy-bundle.md v0.7, decision-questions.md v0.3)."""
+"""Policy bundle (docs/contracts/policy-bundle.md; version in ``CONTRACT_VERSION``) with the
+decision questions of decision-questions.md."""
 
 from __future__ import annotations
 
@@ -14,6 +15,9 @@ from umai_decision_engine.contracts.common import (
     Phase,
     Severity,
 )
+
+# The version written by the policy service; every version in PolicyBundle.contract_version loads.
+CONTRACT_VERSION = "0.9"
 
 TargetScope = Literal["LAST_MESSAGE", "FULL_HISTORY", "ATTACHMENTS", "FULL_CONTEXT"]
 _SNAKE = r"^[a-z][a-z0-9_]*$"
