@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select, text, update
 
 from tests.conftest import bundle_yaml
+from umai_decision_engine.contracts.bundle import CONTRACT_VERSION
 from umai_decision_engine.contracts.credentials import ActorAssertion
 from umai_decision_engine.contracts.organizations import OrganizationCreate
 from umai_decision_engine.control_plane.actors import public_key_b64, sign_actor_assertion
@@ -115,8 +116,11 @@ def test_create_organization_makes_the_creator_owner_with_a_starter_guardrail(ap
     assert created["organization"]["id"] == "acme-security"
     assert created["organization"]["edition"] == "community"
     assert created["starter_guardrail"] == {"id": "gr-test", "version": 1}
-    manifest = api.root / "tenants" / "acme-security" / "gr-test" / "1" / "manifest.json"
-    assert json.loads(manifest.read_text())["tenant_id"] == "acme-security"
+    manifest = json.loads(
+        (api.root / "tenants" / "acme-security" / "gr-test" / "1" / "manifest.json").read_text()
+    )
+    assert manifest["tenant_id"] == "acme-security"
+    assert manifest["contract_version"] == CONTRACT_VERSION  # stamped; the template is 0.4
     mine = api.get("/v1/me/organizations", headers=person("ada")).json()["organizations"]
     assert mine == [
         {

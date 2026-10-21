@@ -55,8 +55,8 @@ from the layout, otherwise the version does not load. The store resolves `(tenan
 only, so two tenants may use the same bundle id. Tenant directory names follow the tenant id
 pattern (`a-z 0-9 -`); `tenants` cannot be used as a bundle id. The policy service writes a
 tenant's versions under its directory and stamps `tenant_id`. It writes every version from the
-bundle model, in the shape of the current contract, and stamps that version in `bundle.yaml` and
-the manifest (`contracts/bundle.py` `CONTRACT_VERSION`); until 2026-10-21 it stamped 0.7.
+bundle model, with every field of the current contract, and stamps that version in `bundle.yaml`
+and the manifest (`contracts/bundle.py` `CONTRACT_VERSION`); until 2026-10-21 it stamped 0.7.
 (ADR-0025 §8 later moves SaaS bundles into the tenant store, served by `http_pull`; the
 ownership rule stays.)
 
