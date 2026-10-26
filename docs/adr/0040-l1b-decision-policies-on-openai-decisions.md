@@ -160,12 +160,13 @@ timeout, so a slow call BLOCKs a legitimate request (`L1B_TIMEOUT`). Measured on
 one-off containers, with httpcore's trace events and OpenAI's `openai-processing-ms` header:
 
 - **The client side of a new process.** The first call opened a connection: client and network
-  p50 103 ms against 57–62 ms for later calls (suite `l1-cold-start`). Without the app's imports
+  p50 102 ms against 54–56 ms for later calls (suite `l1-cold-start`); after the change
+  54 ms, with no new connection. Without the app's imports
   done, the first request also paid 37–75 ms of imports and pool setup; DNS took 1–14 ms, TCP
   4–21 ms, TLS 6–20 ms. DNS, the event loop and Presidio's warm-up (it ends before the app takes
   traffic) are not the cause, and a cancelled request closes only its own connection.
 - **Keep-alive.** httpx closes idle connections after 5 s, so on sparse traffic almost every call
-  opened a new one (after 8 s idle: 6/6 new, p50 82 ms, max 154 ms). OpenAI's edge kept idle
+  opened a new one (after 8 s idle: 6/6 new, p50 74 ms; after the change 0/6, 49 ms). OpenAI's edge kept idle
   connections open for the whole 25 minutes we watched.
 - **The provider side, the larger part.** After 4–5 minutes without calls, OpenAI's own
   processing time is higher for the first one or two calls, on a connection that is already open:
