@@ -77,6 +77,11 @@ class FakeDecisionModel:
         self.error = error
         self.latency_s = latency_s
         self.requests: list[DecisionRequest] = []
+        self.warm_ups = 0
+
+    async def warm_up(self, *, timeout_s: float) -> str:
+        self.warm_ups += 1
+        return "none"
 
     async def decide(self, request: DecisionRequest, *, timeout_s: float) -> DecisionResult:
         import asyncio

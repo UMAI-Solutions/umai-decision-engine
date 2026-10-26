@@ -112,6 +112,11 @@ class Settings(BaseSettings):
     # separate (name → key), never in bundles, never logged.
     decision_providers: dict[str, DecisionProviderSettings] = Field(default_factory=dict)
     decision_provider_keys: dict[str, SecretStr] = Field(default_factory=dict)
+    # Cold start (ADR-0040 amendment 2026-10-26). At startup each provider gets one synthetic
+    # request (never caller content) that opens its connection, within this timeout (0: no
+    # warm-up); idle connections are then kept this long for the next decision.
+    decision_warm_up_timeout_ms: int = Field(2000, ge=0, le=30_000)
+    decision_keepalive_s: float = Field(120.0, ge=1, le=900)
     gateway_max_request_bytes: int = Field(16_000_000, ge=10_000, le=200_000_000)
     # Characters the gateway scans per call: the whole history, resent every turn (gateway-api
     # 0.8). Larger than max_input_chars because a conversation grows; the L0 cache keeps a

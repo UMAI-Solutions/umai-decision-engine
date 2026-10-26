@@ -18,6 +18,7 @@ python -m evals.run --suite leak --split dev --tag <label>        # [--bundle-id
 python -m evals.datasets.generate_l0_pii_tr                       # regenerate dataset v2
 python -m evals.run --suite gateway-latency --tag <label>         # gateway cost per call, no network
 python -m evals.run --suite masking-survival --model gpt-4.1-mini --tag <label>  # live: UMAI_EVAL_OPENAI_API_KEY
+python -m evals.run --suite l1-cold-start --region-note "<where>" --tag <label>  # live: UMAI_EVAL_OPENAI_API_KEY
 ```
 
 ## Suites
@@ -34,6 +35,7 @@ python -m evals.run --suite masking-survival --model gpt-4.1-mini --tag <label> 
 | `l2-worker` | L2 | Queue age and processing time under load; redelivery idempotency | — |
 | `gateway-latency` | gateway | What the gateway adds per call (admission, input check over every message, masking, answer check, restoration, streaming modes) and when `window` streams release their first text | budget: well under the upstream's own latency |
 | `pi-tr` | L1 (paused) | Prompt-attack detectors on Turkish-first attacks, paraphrases and look-alike benign text; `holdout` split written after the heuristic was frozen. Groundwork for L1 | — |
+| `l1-cold-start` | L1b | Are the first decision calls of a new engine or gateway process as fast as later ones? Fresh processes with and without the startup warm-up (ADR-0040 amendment 2026-10-26); separates client and network time from the provider's own processing time. Live | the same process's later calls |
 | `masking-survival` | gateway | Do models write the gateway's placeholders back intact, so restoration works (kept, altered, dropped, restored per type and task)? Live | — |
 | `leak` | all | Does any raw value appear in responses, logs, traces, history, provider payloads? Also: which values an allowed decision would forward unmasked | must be 0 |
 

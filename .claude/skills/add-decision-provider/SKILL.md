@@ -26,8 +26,12 @@ Read first: `docs/architecture/l1-policy-decision.md`, `docs/contracts/decision-
 2. **Compile.** Map `DecisionRequest` to the provider request. Document the mapping in a
    table at the top of the module and in the reference doc (e.g. `condition` → Jev Noul;
    → OpenAI two-option choice).
-3. **Call.** Use the shared async httpx client with an explicit timeout from the caller.
-   No retries inside the call (the pipeline decides on fallback).
+3. **Call.** Use the shared async httpx client with an explicit timeout from the caller that
+   bounds the whole call (`asyncio.timeout` around the request: httpx times each phase on its
+   own). No retries inside the call (the pipeline decides on fallback).
+   **Warm-up.** Implement `warm_up(timeout_s=...)`: one fixed synthetic request (never caller
+   content) that opens the connection before the process takes traffic (OpenAI: a one-question
+   decision); return an outcome string, never raise (ADR-0040 amendment 2026-10-26).
 4. **Parse.** Build `DecisionResult`. Answers outside declared options →
    `DecisionModelError(kind="invalid_response")`. Missing probabilities → `None`, never invented.
 5. **Errors.** Map HTTP/transport failures to `timeout`, `rate_limited`, `unavailable`,

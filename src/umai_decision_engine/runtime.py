@@ -93,6 +93,10 @@ async def start_runtime(
     )
     applications = ApplicationTable(cfg.applications_dir, AllowList(cfg.gateway_upstream_allowlist))
     await asyncio.to_thread(applications.reload, force=True)
+    decision_models = decision_models or DecisionModels.from_settings(cfg)
+    if cfg.decision_warm_up_timeout_ms:
+        # Last before taking traffic: the first L1b calls reuse these connections.
+        await decision_models.warm_up(cfg.decision_warm_up_timeout_ms / 1000)
     runtime = Runtime(
         settings=cfg,
         store=store,
@@ -101,7 +105,7 @@ async def start_runtime(
             store,
             detector,
             cfg,
-            decision_models=decision_models or DecisionModels.from_settings(cfg),
+            decision_models=decision_models,
         ),
         registry=registry,
         admission=admission,

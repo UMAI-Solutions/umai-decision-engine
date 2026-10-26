@@ -38,6 +38,11 @@ class DecisionModel(Protocol):
 
     async def decide(self, request: DecisionRequest, *, timeout_s: float) -> DecisionResult: ...
 
+    async def warm_up(self, *, timeout_s: float) -> str:
+        """Prepare for the first decision with a fixed synthetic request, never caller content.
+        Returns an outcome for the log (``ok``, ``none``, an error kind); never raises."""
+        ...
+
 
 def winning_confidence(probabilities: dict[str, float] | list[float] | None) -> float | None:
     """Our provider-independent confidence: the winning option's probability."""
