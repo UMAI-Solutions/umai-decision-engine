@@ -1,6 +1,6 @@
 # ADR-0030 — Audit events and decision events: append-only per tenant, exportable; structured telemetry with an allowlist
 
-- **Status:** Proposed (awaits product-owner approval)
+- **Status:** Proposed (awaits product-owner approval); §1 decision events, §3 append-only tables and §4 decision-event retention accepted by ADR-0041 (2026-10-26); for the engine and gateway, §3's outbox is replaced by ADR-0042
 - **Date:** 2026-10-17
 - **Deciders:** engineering proposal; product owner (retention defaults are a product decision)
 - **Builds on:** ADR-0005 (no raw PII beyond L0), ADR-0018 (SIEM integration, dashboards, reports), ADR-0019 (usage, SIEM export), tagged-action contract 0.2

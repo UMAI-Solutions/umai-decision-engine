@@ -11,7 +11,18 @@ USER_SETTING = "app.user_id"
 SELF_POLICY_NAME = "member_self"
 
 # Tenant tables: tenant_id uuid NOT NULL, ENABLE + FORCE ROW LEVEL SECURITY, one policy.
-TENANT_TABLES: tuple[str, ...] = ("api_keys", "drafts", "memberships", "invitations")
+TENANT_TABLES: tuple[str, ...] = (
+    "api_keys",
+    "drafts",
+    "memberships",
+    "invitations",
+    "decision_events",
+    "l1b_outcomes",
+    "usage_events",
+)
+
+# Records (ADR-0041): append-only, the application role may INSERT and SELECT only (ADR-0030 §3).
+APPEND_ONLY_TABLES: tuple[str, ...] = ("decision_events", "l1b_outcomes", "usage_events")
 
 # Global tables: the explicit allowlist (ADR-0025 §2; users: ADR-0033 §2).
 GLOBAL_TABLES: tuple[str, ...] = ("tenants", "users", "alembic_version")
@@ -41,3 +52,7 @@ def self_read_sql(table: str) -> str:
 
 def grant_app_role_sql(table: str, role: str) -> str:
     return f"GRANT SELECT, INSERT, UPDATE, DELETE ON {table} TO {role}"
+
+
+def grant_append_only_sql(table: str, role: str) -> str:
+    return f"GRANT SELECT, INSERT ON {table} TO {role}"

@@ -218,6 +218,12 @@ and the gateway. Redacted content then goes to OpenAI, in the US unless EU proce
 
 ## 8. What this deployment does not have
 
+Records (ADR-0041): the engine writes decision events and usage to the same Postgres with the
+application role (`UMAI_DE_DATABASE_URL` in `engine.env`, `UMAI_RECORDS_SINK` in `config.env`,
+default `database`; `none` turns it off). It starts after the policy service, which runs the
+migrations. A database outage never blocks a decision: records queue in memory and are dropped
+and counted when the queue is full (`records.stats` in the engine log, ADR-0042).
+
 No WAF, no HA, no DR region, one shared API token (body `tenant_id` not bound to the credential,
 readiness T1), tenant HMAC keys derived from one master key, software-protected keys, no central log store;
 in local-file mode the secrets sit on the VM disk (root only, encrypted at rest by Azure). Moving

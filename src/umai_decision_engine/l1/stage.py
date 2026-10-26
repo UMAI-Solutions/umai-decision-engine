@@ -8,6 +8,9 @@
   no latency. Their outcomes are logged (ids, actions, probabilities; never content).
 - ``l1b.batch``: ``all`` sends every applicable question in one call; ``per_policy`` sends
   one call per policy, in parallel.
+- Every finished call (enforcing or shadow, decided or failed) is handed to ``report`` as an
+  :class:`L1bReport`: per-policy outcomes, calls and tokens, for the records (ADR-0041). The
+  stage itself never writes records.
 """
 
 from __future__ import annotations
@@ -15,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from umai_decision_engine.contracts.bundle import DecisionPolicy, PolicyBundle
@@ -34,6 +38,7 @@ from umai_decision_engine.contracts.evaluation import (
     Tag,
     TraceEntry,
 )
+from umai_decision_engine.contracts.events import RecordContext
 from umai_decision_engine.contracts.questions import Answer, DecisionRequest, ExcerptMessage
 from umai_decision_engine.l1.decision_models.base import DecisionModelError
 from umai_decision_engine.l1.decision_models.registry import DecisionModels
@@ -61,7 +66,32 @@ class L1bResult:
     trace: list[TraceEntry] = field(default_factory=list)
     degraded: bool = False
     review: bool = False
+    review_reasons: list[str] = field(default_factory=list)
+    shadow: bool = False  # at least one shadow policy applied
     latency_ms: float | None = None
+
+
+@dataclass
+class CallStats:
+    calls: int = 0  # provider calls attempted, fallback included
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+
+@dataclass(frozen=True)
+class L1bReport:
+    """One finished L1b call for the records: the policies asked, their outcomes (empty when
+    the call failed), calls and tokens. Ids, actions and counts only."""
+
+    request: EvaluationRequest
+    bundle: PolicyBundle
+    event_id: str
+    context: RecordContext | None
+    policies: list[DecisionPolicy]
+    outcomes: list[PolicyOutcome]
+    failed: str | None
+    stats: CallStats
+    latency_ms: float | None
 
 
 def stricter(a: Decision, b: Decision) -> bool:
@@ -79,9 +109,20 @@ def _outcome_label(outcome: PolicyOutcome) -> str:
 
 
 class L1bStage:
-    def __init__(self, models: DecisionModels) -> None:
+    def __init__(
+        self, models: DecisionModels, report: Callable[[L1bReport], None] | None = None
+    ) -> None:
         self._models = models
         self._background: set[asyncio.Task] = set()
+        self.report = report
+
+    def _report(self, report: L1bReport) -> None:
+        if self.report is None:
+            return
+        try:
+            self.report(report)
+        except Exception:  # a record must never change the decision (ADR-0042)
+            logger.exception("l1b.report_failed event_id=%s", report.event_id)
 
     async def aclose(self) -> None:
         await self._models.aclose()
@@ -103,11 +144,12 @@ class L1bStage:
         *,
         remaining_s: float,
         event_id: str,
+        context: RecordContext | None = None,
     ) -> L1bResult:
         policies = applicable_policies(bundle, request)
         enforce = [p for p in policies if p.enforcement == "enforce"]
         shadow = [p for p in policies if p.enforcement == "shadow"]
-        result = L1bResult(ran=bool(enforce))
+        result = L1bResult(ran=bool(enforce), shadow=bool(shadow))
         if not policies:
             return result
         if not request.flags.allow_model_calls:
@@ -120,7 +162,7 @@ class L1bStage:
         judged = excerpt(parts, bundle.l1b.max_input_chars)
         known = facts(request, summary)
         if not enforce:
-            self._spawn_shadow(bundle, request, shadow, judged, known, event_id)
+            self._spawn_shadow(bundle, request, shadow, judged, known, event_id, context)
             result.trace.append(
                 TraceEntry(layer=Layer.L1B, outcome="shadow_background", latency_ms=0.0)
             )
@@ -128,20 +170,43 @@ class L1bStage:
 
         started = time.perf_counter()
         timeout_s = bundle.l1b.timeout_ms / 1000
+        stats = CallStats()
+        asked = enforce + shadow
+
+        def report(outcomes: list[PolicyOutcome], failed: str | None) -> None:
+            self._report(
+                L1bReport(
+                    request=request,
+                    bundle=bundle,
+                    event_id=event_id,
+                    context=context,
+                    policies=asked,
+                    outcomes=outcomes,
+                    failed=failed,
+                    stats=stats,
+                    latency_ms=result.latency_ms,
+                )
+            )
+
         if timeout_s > remaining_s:
-            return self._failed(
+            self._failed(
                 result, bundle, request, "timeout", "no runtime budget left for L1b", started
             )
+            report([], "timeout")
+            return result
         try:
             answers = await self._answers(
-                bundle, request.request_id, enforce + shadow, judged, known, timeout_s, started
+                bundle, request.request_id, asked, judged, known, timeout_s, started, stats
             )
         except DecisionModelError as exc:
-            return self._failed(result, bundle, request, exc.kind, str(exc), started)
+            self._failed(result, bundle, request, exc.kind, str(exc), started)
+            report([], exc.kind)
+            return result
 
-        outcomes = [decide(p, answers) for p in enforce + shadow]
+        outcomes = [decide(p, answers) for p in asked]
         self._apply(result, [o for o in outcomes if not o.shadow])
         result.latency_ms = round((time.perf_counter() - started) * 1000, 3)
+        report(outcomes, None)
         result.trace.append(
             TraceEntry(
                 layer=Layer.L1B,
@@ -155,19 +220,29 @@ class L1bStage:
     # ------------------------------------------------------------------ calls
 
     async def _call(
-        self, bundle: PolicyBundle, decision: DecisionRequest, timeout_s: float, started: float
+        self,
+        bundle: PolicyBundle,
+        decision: DecisionRequest,
+        timeout_s: float,
+        started: float,
+        stats: CallStats,
     ) -> dict[str, Answer]:
         primary = self._models.get(bundle.l1b.provider)
         if primary is None:
             raise DecisionModelError("unavailable", "the L1b provider is not configured")
         try:
-            return (await primary.decide(decision, timeout_s=timeout_s)).answers
+            stats.calls += 1
+            result = await primary.decide(decision, timeout_s=timeout_s)
         except DecisionModelError:
             fallback = self._models.get(bundle.l1b.fallback_provider)
             left = timeout_s - (time.perf_counter() - started)
             if fallback is None or left < timeout_s / 2:
                 raise
-            return (await fallback.decide(decision, timeout_s=left)).answers
+            stats.calls += 1
+            result = await fallback.decide(decision, timeout_s=left)
+        stats.input_tokens += result.usage.get("input_tokens", 0)
+        stats.output_tokens += result.usage.get("output_tokens", 0)
+        return result.answers
 
     async def _answers(
         self,
@@ -178,12 +253,19 @@ class L1bStage:
         known: dict[str, object],
         timeout_s: float,
         started: float,
+        stats: CallStats,
     ) -> dict[str, Answer]:
         if bundle.l1b.batch == "all":
             request = decision_request(request_id, policies, judged, known)
-            return await self._call(bundle, request, timeout_s, started)
+            return await self._call(bundle, request, timeout_s, started, stats)
         calls = [
-            self._call(bundle, decision_request(request_id, [p], judged, known), timeout_s, started)
+            self._call(
+                bundle,
+                decision_request(request_id, [p], judged, known),
+                timeout_s,
+                started,
+                stats,
+            )
             for p in policies
         ]
         answers: dict[str, Answer] = {}
@@ -198,6 +280,7 @@ class L1bStage:
         for outcome in outcomes:
             if outcome.review_reasons:
                 result.review = True
+                result.review_reasons.extend(outcome.review_reasons)
             if outcome.rule is None:
                 continue
             result.tags.extend(
@@ -291,9 +374,27 @@ class L1bStage:
         judged: list[ExcerptMessage],
         known: dict[str, object],
         event_id: str,
+        context: RecordContext | None = None,
     ) -> None:
         async def go() -> None:
             started = time.perf_counter()
+            stats = CallStats()
+
+            def report(outcomes: list[PolicyOutcome], failed: str | None) -> None:
+                self._report(
+                    L1bReport(
+                        request=request,
+                        bundle=bundle,
+                        event_id=event_id,
+                        context=context,
+                        policies=policies,
+                        outcomes=outcomes,
+                        failed=failed,
+                        stats=stats,
+                        latency_ms=round((time.perf_counter() - started) * 1000, 3),
+                    )
+                )
+
             try:
                 answers = await self._answers(
                     bundle,
@@ -303,6 +404,7 @@ class L1bStage:
                     known,
                     bundle.l1b.timeout_ms / 1000,
                     started,
+                    stats,
                 )
             except DecisionModelError as exc:
                 logger.warning(
@@ -313,10 +415,12 @@ class L1bStage:
                     bundle.version,
                     exc.kind,
                 )
+                report([], exc.kind)
                 return
             outcomes = [decide(p, answers) for p in policies]
             latency = round((time.perf_counter() - started) * 1000, 3)
             self._log(request, event_id, bundle, outcomes, latency, review=False)
+            report(outcomes, None)
 
         task = asyncio.create_task(go())
         self._background.add(task)

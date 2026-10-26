@@ -117,6 +117,19 @@ class Settings(BaseSettings):
     # warm-up); idle connections are then kept this long for the next decision.
     decision_warm_up_timeout_ms: int = Field(2000, ge=0, le=30_000)
     decision_keepalive_s: float = Field(120.0, ge=1, le=900)
+
+    # Records (ADR-0041): decision events, L1b outcomes and usage, written by the engine API
+    # (and the gateway) to the tenant store with the application role (database_url). none:
+    # nothing is recorded; database: requires database_url. Write path (ADR-0042): a bounded
+    # in-memory queue drained in batches off the request path; when it is full a record is
+    # dropped and counted, never a decision delayed.
+    records_sink: Literal["none", "database"] = "none"
+    records_queue_size: int = Field(10_000, ge=100, le=1_000_000)
+    records_batch_size: int = Field(200, ge=1, le=5_000)
+    records_flush_interval_ms: int = Field(500, ge=10, le=60_000)
+    records_write_timeout_ms: int = Field(5_000, ge=100, le=60_000)
+    records_drain_timeout_ms: int = Field(5_000, ge=0, le=60_000)
+    records_stats_interval_s: float = Field(60.0, ge=1, le=3600)
     gateway_max_request_bytes: int = Field(16_000_000, ge=10_000, le=200_000_000)
     # Characters the gateway scans per call: the whole history, resent every turn (gateway-api
     # 0.8). Larger than max_input_chars because a conversation grows; the L0 cache keeps a

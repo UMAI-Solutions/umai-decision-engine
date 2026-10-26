@@ -186,8 +186,8 @@ l1b:
   httpx's default is 5 s). A failed warm-up is logged (`l1b.warm_up ... outcome=<kind>`) and
   changes nothing else: the first decision opens its own connection. Measured with the live
   suite `l1-cold-start`.
-- **Shadow policies** (`enforcement: shadow`) are evaluated and logged (policy, would-be
-  action, probability) but never decide. When no applicable policy enforces, the call runs
+- **Shadow policies** (`enforcement: shadow`) are evaluated, logged and recorded as L1b
+  outcome records (policy, would-be action, probability; ADR-0041) but never decide. When no applicable policy enforces, the call runs
   after the decision is returned, so it adds no latency. Every converted policy starts here.
 - **Shadow providers** (`l1b.shadow_providers`, planned) will be called without awaiting to
   compare candidates on the same traffic.

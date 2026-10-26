@@ -11,9 +11,12 @@ from datetime import UTC, datetime
 
 from sqlalchemy import (
     JSON,
+    BigInteger,
     Boolean,
     DateTime,
+    Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     TypeDecorator,
@@ -164,3 +167,116 @@ class Draft(Base):
     bundle: Mapped[dict] = mapped_column(JSON, nullable=False)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime(), default=_now)
     updated_at: Mapped[datetime] = mapped_column(UtcDateTime(), default=_now)
+
+
+def _tenant_fk() -> Mapped[uuid.UUID]:
+    return mapped_column(Uuid, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+
+
+class DecisionEventRow(Base):
+    """Tenant table, append-only (ADR-0041): one decision event per evaluation, contract
+    tagged-action 0.3. Ids, types, counts, codes and actions only; never content."""
+
+    __tablename__ = "decision_events"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "event_id", name="uq_decision_events_tenant_event"),
+        Index("ix_decision_events_tenant_occurred", "tenant_id", "occurred_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = _tenant_fk()
+    event_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(UtcDateTime(), nullable=False)
+    source: Mapped[str] = mapped_column(String(16), nullable=False)
+    request_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    engine_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    key_id: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    environment: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    application_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    gateway_call_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    bundle_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    bundle_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    bundle_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    bundle_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    phase: Mapped[str] = mapped_column(String(16), nullable=False)
+    action: Mapped[str] = mapped_column(String(32), nullable=False)
+    severity: Mapped[str] = mapped_column(String(16), nullable=False)
+    decided_by: Mapped[str] = mapped_column(String(16), nullable=False)
+    degraded: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    floor_action: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    would_have: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    review: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    review_reasons: Mapped[list] = mapped_column(JSON, nullable=False)
+    subject: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    destination: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    agent_action: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    entities: Mapped[list] = mapped_column(JSON, nullable=False)
+    tags: Mapped[list] = mapped_column(JSON, nullable=False)
+    matched: Mapped[list] = mapped_column(JSON, nullable=False)
+    l1b: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    errors: Mapped[list] = mapped_column(JSON, nullable=False)
+    latency_total_ms: Mapped[float] = mapped_column(Float, nullable=False)
+    latency_l0_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    latency_l1b_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
+class L1bOutcomeRow(Base):
+    """Tenant table, append-only (ADR-0041): one L1b policy's outcome for one evaluation,
+    enforcing or shadow."""
+
+    __tablename__ = "l1b_outcomes"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "event_id", "policy_id", name="uq_l1b_outcomes_tenant_event_policy"
+        ),
+        Index("ix_l1b_outcomes_tenant_occurred", "tenant_id", "occurred_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = _tenant_fk()
+    event_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(UtcDateTime(), nullable=False)
+    bundle_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    bundle_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    phase: Mapped[str] = mapped_column(String(16), nullable=False)
+    policy_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    policy_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    enforcement: Mapped[str] = mapped_column(String(8), nullable=False)
+    provider: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    outcome: Mapped[str] = mapped_column(String(8), nullable=False)
+    action: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    severity: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    probability: Mapped[float | None] = mapped_column(Float, nullable=True)
+    rule: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tags: Mapped[list] = mapped_column(JSON, nullable=False)
+    review_reasons: Mapped[list] = mapped_column(JSON, nullable=False)
+    error: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
+class UsageEventRow(Base):
+    """Tenant table, append-only (ADR-0041, ADR-0028 §1): the usage ledger, contract usage
+    0.1. ``(tenant_id, event_id, meter)`` is unique: a retried write never counts twice."""
+
+    __tablename__ = "usage_events"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "event_id", "meter", name="uq_usage_events_tenant_event_meter"
+        ),
+        Index("ix_usage_events_tenant_meter_occurred", "tenant_id", "meter", "occurred_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = _tenant_fk()
+    event_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(UtcDateTime(), nullable=False)
+    meter: Mapped[str] = mapped_column(String(32), nullable=False)
+    quantity: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    source: Mapped[str] = mapped_column(String(16), nullable=False)
+    key_id: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    environment: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    application_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    bundle_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    bundle_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    decision: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    degraded: Mapped[bool] = mapped_column(Boolean, nullable=False)

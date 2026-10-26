@@ -115,8 +115,8 @@ several messages or parts is scanned one part at a time; spans refer to the part
 | `tags[]` | See [tag-taxonomy](tag-taxonomy.md) |
 | `entities[]` | Types and counts only; no values, no spans, no hashes |
 | `output_modifications` | `{ "redacted_text": "...", "entities": [...types] }` when action is `ALLOW_WITH_MODIFICATIONS`: the scanned text with exactly those entity types replaced by placeholders (types allowed by an exception stay as written) |
-| `event_id` | Id of the decision event; later L2 analyses and findings reference it |
-| `review_queued` | The event was selected for asynchronous L2 review (informational; the decision is final either way) |
+| `event_id` | Id of the decision event (`ta-<uuid4 hex>`); the stored record ([tagged-action](tagged-action.md) 0.3, ADR-0041) and later L2 analyses and findings reference it |
+| `review_queued` | The event was selected for asynchronous L2 review (informational; the decision is final either way). Always `false` until the review queue exists; the stored event carries `review` and its reasons |
 | `trace[]` | Only when `flags.trace`; never contains content |
 | `errors[]` | `{layer, type, message, retryable}`; messages never contain content |
 
