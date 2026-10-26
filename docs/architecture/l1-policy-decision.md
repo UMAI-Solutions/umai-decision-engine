@@ -175,9 +175,17 @@ l1b:
   content between `<<<CONTENT` / `CONTENT>>>` markers.
 - **After the L0 gate** (ADR-0036): an L0 `BLOCK` / `STEP_UP_APPROVAL` is final and L1b does
   not run; any other gate outcome is a floor, and `final = max(floor, L1b)`.
-- **Timeout** `l1b.timeout_ms`; not started when the remaining evaluation budget is smaller;
+- **Timeout** `l1b.timeout_ms` bounds the whole provider call (connect, send and wait
+  together); not started when the remaining evaluation budget is smaller;
   on timeout or error the `fallback_provider` is tried when at least half the timeout is
   left; otherwise the bundle's failure policy applies to the L1b part (`L1B_<KIND>`).
+- **Cold start** (ADR-0040 amendment 2026-10-26): before an engine or gateway process takes
+  traffic, every provider is warmed with one fixed synthetic request, never caller content
+  (OpenAI: a one-question decision, about 170 input tokens), within
+  `UMAI_DE_DECISION_WARM_UP_TIMEOUT_MS` (2 000; 0 turns it off). Idle provider connections are kept `UMAI_DE_DECISION_KEEPALIVE_S` (120 s;
+  httpx's default is 5 s). A failed warm-up is logged (`l1b.warm_up ... outcome=<kind>`) and
+  changes nothing else: the first decision opens its own connection. Measured with the live
+  suite `l1-cold-start`.
 - **Shadow policies** (`enforcement: shadow`) are evaluated and logged (policy, would-be
   action, probability) but never decide. When no applicable policy enforces, the call runs
   after the decision is returned, so it adds no latency. Every converted policy starts here.
@@ -200,6 +208,8 @@ class DecisionModel(Protocol):
     # joint_questions: bool
 
     async def decide(self, request: DecisionRequest, *, timeout_s: float) -> DecisionResult: ...
+
+    async def warm_up(self, *, timeout_s: float) -> str: ...  # synthetic only; never raises
 ```
 
 Adapters live in `l1/decision_models/`; adding one: skill `add-decision-provider`.

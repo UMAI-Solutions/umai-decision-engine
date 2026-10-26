@@ -4,7 +4,9 @@ Synthetic data; HTTP is mocked."""
 
 from __future__ import annotations
 
+import asyncio
 import json
+import time
 from typing import Any
 
 import httpx
@@ -238,3 +240,55 @@ async def test_not_json_and_no_key() -> None:
     with pytest.raises(DecisionModelError) as error:
         await model.decide(REQUEST, timeout_s=1)
     assert error.value.kind == "auth" and seen == []
+
+
+async def test_the_timeout_bounds_the_whole_call() -> None:
+    # httpx times each phase separately; a slow connect plus a slow answer must not add up.
+    async def slow(request):
+        await asyncio.sleep(0.5)
+        return httpx.Response(200, json=GOOD)
+
+    model, _ = provider(slow)
+    started = time.perf_counter()
+    with pytest.raises(DecisionModelError) as error:
+        await model.decide(REQUEST, timeout_s=0.05)
+    assert error.value.kind == "timeout"
+    assert time.perf_counter() - started < 0.4
+
+
+async def test_warm_up_is_one_synthetic_decision() -> None:
+    answer = {"model": "gpt-6-luna", "answers": [{"type": "predicate", "name": "warm_up"}]}
+    model, seen = provider(lambda r: httpx.Response(200, json=answer))
+    assert await model.warm_up(timeout_s=1) == "ok"
+    (request,) = seen
+    assert request.method == "POST"
+    assert str(request.url) == "https://eu.api.openai.com/v1/decisions"
+    assert request.headers["authorization"] == "Bearer sk-test-not-real"
+    body = json.loads(request.content)
+    assert body == {
+        "model": "gpt-6-luna",
+        "input": "UMAI warm-up: synthetic text, not user content.",
+        "questions": [
+            {"type": "predicate", "name": "warm_up", "instructions": "Is this a greeting?"}
+        ],
+    }
+
+
+async def test_warm_up_failures_are_outcomes_not_errors() -> None:
+    def timeout(request):
+        raise httpx.ConnectTimeout("slow", request=request)
+
+    def refused(request):
+        raise httpx.ConnectError("down", request=request)
+
+    cases = [
+        (lambda r: httpx.Response(401), "auth"),
+        (lambda r: httpx.Response(404), "http_404"),
+        (timeout, "timeout"),
+        (refused, "unavailable"),
+    ]
+    for handler, outcome in cases:
+        model, _ = provider(handler)
+        assert await model.warm_up(timeout_s=1) == outcome
+    model, seen = provider(lambda r: httpx.Response(200), key=None)
+    assert await model.warm_up(timeout_s=1) == "auth" and seen == []

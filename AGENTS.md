@@ -98,6 +98,7 @@ python -m umai_decision_engine.policy.cli keygen | sign | verify  # bundle signi
 python -m umai_decision_engine.db.migrate <database url>         # tenant store migrations (ADR-0025)
 python -m evals.run --suite l0-pii-tr --split dev --tag <label>  # L0 accuracy (also: --suite leak)
 python -m evals.run --suite gateway-latency --tag <label>        # gateway cost per call (also: masking-survival, live)
+python -m evals.run --suite l1-cold-start --tag <label>          # live: first L1b calls of a new process (also: l1-latency)
 docker build -t umai-decision-engine .                            # one image: engine API, policy service, gateway
 az deployment group create -g <rg> -f deploy/azure/main.bicep -p deploy/azure/main.bicepparam  # starter VM (ADR-0032)
 deploy/vm/ship.sh <user@host>                                    # build locally, ship images to the VM
@@ -123,7 +124,9 @@ gate's floor (ADR-0036 in effect), with probability thresholds, fallback, failur
 shadow mode; `gr-demo-data-protection` v5 holds nine policies converted from `OpenAI_Decisions`,
 all in shadow; golden cases stub the model (`model_answers`); live suite `l1-latency`. L1a rules
 are not implemented: a bundle with L1a rules is answered with `on_evaluation_failure` and
-`L1_NOT_IMPLEMENTED`.
+`L1_NOT_IMPLEMENTED`. L1b cold start (2026-10-26, ADR-0040 amendment): engine and gateway warm
+each provider at startup (one synthetic decision, never caller content), keep idle connections
+120 s, and `l1b.timeout_ms` bounds the whole call; live suite `l1-cold-start`.
 Tenancy (2026-10-18): per-tenant API keys with scopes and rate limits at admission (ADR-0023:
 `tenancy/`, contract `credentials` 0.1, evaluation API 0.6; shared token kept for self-hosted),
 key management in the policy service (`/v1/tenants`, `/v1/tenants/{id}/keys`, signed registry

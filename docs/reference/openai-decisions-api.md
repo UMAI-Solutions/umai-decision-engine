@@ -179,6 +179,21 @@ not re-checked here).
 The tail was much heavier than Jev's on the same telemetry. Not measured from Turkey or
 Azure West Europe; F0 measures that, including against `eu.api.openai.com`.
 
+**Live observations, umai-beta (Azure West Europe), 2026-10-26** (our measurements, not vendor
+statements; nine policies, about 11 k input tokens per call; ADR-0040 amendment):
+
+- Responses carry `openai-processing-ms`, OpenAI's own time; the rest (about 50–65 ms on an open
+  connection) is client and network.
+- Processing p50 about 210–270 ms; single calls of 748, 2 064 and 2 533 ms on open connections.
+- After 4–5 minutes without calls the first one or two calls are slower (first-call processing
+  375–771 ms in five rounds); two calls sent together then were both slow. A one-question
+  decision first takes that slow answer itself; `GET /v1/models/gpt-6-luna` (200, 119 bytes,
+  0.55–1.2 s) does not.
+- `usage.input_tokens_details.cached_tokens` was 0 on every call (about 200), identical bodies
+  with the same `prompt_cache_key` included: no implicit prompt-cache hits for this request shape.
+  `prompt_cache_options` untested.
+- The edge kept idle HTTP/1.1 connections open for at least 25 minutes (3/3).
+
 ## Data handling
 
 | Topic | Fact |

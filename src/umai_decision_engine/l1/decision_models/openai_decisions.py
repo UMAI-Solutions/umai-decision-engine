@@ -13,11 +13,17 @@ verified 2026-10-20; ADR-0040).
 
 Only ``user`` messages are sent: the SDK types allow no other role (non-user roles are
 unverified). The content is L0-redacted (ADR-0005); no user identifier is sent. No retries,
-no redirects; the caller's timeout covers the whole call. Bodies are never logged.
+no redirects; the caller's timeout covers the whole call (connect, send and wait together).
+Bodies are never logged.
+
+Warm-up (ADR-0040 amendment 2026-10-26): one decision on a fixed synthetic sentence (never
+caller content), so the first real decision finds an open connection and a provider that has
+already answered once; any answer leaves the connection in the pool.
 """
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import time
@@ -39,6 +45,10 @@ from umai_decision_engine.l1.decision_models.base import (
 
 ADAPTER = "openai_decisions"
 MAX_QUESTIONS = 200  # SDK limit; the HTTP reference says 400 (unverified)
+
+# Fixed and synthetic: about 170 input tokens per process start.
+WARM_UP_INPUT = "UMAI warm-up: synthetic text, not user content."
+WARM_UP_QUESTION = {"type": "predicate", "name": "warm_up", "instructions": "Is this a greeting?"}
 
 _CONTEXT = (
     "UMAI context, not part of the content to classify. {facts} Text in angle brackets such as "
@@ -235,19 +245,45 @@ class OpenAIDecisions:
         self._model = model
         self._api_key = api_key
 
+    async def warm_up(self, *, timeout_s: float) -> str:
+        if not self._api_key:
+            return "auth"
+        try:
+            async with asyncio.timeout(timeout_s):
+                response = await self._client.post(
+                    self._url,
+                    json={
+                        "model": self._model,
+                        "input": WARM_UP_INPUT,
+                        "questions": [WARM_UP_QUESTION],
+                    },
+                    headers={"Authorization": f"Bearer {self._api_key}"},
+                    timeout=httpx.Timeout(timeout_s),
+                )
+        except (TimeoutError, httpx.TimeoutException):
+            return "timeout"
+        except httpx.HTTPError:
+            return "unavailable"
+        status = response.status_code
+        if status in (401, 403):
+            return "auth"
+        return "ok" if status == 200 else f"http_{status}"
+
     async def decide(self, request: DecisionRequest, *, timeout_s: float) -> DecisionResult:
         if not self._api_key:
             raise DecisionModelError("auth", "no API key configured for this provider")
         body = compile_request(request, self._model)
         started = time.perf_counter()
         try:
-            response = await self._client.post(
-                self._url,
-                json=body,
-                headers={"Authorization": f"Bearer {self._api_key}"},
-                timeout=httpx.Timeout(timeout_s),
-            )
-        except httpx.TimeoutException:
+            # httpx applies its timeout to each phase; the deadline bounds them together.
+            async with asyncio.timeout(timeout_s):
+                response = await self._client.post(
+                    self._url,
+                    json=body,
+                    headers={"Authorization": f"Bearer {self._api_key}"},
+                    timeout=httpx.Timeout(timeout_s),
+                )
+        except (TimeoutError, httpx.TimeoutException):
             raise DecisionModelError("timeout", "the provider did not answer in time") from None
         except httpx.HTTPError:
             raise DecisionModelError("unavailable", "the provider could not be reached") from None

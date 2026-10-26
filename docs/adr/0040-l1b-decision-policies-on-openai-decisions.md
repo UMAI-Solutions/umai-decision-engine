@@ -150,3 +150,66 @@
     fewer questions);
   - EU processing is not approved for a customer that requires it;
   - step 3 shows a policy cannot reach its target.
+
+## Amendment 2026-10-26: the provider connection at startup
+
+**Context.** On umai-beta, right after `umai.sh up`, the first five L1b calls (five concurrent
+shadow calls, `l1b.timeout_ms` 600) all timed out; minutes later the same requests took
+260–384 ms. smarttech's guardrail v3 now enforces two policies with `fail_closed` and a 1 400 ms
+timeout, so a slow call BLOCKs a legitimate request (`L1B_TIMEOUT`). Measured on the VM from
+one-off containers, with httpcore's trace events and OpenAI's `openai-processing-ms` header:
+
+- **The client side of a new process.** The first call opened a connection: client and network
+  p50 103 ms against 57–62 ms for later calls (suite `l1-cold-start`). Without the app's imports
+  done, the first request also paid 37–75 ms of imports and pool setup; DNS took 1–14 ms, TCP
+  4–21 ms, TLS 6–20 ms. DNS, the event loop and Presidio's warm-up (it ends before the app takes
+  traffic) are not the cause, and a cancelled request closes only its own connection.
+- **Keep-alive.** httpx closes idle connections after 5 s, so on sparse traffic almost every call
+  opened a new one (after 8 s idle: 6/6 new, p50 82 ms, max 154 ms). OpenAI's edge kept idle
+  connections open for the whole 25 minutes we watched.
+- **The provider side, the larger part.** After 4–5 minutes without calls, OpenAI's own
+  processing time is higher for the first one or two calls, on a connection that is already open:
+  375, 771, 613, 416, 210→748→2 064 ms for the first calls of five rounds, against about 220 ms
+  later. Prompt caching never hit (`cached_tokens` 0 on every call, identical bodies included).
+  Two calls sent together after idle were both slow (388 and 452 ms).
+
+**Decision.**
+
+1. **Warm-up.** Before the engine or the gateway takes traffic, `start_runtime` warms every
+   provider. The OpenAI adapter sends one decision on a fixed synthetic sentence with one
+   question (about 170 input tokens, never caller content). It opens the connection, does the
+   first-request imports, checks the key and the endpoint, and takes the provider's slow first
+   answer itself: after a decision warm-up the next real call's processing was 339, 427 and
+   214 ms in three idle rounds, against 613 and 416 ms after a `GET /models/{model}` warm-up. It
+   runs within `UMAI_DE_DECISION_WARM_UP_TIMEOUT_MS` (2 000; 0 turns it off). The outcome is
+   logged (`l1b.warm_up provider=… outcome=ok|auth|timeout|unavailable|http_<n>`); a failure
+   changes nothing else: the first decision opens its own connection, and a provider that is
+   really down meets the bundle's failure policy there.
+2. **Keep-alive.** Idle provider connections are kept `UMAI_DE_DECISION_KEEPALIVE_S` (120 s),
+   well below what the provider's edge keeps.
+3. **One deadline per call.** `l1b.timeout_ms` bounds the whole call (connect, send and wait
+   together), not each httpx phase: before, a new connection could take the timeout once to
+   connect and once more to answer.
+
+**Alternatives.**
+
+| Option | Why not (now) |
+|---|---|
+| `GET /models/{model}` as the warm-up (no tokens) | Opens the connection but leaves the provider's slow first answer to a real call (613 and 416 ms); itself took 0.55–1.2 s |
+| A decision with the bundle's own policies at startup | About 11 k tokens per start and per policy set, and needs the active bundles at startup; no better than the one-question call in our rounds |
+| A periodic keep-warm call while idle | The provider is slow again after every few idle minutes, which a startup warm-up cannot cover. A synthetic call every few minutes per process would; it spends tokens on a timer: a product decision, not part of this fix |
+| A hedged second request | Two calls sent together after idle were both slow, so a hedge would not have helped there; it still may for the random tail (one 2.5 s call on a warm connection). A pipeline decision (adapters stay retry-free) |
+| HTTP/2 (one connection for concurrent calls) | A new dependency (`h2`); without it concurrent first calls open their own connections, 30–50 ms each once the imports are done. Not needed at the measured concurrency (rule 6) |
+| httpx defaults | 5 s keep-alive, and a timeout per phase instead of per call |
+
+**Consequences.** Each process start sends one synthetic decision per provider (about 170 input
+tokens, $0.00002) and waits for it, at most the warm-up timeout. The first calls of a new process
+cost what later calls cost on the client side. The provider's own slowness after idle and its
+random tail remain and are the larger risk for enforcing policies with `fail_closed`: choosing
+between keep-warm calls, a longer `l1b.timeout_ms`, a fallback provider and hedging is open.
+
+**Validation.** Tests: the warm-up request (synthetic body, the key, an outcome per failure), the
+deadline over the whole call, the first decisions reusing the connection opened at warm-up (a
+local server counting TCP connections), keep-alive from settings, the runtime warming before
+traffic. Live: [`l1-cold-start` on umai-beta](../../evals/reports/2026-10-26-l1-cold-start-beta-westeurope/summary.md)
+(six fresh processes per variant, before and after).
