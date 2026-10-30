@@ -48,7 +48,7 @@ async def _count(engine, tenant, model) -> int:
 
 
 async def test_the_contract_examples_are_written_once_even_when_retried(db_url) -> None:
-    event, outcome, _page = _examples("tagged-action.md")
+    event, outcome, *_reads = _examples("tagged-action.md")
     usage, _summary = _examples("usage.md")
     batch = [
         DecisionEvent.model_validate(event),

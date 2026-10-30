@@ -1,6 +1,6 @@
 # Contract: usage record (ledger)
 
-**Version:** 0.2
+**Version:** 0.3
 
 **Implementation status (2026-10-30):** written by the engine API and the gateway
 ([ADR-0041](../adr/0041-records-decision-events-and-usage-ledger.md), ledger shape from
@@ -14,7 +14,7 @@ retried write never counts twice.
 
 ```json
 {
-  "contract_version": "0.2",
+  "contract_version": "0.3",
   "event_id": "ta-3f2b9c41d6e84a1b9c0d7e5f6a1b2c3d",
   "tenant_id": "tenant-demo",
   "occurred_at": "2026-10-26T09:30:00Z",
@@ -51,13 +51,14 @@ retried write never counts twice.
 ## Read API (policy service)
 
 `GET /v1/usage?month=YYYY-MM` (default: the current month, UTC) returns the month's ledger for
-the tenant: totals per meter, and the same split by source, environment and application. Roles
+the tenant: totals per meter, the same split by source, environment and application, and per UTC
+day (`daily`, days with usage only, oldest first; 0.3). Roles
 (ADR-0029): owner, admin, policy editor, approver, viewer, billing; the operator token with
 `X-Umai-Tenant`.
 
 ```json
 {
-  "contract_version": "0.2",
+  "contract_version": "0.3",
   "tenant_id": "tenant-demo",
   "month": "2026-10",
   "from": "2026-10-01T00:00:00Z",
@@ -68,12 +69,17 @@ the tenant: totals per meter, and the same split by source, environment and appl
     { "meter": "evaluations", "source": "gateway", "environment": "live", "application_id": "main", "quantity": 820 },
     { "meter": "gateway_calls", "source": "gateway", "environment": "live", "application_id": "main", "quantity": 410 },
     { "meter": "provider_input_tokens", "source": "gateway", "environment": "live", "application_id": "main", "quantity": 182340 }
+  ],
+  "daily": [
+    { "date": "2026-10-29", "meters": { "evaluations": 610, "gateway_calls": 200, "provider_input_tokens": 90120 } },
+    { "date": "2026-10-30", "meters": { "evaluations": 640, "gateway_calls": 210, "provider_input_tokens": 92220 } }
   ]
 }
 ```
 
 ## Changelog
 
+- 0.3 (2026-10-30): `daily` in `GET /v1/usage` (per UTC day and meter).
 - 0.2 (2026-10-30): gateway meters `gateway_calls`, `provider_input_tokens`,
   `provider_output_tokens` with `provider` and `model`; read API `GET /v1/usage`; retention job.
 - 0.1 (2026-10-26): initial version, written by the engine API (ADR-0041).
