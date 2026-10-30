@@ -33,6 +33,7 @@ from umai_decision_engine.applications import problem as application_problem
 from umai_decision_engine.contracts.common import Action as DecisionAction
 from umai_decision_engine.contracts.common import Phase
 from umai_decision_engine.contracts.credentials import KeyEnv, Scope
+from umai_decision_engine.contracts.entitlements import EntitlementsView, PlanUpdate, RequestsUsed
 from umai_decision_engine.contracts.gateway import (
     APPLICATION_ID,
     BUILTIN_OPENAI,
@@ -61,6 +62,7 @@ from umai_decision_engine.control_plane.organizations import (
     OrganizationError,
     OrganizationService,
 )
+from umai_decision_engine.control_plane.plans import Plans
 from umai_decision_engine.control_plane.records import BadCursor, RecordsReader, retention_loop
 from umai_decision_engine.control_plane.repository import GuardrailRepositories
 from umai_decision_engine.control_plane.service import PolicyService, ServiceError
@@ -83,6 +85,7 @@ from umai_decision_engine.l0.detector import EntityDetector
 from umai_decision_engine.l0.recognizers.catalog import SPECS_BY_ENTITY, TAG_BY_ENTITY
 from umai_decision_engine.settings import Settings, get_settings
 from umai_decision_engine.telemetry.logging import configure_logging
+from umai_decision_engine.tenancy.quota import month_bounds
 
 log = logging.getLogger("umai.control_plane")
 
@@ -406,6 +409,32 @@ async def get_usage(
     return summary.model_dump(mode="json", by_alias=True)
 
 
+def _entitlements_view(request: Request, tenant: TenantInfo, used: dict) -> EntitlementsView:
+    month, _, resets_at = month_bounds(None)
+    return EntitlementsView(
+        tenant_id=tenant.slug,
+        edition=tenant.edition,  # type: ignore[arg-type]
+        limits=request.app.state.keys.plans.limits(tenant),
+        month=month,
+        used=RequestsUsed(requests=used["live"], test_requests=used["test"]),
+        resets_at=resets_at,
+    )
+
+
+@router.get("/entitlements")
+async def get_entitlements(
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.USAGE_READ],
+) -> dict[str, Any]:
+    """The tenant's plan and this month's requests, counted as the engine counts them
+    (entitlements 0.1, ADR-0043)."""
+
+    _, start, end = month_bounds(None)
+    used = await request.app.state.records.requests_used(tenant, start, end)
+    return _entitlements_view(request, tenant, used).model_dump(mode="json")
+
+
 # ------------------------------------------------------------------ tenants and API keys
 
 
@@ -437,6 +466,38 @@ async def create_tenant(
     except Conflict as exc:
         raise HTTPException(409, str(exc)) from exc
     return tenant.public()
+
+
+@router.put("/tenants/{tenant_id}/plan")
+async def set_plan(
+    tenant_id: str,
+    body: PlanUpdate,
+    request: Request,
+    actor: Actor = _ALLOW[Action.TENANT_PLAN],
+) -> dict[str, Any]:
+    """The tenant's edition and limit overrides (entitlements 0.1, ADR-0043 D3); the snapshot is
+    republished so engines enforce them within one poll interval."""
+
+    try:
+        tenant = await _tenant_repo(request).set_plan(
+            tenant_id, body.edition, body.override_values()
+        )
+    except NotFound as exc:
+        raise HTTPException(404, str(exc)) from exc
+    keys = _keys(request)
+    published = await keys.republish(tenant)
+    log.info(
+        "tenant plan set: tenant=%s edition=%s overrides=%s",
+        tenant.slug,
+        tenant.edition,
+        sorted(tenant.entitlement_overrides or {}),
+    )
+    return {
+        "tenant": tenant.public(),
+        "overrides": tenant.entitlement_overrides or {},
+        "limits": keys.plans.limits(tenant).model_dump(mode="json"),
+        "published": published,
+    }
 
 
 @router.get("/tenants/{tenant_id}")
@@ -1026,8 +1087,14 @@ def create_app(
         app.state.db = db
         app.state.tenants = tenants
         app.state.keys = KeyService(
-            ApiKeyRepository(db), KeyPublisher(cfg.key_registry_dir, signing_key), cfg.region
+            ApiKeyRepository(db),
+            KeyPublisher(cfg.key_registry_dir, signing_key),
+            cfg.region,
+            Plans.load(cfg.plans_file),
         )
+        # A changed plans file reaches the engines with the next snapshots (ADR-0043 D3).
+        republished = await app.state.keys.republish_published(await tenants.list())
+        log.info("control_plane.snapshots republished=%d", republished)
         app.state.actor_keys = {
             kid: load_public_key(value) for kid, value in cfg.actor_public_keys.items()
         }

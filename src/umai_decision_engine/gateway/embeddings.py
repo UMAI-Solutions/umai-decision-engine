@@ -28,6 +28,7 @@ from umai_decision_engine.gateway.chat import (
     _read_body,
     _subject,
     _target,
+    admit_quota,
     call_headers,
     record_context,
     refusal_error,
@@ -90,6 +91,7 @@ async def create_embeddings(request: Request) -> Response:
         raise GatewayHTTPError(
             413, "input_too_large", f"the text content exceeds {limit} characters"
         )
+    admit_quota(request, caller)  # last check: a refused call never counts (ADR-0043)
     call = Call(
         ctx=CallContext(
             request_id, tenant, route, _subject(request, body), record_context(caller, route)

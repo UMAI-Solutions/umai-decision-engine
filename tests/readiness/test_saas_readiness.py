@@ -155,4 +155,49 @@ def test_a1_activation_is_attributed_to_an_actor(write_bundle, detector, tmp_pat
     assert history and history[-1].get("actor")
 
 
+def test_m1_request_quota_refuses_limit_plus_one_unevaluated(
+    write_bundle, detector, tmp_path
+) -> None:
+    """ADR-0019 §4, ADR-0028 Validation, ADR-0043: with a monthly limit of N, request N + 1 gets
+    429 ``quota_exceeded`` and nothing is evaluated: no decision, never ``BLOCK`` or ``ALLOW``.
+    Closed 2026-10-30 (launch plan S1-5 in part)."""
+
+    write_bundle(bundle_yaml(), active=1)
+    registry_dir = tmp_path / "keys"
+    plans = tmp_path / "plans.yaml"
+    plans.write_text(
+        'contract_version: "0.1"\nplans:\n  community:\n    monthly_requests: 2\n',
+        encoding="utf-8",
+    )
+    control = Settings(
+        env="development",
+        policy_dir=write_bundle.root,
+        control_db_path=tmp_path / "c.sqlite",
+        key_registry_dir=registry_dir,
+        plans_file=plans,
+    )
+    with TestClient(create_control_app(control, detector=detector)) as cp:
+        cp.post("/v1/tenants", json={"id": "tenant-a"})
+        secret = cp.post("/v1/tenants/tenant-a/keys", json={"name": "m1"}).json()["secret"]
+    engine = Settings(
+        env="test",
+        policy_dir=write_bundle.root,
+        key_registry_dir=registry_dir,
+        require_signed_bundles=False,  # no signing key in this fixture; signature tested elsewhere
+        bundle_poll_interval_s=0,
+        key_registry_poll_interval_s=0,
+        l0_threads=1,
+    )
+    with TestClient(
+        create_app(engine, detector=detector), headers={"Authorization": f"Bearer {secret}"}
+    ) as c:
+        statuses = [c.post("/v1/evaluate", json=_request()).status_code for _ in range(2)]
+        response = c.post("/v1/evaluate", json=_request())
+    assert statuses == [200, 200]
+    assert response.status_code == 429
+    body = response.json()
+    assert body["detail"]["error"] == "quota_exceeded"
+    assert "decision" not in body and "event_id" not in body
+
+
 # ------------------------------------------------------------ gaps (xfail until closed)

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 from dataclasses import dataclass, field
 
 from umai_decision_engine.applications import AllowList, ApplicationTable
@@ -19,7 +20,10 @@ from umai_decision_engine.settings import Settings
 from umai_decision_engine.telemetry.logging import configure_logging
 from umai_decision_engine.tenancy.admission import Admission
 from umai_decision_engine.tenancy.limits import RateLimiter
+from umai_decision_engine.tenancy.quota import QuotaCounter
 from umai_decision_engine.tenancy.registry import DirectoryKeyRegistrySource, KeyRegistry
+
+log = logging.getLogger("umai.runtime")
 
 
 @dataclass
@@ -55,19 +59,30 @@ class Runtime:
             self.detector.close()
 
 
-def records_recorder(cfg: Settings) -> Recorder:
-    """The recorder the settings ask for (ADR-0041, ADR-0042): explicit, never implied."""
+def records_database(cfg: Settings):
+    """The tenant store a process writes records to and reads its quota counts from, or
+    ``None`` (ADR-0041, ADR-0043): explicit, never implied."""
 
     if cfg.records_sink == "none":
-        return NullRecorder()
+        return None
     if cfg.database_url is None:
         raise RuntimeError("UMAI_DE_RECORDS_SINK=database requires UMAI_DE_DATABASE_URL")
     # Imported here: only a process that writes records loads the database layer.
     from umai_decision_engine.db.session import make_engine
+
+    return make_engine(cfg.database_url.get_secret_value())
+
+
+def records_recorder(cfg: Settings, database=None) -> Recorder:
+    """The recorder the settings ask for (ADR-0041, ADR-0042): explicit, never implied."""
+
+    database = database or records_database(cfg)
+    if database is None:
+        return NullRecorder()
     from umai_decision_engine.events.database import DatabaseRecordWriter
 
     return QueueRecorder(
-        DatabaseRecordWriter(make_engine(cfg.database_url.get_secret_value())),
+        DatabaseRecordWriter(database),
         queue_size=cfg.records_queue_size,
         batch_size=cfg.records_batch_size,
         flush_interval_s=cfg.records_flush_interval_ms / 1000,
@@ -112,6 +127,26 @@ async def start_runtime(
             require_signed=bool(cfg.require_signed_bundles),
         )
         await asyncio.to_thread(registry.reload, force=True)
+    database = records_database(cfg) if recorder is None else None
+    quota = None
+    if registry is not None:
+        # Monthly quotas (ADR-0043 D4): counted in memory from the usage ledger; a process
+        # without the records store counts only what it admitted since it started.
+        ledger = None
+        if database is not None:
+            from umai_decision_engine.events.ledger import LedgerCounts
+
+            ledger = LedgerCounts(database)
+        quota = QuotaCounter(ledger)
+        limited = registry.limited_tenants()
+        if limited and ledger is None:
+            log.warning(
+                "quota: %d tenant(s) have a monthly limit but records are off; "
+                "this process counts only what it admits",
+                len(limited),
+            )
+        quota.watch(limited)
+        await quota.refresh()  # a restart does not forget a used quota
     admission = Admission(
         shared_token=cfg.api_token.get_secret_value() if cfg.api_token else None,
         registry=registry,
@@ -119,6 +154,7 @@ async def start_runtime(
         if cfg.rate_limit_rps
         else None,
         development=cfg.env == "development",
+        quota=quota,
     )
     applications = ApplicationTable(cfg.applications_dir, AllowList(cfg.gateway_upstream_allowlist))
     await asyncio.to_thread(applications.reload, force=True)
@@ -126,7 +162,7 @@ async def start_runtime(
     if cfg.decision_warm_up_timeout_ms:
         # Last before taking traffic: the first L1b calls reuse these connections.
         await decision_models.warm_up(cfg.decision_warm_up_timeout_ms / 1000)
-    recorder = recorder or records_recorder(cfg)
+    recorder = recorder or records_recorder(cfg, database)
     runtime = Runtime(
         settings=cfg,
         store=store,
@@ -150,6 +186,8 @@ async def start_runtime(
         runtime.poll(store.poll(cfg.bundle_poll_interval_s))
     if registry is not None and cfg.key_registry_poll_interval_s > 0:
         runtime.poll(registry.poll(cfg.key_registry_poll_interval_s))
+    if quota is not None:
+        runtime.poll(quota.run(cfg.quota_refresh_interval_s))
     if cfg.applications_poll_interval_s > 0:
         runtime.poll(applications.poll(cfg.applications_poll_interval_s))
     return runtime

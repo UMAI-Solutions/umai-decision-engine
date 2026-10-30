@@ -38,6 +38,7 @@ class Action(StrEnum):
     GUARDRAIL_ACTIVATE = "guardrail.activate"
     TENANT_READ = "tenant.read"
     TENANT_CREATE = "tenant.create"
+    TENANT_PLAN = "tenant.plan"  # edition and limit overrides (ADR-0043): operator only
     KEY_READ = "key.read"
     KEY_CREATE = "key.create"
     KEY_REVOKE = "key.revoke"
@@ -100,6 +101,7 @@ MATRIX: dict[Action, Rule] = {
     Action.GUARDRAIL_ACTIVATE: _r(_O, _P),
     Action.TENANT_READ: _r(operator=True),
     Action.TENANT_CREATE: _r(operator=True),
+    Action.TENANT_PLAN: _r(operator=True),
     Action.KEY_READ: _r(_O, _A, operator=True),
     Action.KEY_CREATE: _r(_O, _A, operator=True),
     Action.KEY_REVOKE: _r(_O, _A, operator=True),

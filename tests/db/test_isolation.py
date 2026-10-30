@@ -350,6 +350,47 @@ async def test_summary_and_daily_usage_group_by_utc_day_on_postgres(pg, two_tena
     assert other.total == 0
 
 
+@postgres
+@pytest.mark.asyncio
+async def test_quota_counts_requests_of_its_own_tenant_only_on_postgres(pg, two_tenants) -> None:
+    """ADR-0043 D2, D6: API evaluations and gateway calls count, the gateway's own checks do
+    not; test keys apart; under forced RLS, as the engine's ledger reader runs."""
+
+    from umai_decision_engine.db.models import UsageEventRow
+    from umai_decision_engine.events.ledger import LedgerCounts
+
+    a, b = two_tenants
+    at = datetime(2026, 10, 30, 12, tzinfo=UTC)
+    rows = [
+        ("evaluations", "api", "live", 1),
+        ("evaluations", "api", None, 1),  # the operator token counts as live
+        ("evaluations", "api", "test", 1),
+        ("gateway_calls", "gateway", "live", 1),
+        ("evaluations", "gateway", "live", 1),  # a gateway check: not a request
+        ("provider_input_tokens", "gateway", "live", 500),
+    ]
+    for tenant in (a, b):
+        async with tenant_session(pg, tenant.id) as session:
+            for meter, source, environment, quantity in rows[: 6 if tenant is a else 1]:
+                await session.execute(
+                    insert(UsageEventRow).values(
+                        **{
+                            **_row("usage_events", tenant.id),
+                            "occurred_at": at,
+                            "meter": meter,
+                            "source": source,
+                            "environment": environment,
+                            "quantity": quantity,
+                        }
+                    )
+                )
+    ledger = LedgerCounts(pg)
+    start, end = datetime(2026, 10, 1, tzinfo=UTC), datetime(2026, 11, 1, tzinfo=UTC)
+    assert await ledger.month(a.slug, start, end) == {"live": 3, "test": 1}
+    assert await ledger.month(b.slug, start, end) == {"live": 1, "test": 0}
+    assert await ledger.month("nobody", start, end) == {"live": 0, "test": 0}
+
+
 # ------------------------------------------------------------ member_self (ADR-0033 §2)
 
 

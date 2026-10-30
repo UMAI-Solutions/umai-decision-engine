@@ -1,6 +1,6 @@
 # Contract: credentials
 
-**Version:** 0.6 · **Producer → consumer:** control plane → engines (key-registry snapshot), control plane ↔ console (key records), console → policy service (on-behalf-of assertion) · **Decisions:** [ADR-0023](../adr/0023-identity-planes-and-api-keys.md), [ADR-0029](../adr/0029-authorization-roles-and-four-eyes.md)
+**Version:** 0.7 · **Producer → consumer:** control plane → engines (key-registry snapshot), control plane ↔ console (key records), console → policy service (on-behalf-of assertion) · **Decisions:** [ADR-0023](../adr/0023-identity-planes-and-api-keys.md), [ADR-0029](../adr/0029-authorization-roles-and-four-eyes.md)
 
 Three shapes: the **API key record** the console manages, the **key-registry snapshot** the
 control plane publishes per tenant and every engine loads like a bundle (verify → validate →
@@ -64,9 +64,15 @@ plane; engines poll the directory (`UMAI_DE_KEY_REGISTRY_POLL_INTERVAL_S`, defau
 
 ```json
 {
-  "contract_version": "0.3",
+  "contract_version": "0.4",
   "tenant_id": "tenant-demo",
   "generated_at": "2026-10-18T09:00:05Z",
+  "entitlements": {
+    "edition": "community",
+    "monthly_requests": 10000,
+    "monthly_test_requests": 1000,
+    "max_input_chars": 32000
+  },
   "keys": [
     {
       "key_id": "Q7h2kP9c",
@@ -86,7 +92,8 @@ plane; engines poll the directory (`UMAI_DE_KEY_REGISTRY_POLL_INTERVAL_S`, defau
 
 | Field | Notes |
 |---|---|
-| `contract_version` | `0.3` since credentials 0.6 (entries may carry `application_id`); engines still accept `0.1` and `0.2` files (0.2 calls the field `gateway_id`; its signature covers that name) |
+| `contract_version` | `0.4` since credentials 0.7 (`entitlements`); `0.3` since 0.6 (entries may carry `application_id`); engines still accept `0.1` to `0.3` files (0.2 calls the field `gateway_id`; its signature covers that name) |
+| `entitlements` | The tenant's limits ([entitlements](entitlements.md) 0.1, ADR-0043): edition, `monthly_requests`, `monthly_test_requests`, `max_input_chars`; null or absent fields mean no limit (the size: the deployment's). Absent when the deployment has no plans file |
 | `keys[].application_id` | The key's application (0.6); absent when the key belongs to none |
 | `keys[].status` | `active` or `revoked`; revoked keys stay listed so a reload can never resurrect one |
 | `signing_key_id`, `signature` | Ed25519 over the JSON of the snapshot without `signature`, with the control plane's bundle-signing key; verified against `UMAI_DE_BUNDLE_PUBLIC_KEYS`. Required whenever signed bundles are required (everything but development) |
@@ -94,7 +101,7 @@ plane; engines poll the directory (`UMAI_DE_KEY_REGISTRY_POLL_INTERVAL_S`, defau
 Load rules (engine): an unparsable, unsigned-where-required or wrongly signed file keeps the
 tenant's last good keys and is reported in the registry's `errors`; a duplicate `key_id`
 across tenants is ignored and reported. Revocation and creation take effect within one poll
-interval.
+interval; so does a change of the tenant's limits.
 
 ## On-behalf-of assertion — `ActorAssertion` (0.2)
 
@@ -154,6 +161,9 @@ assertion names no tenant); 403 `tenant_mismatch` (the target tenant is not the 
 
 ## Changelog
 
+- 0.7 (2026-10-30, ADR-0043): the snapshot carries the tenant's `entitlements` (contract
+  [entitlements](entitlements.md) 0.1); snapshot payload `contract_version` 0.4 (0.1 to 0.3
+  still read).
 - 0.6 (2026-10-20): `application_id` replaces `gateway_id` (ADR-0039): a key belongs to an
   application and works on all its connections (scopes default to `evaluate` and `gateway`);
   snapshot payload `contract_version` 0.3 (0.1 and 0.2 still read); tenant-store migration 0004.

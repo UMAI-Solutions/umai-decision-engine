@@ -34,6 +34,7 @@ from umai_decision_engine.db.models import (
 from umai_decision_engine.db.repositories import TenantInfo
 from umai_decision_engine.db.session import global_session, is_postgres, tenant_session
 from umai_decision_engine.events.database import event_from_row, outcome_from_row
+from umai_decision_engine.events.ledger import count_requests, month_bounds
 
 log = logging.getLogger("umai.control.records")
 
@@ -54,17 +55,6 @@ def _decode_cursor(cursor: str) -> tuple[datetime, uuid.UUID]:
         return datetime.fromisoformat(at), uuid.UUID(row_id)
     except (binascii.Error, UnicodeDecodeError, ValueError) as exc:
         raise BadCursor("not a cursor from a previous page") from exc
-
-
-def month_bounds(month: str | None, now: datetime | None = None) -> tuple[str, datetime, datetime]:
-    """``YYYY-MM`` (default: the current month, UTC) → its first instant and the next month's."""
-
-    now = now or datetime.now(UTC)
-    if month is None:
-        month = f"{now:%Y-%m}"
-    start = datetime.strptime(month + "-01", "%Y-%m-%d").replace(tzinfo=UTC)
-    end = (start + timedelta(days=32)).replace(day=1)
-    return month, start, end
 
 
 # Events whose entity types and deciding policies the summary counts; a larger window says so
@@ -237,6 +227,12 @@ class RecordsReader:
             event=event_from_row(row, tenant.slug),
             l1b_outcomes=[outcome_from_row(o, tenant.slug) for o in outcomes],
         )
+
+    async def requests_used(self, tenant: TenantInfo, start: datetime, end: datetime) -> dict:
+        """Requests per quota environment, counted as the engine counts them (ADR-0043 D2)."""
+
+        async with tenant_session(self._engine, tenant.id) as session:
+            return await count_requests(session, tenant.id, start, end)
 
     async def usage(self, tenant: TenantInfo, month: str | None = None) -> UsageSummary:
         month, start, end = month_bounds(month)

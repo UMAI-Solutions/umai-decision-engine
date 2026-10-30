@@ -18,6 +18,7 @@ from umai_decision_engine.contracts.credentials import (
     KeyRegistrySnapshot,
     Scope,
 )
+from umai_decision_engine.control_plane.plans import Plans
 from umai_decision_engine.db.repositories import ApiKeyRepository, TenantInfo
 from umai_decision_engine.tenancy.registry import SNAPSHOT_SUFFIX
 from umai_decision_engine.tenancy.snapshot import sign_snapshot
@@ -52,19 +53,30 @@ class KeyPublisher:
         )
         os.replace(temporary, target)
         log.info(
-            "key registry published: tenant=%s keys=%d signed=%s",
+            "key registry published: tenant=%s keys=%d signed=%s edition=%s",
             snapshot.tenant_id,
             len(snapshot.keys),
             snapshot.signature is not None,
+            snapshot.entitlements.edition if snapshot.entitlements else None,
         )
         return True
 
+    def has_snapshot(self, tenant_id: str) -> bool:
+        return self.root is not None and (self.root / f"{tenant_id}{SNAPSHOT_SUFFIX}").is_file()
+
 
 class KeyService:
-    def __init__(self, keys: ApiKeyRepository, publisher: KeyPublisher, region: str) -> None:
+    def __init__(
+        self,
+        keys: ApiKeyRepository,
+        publisher: KeyPublisher,
+        region: str,
+        plans: Plans | None = None,
+    ) -> None:
         self.keys = keys
         self.publisher = publisher
         self.region = region
+        self.plans = plans or Plans()
 
     @staticmethod
     def _check_scopes(scopes: list[Scope]) -> None:
@@ -73,7 +85,22 @@ class KeyService:
             raise ValueError(f"customer keys cannot hold scopes: {', '.join(illegal)}")
 
     async def republish(self, tenant: TenantInfo) -> bool:
-        return self.publisher.publish(await self.keys.snapshot(tenant))
+        """The tenant's keys and its limits (ADR-0043 D1), as one signed snapshot."""
+
+        snapshot = await self.keys.snapshot(tenant)
+        snapshot = snapshot.model_copy(update={"entitlements": self.plans.entitlements(tenant)})
+        return self.publisher.publish(snapshot)
+
+    async def republish_published(self, tenants: list[TenantInfo]) -> int:
+        """Rewrite every snapshot already published, so a changed plans file reaches the
+        engines at startup (ADR-0043 D3). Tenants without a snapshot get one with their first
+        key."""
+
+        count = 0
+        for tenant in tenants:
+            if self.publisher.has_snapshot(tenant.slug) and await self.republish(tenant):
+                count += 1
+        return count
 
     async def create(
         self,

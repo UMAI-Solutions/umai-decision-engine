@@ -1,6 +1,6 @@
 # Contract: evaluation API
 
-**Version:** 0.12 · **Endpoints:** `POST /v1/evaluate`, `GET /v1/bundles`, `POST /v1/bundles/reload`, `POST /v1/detect` (development) · **Health:** `GET /healthz`, `GET /readyz`
+**Version:** 0.13 · **Endpoints:** `POST /v1/evaluate`, `GET /v1/bundles`, `POST /v1/bundles/reload`, `POST /v1/detect` (development) · **Health:** `GET /healthz`, `GET /readyz`
 
 `/readyz` returns 200 only after Presidio analyzers are loaded and warmed up, the policy
 bundles are loaded, and the configured L1b provider answered a probe.
@@ -142,10 +142,33 @@ Credentials are held by server-side callers only (SDKs, the console's backend), 
 | `GET /v1/bundles`, `GET /v1/bundles/{id}/versions/{version}` | `bundles:read` |
 | `POST /v1/bundles/reload` | `bundles:reload` (operator token only) |
 
-Admission answers 401 `invalid_credential`, 403 `tenant_mismatch` / `insufficient_scope` and
+Admission answers 401 `invalid_credential`, 403 `tenant_mismatch` / `insufficient_scope`,
 429 `rate_limited` (`Retry-After`; token bucket per credential, `UMAI_DE_RATE_LIMIT_RPS` /
-`_BURST`) with a JSON body `{"detail": {"error": "<code>", "detail": "<text>"}}`; a
-refused request is never evaluated.
+`_BURST`) and 429 `quota_exceeded` (below) with a JSON body
+`{"detail": {"error": "<code>", "detail": "<text>"}}`; a refused request is never evaluated
+and never counted.
+
+**Monthly quota** ([ADR-0043](../adr/0043-plans-and-monthly-quotas.md), contract
+[entitlements](entitlements.md)): a tenant whose snapshot names `monthly_requests` (live keys,
+the operator token) or `monthly_test_requests` (test keys) gets **429** `quota_exceeded` once
+this calendar month's (UTC) requests reach it: admitted `POST /v1/evaluate` calls plus the
+tenant's AI Gateway calls. The body carries `limit`, `used`, `environment` (`live` or `test`)
+and `resets_at`; `Retry-After` counts the seconds until then. Nothing is evaluated: the
+caller's own failure behaviour applies, visibly. The count is kept per process from the usage
+ledger and may run a few seconds behind (ADR-0043 D4).
+
+```json
+{
+  "detail": {
+    "error": "quota_exceeded",
+    "detail": "this organization used its 10000 requests for 2026-10; the quota resets at 2026-11-01T00:00:00Z",
+    "limit": 10000,
+    "used": 10000,
+    "environment": "live",
+    "resets_at": "2026-11-01T00:00:00Z"
+  }
+}
+```
 
 **Bundles belong to a tenant** (ADR-0019 §2, [policy-bundle](policy-bundle.md) 0.8). An
 evaluation resolves `bundle.id` among its own tenant's bundles only; another tenant's bundle id
@@ -213,8 +236,9 @@ Authentication runs before field validation; a body that is not JSON at all is r
 
 **Prompt size** ([ADR-0019](../adr/0019-editions-as-runtime-entitlements.md) §4 and its
 amendment): the characters (Unicode code points) of every `content.messages[].content` and
-every `content.artifacts[].payload_summary` and `content`, added up: everything L0 can scan. Above the limit (`UMAI_DE_MAX_INPUT_CHARS`,
-default 32 000, until per-tenant entitlements carry `max_input_chars`) `POST /v1/evaluate` and
+every `content.artifacts[].payload_summary` and `content`, added up: everything L0 can scan. Above the limit (the tenant's
+`max_input_chars`, capped by the deployment's `UMAI_DE_MAX_INPUT_CHARS`, default 32 000; 0.13)
+`POST /v1/evaluate` and
 `POST /v1/detect` answer **413** in the admission error shape with the limit and the measured
 size. Nothing is evaluated and nothing is truncated: the caller's own failure behaviour
 applies, visibly. The check runs after admission and schema validation.
@@ -246,6 +270,9 @@ applies, visibly. The check runs after admission and schema validation.
 
 ## Changelog
 
+- 0.13 (2026-10-30, ADR-0043): monthly quota: 429 `quota_exceeded` with `limit`, `used`,
+  `environment`, `resets_at` and `Retry-After`, before anything is evaluated; the prompt-size
+  limit is the tenant's `max_input_chars` capped by the deployment's. Requests unchanged.
 - 0.12 (2026-10-20, ADR-0040): L1b decides. `decided_by: L1b`; `decision.matched[].kind`
   `l1b_policy`; tags with `layer: L1b`, `probability`, `policy_id` / `policy_version`;
   `latency_ms.l1b`; errors `L1B_TIMEOUT`, `L1B_RATE_LIMITED`, `L1B_UNAVAILABLE`,

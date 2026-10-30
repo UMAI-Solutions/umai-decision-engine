@@ -72,6 +72,8 @@ class Tenant(Base):
     terms_version: Mapped[str | None] = mapped_column(String(40), nullable=True)
     terms_accepted_by: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)  # users.id
     terms_accepted_at: Mapped[datetime | None] = mapped_column(UtcDateTime(), nullable=True)
+    # An operator's limits over the edition's plan (entitlements 0.1, ADR-0043); null: none
+    entitlement_overrides: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class User(Base):

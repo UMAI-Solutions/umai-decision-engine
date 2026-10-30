@@ -21,6 +21,7 @@ from typing import Protocol
 from pydantic import ValidationError
 
 from umai_decision_engine.contracts.credentials import KeyRegistryEntry, KeyRegistrySnapshot
+from umai_decision_engine.contracts.entitlements import TenantEntitlements
 from umai_decision_engine.tenancy.snapshot import SnapshotError, verify_snapshot
 
 log = logging.getLogger("umai.tenancy.registry")
@@ -50,6 +51,8 @@ class RegistryState:
     tenants: dict[str, datetime] = field(default_factory=dict)  # tenant → generated_at
     errors: list[tuple[str, str]] = field(default_factory=list)  # (location, message)
     reloaded_at: datetime | None = None
+    # tenant → its limits (credentials 0.7, ADR-0043); absent: no quota
+    entitlements: dict[str, TenantEntitlements] = field(default_factory=dict)
 
 
 class KeyRegistrySource(Protocol):
@@ -110,6 +113,18 @@ class KeyRegistry:
     def lookup(self, key_id: str) -> RegisteredKey | None:
         return self._state.keys.get(key_id)
 
+    def entitlements(self, tenant_id: str) -> TenantEntitlements | None:
+        return self._state.entitlements.get(tenant_id)
+
+    def limited_tenants(self) -> list[str]:
+        """Tenants with a monthly limit: the quota counter reads them at startup."""
+
+        return sorted(
+            tenant
+            for tenant, limits in self._state.entitlements.items()
+            if limits.monthly_requests is not None or limits.monthly_test_requests is not None
+        )
+
     def reload(self, *, force: bool = False) -> bool:
         """Rescan the source; returns whether anything changed. Thread-safe; the swap is one
         attribute assignment, so readers never see a partial registry."""
@@ -121,6 +136,7 @@ class KeyRegistry:
             previous = self._state
             keys: dict[str, RegisteredKey] = {}
             tenants: dict[str, datetime] = {}
+            entitlements: dict[str, TenantEntitlements] = {}
             errors: list[tuple[str, str]] = []
             for location, raw in self.source.scan():
                 try:
@@ -137,14 +153,19 @@ class KeyRegistry:
                         ):
                             keys[key.key_id] = key
                             tenants[key.tenant_id] = previous.tenants[key.tenant_id]
+                    for tenant, limits in previous.entitlements.items():
+                        if location.endswith(f"{tenant}{SNAPSHOT_SUFFIX}"):
+                            entitlements[tenant] = limits
                     continue
                 tenants[snapshot.tenant_id] = snapshot.generated_at
+                if snapshot.entitlements is not None:
+                    entitlements[snapshot.tenant_id] = snapshot.entitlements
                 for entry in snapshot.keys:
                     if entry.key_id in keys:
                         errors.append((location, f"duplicate key id {entry.key_id}"))
                         continue
                     keys[entry.key_id] = RegisteredKey(snapshot.tenant_id, entry, signed)
-            self._state = RegistryState(keys, tenants, errors, datetime.now(UTC))
+            self._state = RegistryState(keys, tenants, errors, datetime.now(UTC), entitlements)
             self._fingerprint = fingerprint
             for location, message in errors:
                 log.warning("key registry: %s: %s", location, message)

@@ -1,0 +1,14 @@
+# Plans (contract entitlements 0.1, ADR-0043, ADR-0018): limits per edition. Data, not code: a
+# commercial change edits this file and restarts the policy service, which rewrites every
+# tenant's snapshot. Null: counted, never refused (requests) or the deployment's cap (size).
+# Requests: admitted POST /v1/evaluate calls plus AI Gateway calls, per calendar month (UTC).
+contract_version: "0.1"
+plans:
+  community:
+    monthly_requests: 10000
+    monthly_test_requests: 1000
+    max_input_chars: 32000
+  enterprise:
+    monthly_requests: null
+    monthly_test_requests: null
+    max_input_chars: null

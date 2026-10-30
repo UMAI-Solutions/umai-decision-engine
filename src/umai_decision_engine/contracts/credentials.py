@@ -11,12 +11,13 @@ from typing import Literal
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
+from umai_decision_engine.contracts.entitlements import TenantEntitlements
 from umai_decision_engine.contracts.gateway import APPLICATION_ID
 from umai_decision_engine.contracts.organizations import Role
 
 # Key-registry snapshot payload version: 0.1 until credentials 0.4, 0.2 in 0.5 (entries may
-# carry gateway_id), 0.3 since 0.6 (application_id). Engines read all three.
-CONTRACT_VERSION = "0.3"
+# carry gateway_id), 0.3 in 0.6 (application_id), 0.4 since 0.7 (entitlements). Engines read all.
+CONTRACT_VERSION = "0.4"
 
 KeyEnv = Literal["live", "test"]
 KeyRegion = Literal["eu", "us", "sh"]
@@ -65,9 +66,11 @@ class KeyRegistrySnapshot(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    contract_version: Literal["0.1", "0.2", "0.3"] = CONTRACT_VERSION
+    contract_version: Literal["0.1", "0.2", "0.3", "0.4"] = CONTRACT_VERSION
     tenant_id: str = Field(min_length=1, max_length=128)
     generated_at: datetime
+    # The tenant's limits (0.4, ADR-0043); absent: no quota, the deployment's size limit.
+    entitlements: TenantEntitlements | None = None
     keys: list[KeyRegistryEntry]
     signing_key_id: str | None = None
     signature: str | None = None  # base64

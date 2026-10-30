@@ -1,6 +1,6 @@
 # ADR-0019 — Editions are runtime entitlements: tenant keys, signed licences, engine-enforced limits
 
-- **Status:** Proposed
+- **Status:** Proposed; §3 (entitlements as signed data, carried in the tenant snapshot) and §4 (the request quota, 429 `quota_exceeded`) accepted by ADR-0043 (2026-10-30)
 - **Date:** 2026-10-17
 - **Deciders:** design proposal (engineering); the product decisions it implements are ADR-0018
 
