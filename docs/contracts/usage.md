@@ -34,8 +34,8 @@ retried write never counts twice.
 | Meter | Quantity | Written |
 |---|---|---|
 | `evaluations` | 1 per admitted `POST /v1/evaluate`, failure-policy decisions included; requests refused before evaluation (401, 403, 413, 422, 429) are not counted | with the decision event |
-| `l1b_calls` | Decision-model calls made for the evaluation (1 with `batch: all`, one per policy with `per_policy`, plus a fallback call), shadow calls included | when the L1b call finishes |
-| `l1b_input_tokens`, `l1b_output_tokens` | Tokens the provider reported for those calls | when the L1b call finishes, if the provider reports them |
+| `l1b_calls` | Decision-model calls made for the evaluation, shadow calls included: with `batch: all` one for the enforcing policies and one for the shadow policies (ADR-0040 amendment 2026-10-30), with `per_policy` one per policy; plus fallback calls | when the evaluation's last L1b call finishes (the shadow call, after the decision, when there is one) |
+| `l1b_input_tokens`, `l1b_output_tokens` | Tokens the provider reported for those calls | with `l1b_calls`, if the provider reports them |
 | `gateway_calls` | 1 per gateway call that passed admission (Chat Completions, Responses, embeddings), whatever its outcome: answered, refused, upstream error, timeout. Each check of the call is also an `evaluations` record (source `gateway`) | when the call ends (a stream: when it closes) |
 | `provider_input_tokens`, `provider_output_tokens` | Tokens the upstream provider reported for the call (`prompt_tokens` / `input_tokens`, `completion_tokens` / `output_tokens`) | with `gateway_calls`, when reported |
 

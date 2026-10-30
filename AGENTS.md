@@ -126,7 +126,10 @@ all in shadow; golden cases stub the model (`model_answers`); live suite `l1-lat
 are not implemented: a bundle with L1a rules is answered with `on_evaluation_failure` and
 `L1_NOT_IMPLEMENTED`. L1b cold start (2026-10-26, ADR-0040 amendment): engine and gateway warm
 each provider at startup (one synthetic decision, never caller content), keep idle connections
-120 s, and `l1b.timeout_ms` bounds the whole call; live suite `l1-cold-start`.
+120 s, and `l1b.timeout_ms` bounds the whole call; live suite `l1-cold-start`. L1b shadow split
+(2026-10-30, ADR-0040 amendment): the request path asks only the enforcing policies; shadow
+policies always run in their own call after the decision, and the evaluation's L1b usage (both
+calls) is written once, by its last call; `l1-latency --modes all,split` measures it.
 Tenancy (2026-10-18): per-tenant API keys with scopes and rate limits at admission (ADR-0023:
 `tenancy/`, contract `credentials` 0.1, evaluation API 0.6; shared token kept for self-hosted),
 key management in the policy service (`/v1/tenants`, `/v1/tenants/{id}/keys`, signed registry

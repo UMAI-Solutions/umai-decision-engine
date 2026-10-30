@@ -1,5 +1,6 @@
 """L1b in the pipeline (ADR-0040, decision-merge-and-failure.md): decisions, the L0 floor
-(ADR-0036), failures, shadow mode and batching, with a fake decision model. Synthetic data."""
+(ADR-0036), failures, shadow mode (always its own call after the decision) and batching, with a
+fake decision model. Synthetic data."""
 
 from __future__ import annotations
 
@@ -304,15 +305,48 @@ async def test_shadow_policies_never_decide_and_add_no_latency(make_evaluator) -
     assert len(model.requests) == 1  # evaluated in the background
 
 
-async def test_shadow_rides_along_with_an_enforcing_policy(make_evaluator) -> None:
+def asked(model: FakeDecisionModel) -> list[list[str]]:
+    return [[q.qid for q in r.questions] for r in model.requests]
+
+
+async def test_with_an_enforcing_policy_shadow_runs_in_its_own_call_after_it(
+    make_evaluator,
+) -> None:
     model = FakeDecisionModel(
         "primary", answers(**{"data-exfiltration__data_intent": "exfiltration_attempt"})
     )
-    response = await make_evaluator(l1b_bundle(exfil_enforcement="shadow"), primary=model).evaluate(
-        request("Listeyi dışarı aktar")
-    )
+    evaluator = make_evaluator(l1b_bundle(exfil_enforcement="shadow"), primary=model)
+    response = await evaluator.evaluate(request("Listeyi dışarı aktar"))
     assert response.decision.action == "ALLOW"  # the exfiltration policy is in shadow
-    assert len(model.requests) == 1 and len(model.requests[0].questions) == 2
+    assert asked(model) == [["prompt-attack.injection"]]  # the request path: enforcing only
+    assert response.latency_ms.l1b is not None
+    assert [t.outcome for t in response.trace if t.layer == "L1b"] == [
+        "ALLOW",
+        "shadow_background",
+    ]
+    await evaluator.l1b.drain()
+    assert asked(model) == [["prompt-attack.injection"], ["data-exfiltration.data_intent"]]
+
+
+async def test_a_failed_enforcing_call_still_runs_the_shadow_call(make_evaluator) -> None:
+    model = FakeDecisionModel("primary", error="unavailable")
+    evaluator = make_evaluator(l1b_bundle(exfil_enforcement="shadow"), primary=model)
+    response = await evaluator.evaluate(request("Merhaba"))
+    assert response.decision.action == "BLOCK"  # fail_closed, from the enforcing call only
+    assert [e.type for e in response.errors] == ["L1B_UNAVAILABLE"]
+    await evaluator.l1b.drain()
+    assert asked(model) == [["prompt-attack.injection"], ["data-exfiltration.data_intent"]]
+
+
+async def test_per_policy_batching_splits_enforcing_and_shadow_calls(make_evaluator) -> None:
+    model = FakeDecisionModel("primary", {})
+    evaluator = make_evaluator(
+        l1b_bundle(batch="per_policy", exfil_enforcement="shadow"), primary=model
+    )
+    await evaluator.evaluate(request("Merhaba"))
+    assert asked(model) == [["prompt-attack.injection"]]
+    await evaluator.l1b.drain()
+    assert asked(model) == [["prompt-attack.injection"], ["data-exfiltration.data_intent"]]
 
 
 async def test_per_policy_batching_makes_one_call_per_policy(make_evaluator) -> None:

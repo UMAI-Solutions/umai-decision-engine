@@ -3,14 +3,16 @@
 - Enforcing policies are decided synchronously within the runtime budget; a provider failure
   tries ``l1b.fallback_provider`` when the budget allows, else the bundle's failure policy
   applies to the L1b part (docs/architecture/decision-merge-and-failure.md).
-- Shadow policies never change the decision. With enforcing policies they ride on the same
-  call; without any, they run in the background after the decision is returned, so they add
-  no latency. Their outcomes are logged (ids, actions, probabilities; never content).
+- Shadow policies never change the decision. They always run in their own call, in the
+  background after the enforcing call (if any), so they add no latency and the request path
+  asks only the enforcing questions (ADR-0040 amendment 2026-10-30). Their outcomes are logged
+  (ids, actions, probabilities; never content).
 - ``l1b.batch``: ``all`` sends every applicable question in one call; ``per_policy`` sends
   one call per policy, in parallel.
 - Every finished call (enforcing or shadow, decided or failed) is handed to ``report`` as an
-  :class:`L1bReport`: per-policy outcomes, calls and tokens, for the records (ADR-0041). The
-  stage itself never writes records.
+  :class:`L1bReport` with its per-policy outcomes, for the records (ADR-0041). The last call of
+  an evaluation (the shadow call when there is one) also carries the evaluation's calls and
+  tokens, so usage stays one record per meter and evaluation. The stage never writes records.
 """
 
 from __future__ import annotations
@@ -68,7 +70,8 @@ class L1bResult:
     review: bool = False
     review_reasons: list[str] = field(default_factory=list)
     shadow: bool = False  # at least one shadow policy applied
-    latency_ms: float | None = None
+    latency_ms: float | None = None  # the enforcing call's
+    background: asyncio.Task | None = None  # the shadow call, still running after the decision
 
 
 @dataclass
@@ -80,8 +83,10 @@ class CallStats:
 
 @dataclass(frozen=True)
 class L1bReport:
-    """One finished L1b call for the records: the policies asked, their outcomes (empty when
-    the call failed), calls and tokens. Ids, actions and counts only."""
+    """One finished L1b call for the records: the policies asked and their outcomes (empty when
+    the call failed). ``usage`` is the evaluation's calls and tokens, on its last report only
+    (``None`` on the enforcing call's when a shadow call follows). Ids, actions and counts
+    only."""
 
     request: EvaluationRequest
     bundle: PolicyBundle
@@ -90,7 +95,7 @@ class L1bReport:
     policies: list[DecisionPolicy]
     outcomes: list[PolicyOutcome]
     failed: str | None
-    stats: CallStats
+    usage: CallStats | None
     latency_ms: float | None
 
 
@@ -161,17 +166,49 @@ class L1bStage:
             return result
         judged = excerpt(parts, bundle.l1b.max_input_chars)
         known = facts(request, summary)
-        if not enforce:
-            self._spawn_shadow(bundle, request, shadow, judged, known, event_id, context)
+        stats = CallStats()  # the evaluation's calls; its last report carries them
+        if enforce:
+            await self._enforce(
+                result,
+                bundle,
+                request,
+                enforce,
+                judged,
+                known,
+                remaining_s=remaining_s,
+                event_id=event_id,
+                context=context,
+                stats=stats,
+                last=not shadow,
+            )
+        if shadow:  # after the enforcing call, so it never competes with it
+            result.background = self._spawn_shadow(
+                bundle, request, shadow, judged, known, event_id, context, stats
+            )
             result.trace.append(
                 TraceEntry(layer=Layer.L1B, outcome="shadow_background", latency_ms=0.0)
             )
-            return result
+        return result
+
+    async def _enforce(
+        self,
+        result: L1bResult,
+        bundle: PolicyBundle,
+        request: EvaluationRequest,
+        policies: list[DecisionPolicy],
+        judged: list[ExcerptMessage],
+        known: dict[str, object],
+        *,
+        remaining_s: float,
+        event_id: str,
+        context: RecordContext | None,
+        stats: CallStats,
+        last: bool,
+    ) -> None:
+        """The enforcing policies, on the request path: decides ``result`` or marks it failed."""
 
         started = time.perf_counter()
         timeout_s = bundle.l1b.timeout_ms / 1000
-        stats = CallStats()
-        asked = enforce + shadow
 
         def report(outcomes: list[PolicyOutcome], failed: str | None) -> None:
             self._report(
@@ -180,10 +217,10 @@ class L1bStage:
                     bundle=bundle,
                     event_id=event_id,
                     context=context,
-                    policies=asked,
+                    policies=policies,
                     outcomes=outcomes,
                     failed=failed,
-                    stats=stats,
+                    usage=stats if last else None,
                     latency_ms=result.latency_ms,
                 )
             )
@@ -193,18 +230,18 @@ class L1bStage:
                 result, bundle, request, "timeout", "no runtime budget left for L1b", started
             )
             report([], "timeout")
-            return result
+            return
         try:
             answers = await self._answers(
-                bundle, request.request_id, asked, judged, known, timeout_s, started, stats
+                bundle, request.request_id, policies, judged, known, timeout_s, started, stats
             )
         except DecisionModelError as exc:
             self._failed(result, bundle, request, exc.kind, str(exc), started)
             report([], exc.kind)
-            return result
+            return
 
-        outcomes = [decide(p, answers) for p in asked]
-        self._apply(result, [o for o in outcomes if not o.shadow])
+        outcomes = [decide(p, answers) for p in policies]
+        self._apply(result, outcomes)
         result.latency_ms = round((time.perf_counter() - started) * 1000, 3)
         report(outcomes, None)
         result.trace.append(
@@ -215,7 +252,6 @@ class L1bStage:
             )
         )
         self._log(request, event_id, bundle, outcomes, result.latency_ms, review=result.review)
-        return result
 
     # ------------------------------------------------------------------ calls
 
@@ -374,11 +410,15 @@ class L1bStage:
         judged: list[ExcerptMessage],
         known: dict[str, object],
         event_id: str,
-        context: RecordContext | None = None,
-    ) -> None:
+        context: RecordContext | None,
+        stats: CallStats,
+    ) -> asyncio.Task:
+        """The shadow policies in their own call, after the decision. ``stats`` already holds
+        the enforcing call's counts, if there was one: this call is the evaluation's last, so its
+        report carries the evaluation's usage."""
+
         async def go() -> None:
             started = time.perf_counter()
-            stats = CallStats()
 
             def report(outcomes: list[PolicyOutcome], failed: str | None) -> None:
                 self._report(
@@ -390,7 +430,7 @@ class L1bStage:
                         policies=policies,
                         outcomes=outcomes,
                         failed=failed,
-                        stats=stats,
+                        usage=stats,
                         latency_ms=round((time.perf_counter() - started) * 1000, 3),
                     )
                 )
@@ -425,6 +465,7 @@ class L1bStage:
         task = asyncio.create_task(go())
         self._background.add(task)
         task.add_done_callback(self._background.discard)
+        return task
 
     def _log(
         self,

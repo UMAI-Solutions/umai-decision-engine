@@ -187,8 +187,11 @@ l1b:
   changes nothing else: the first decision opens its own connection. Measured with the live
   suite `l1-cold-start`.
 - **Shadow policies** (`enforcement: shadow`) are evaluated, logged and recorded as L1b
-  outcome records (policy, would-be action, probability; ADR-0041) but never decide. When no applicable policy enforces, the call runs
-  after the decision is returned, so it adds no latency. Every converted policy starts here.
+  outcome records (policy, would-be action, probability; ADR-0041) but never decide. They
+  always run in their own call, in the background after the enforcing call (if any), so they
+  add no latency and the request path asks only the enforcing questions (ADR-0040 amendment
+  2026-10-30). An evaluation with both kinds makes two provider calls; its `l1b_calls` usage
+  counts both, written once when the shadow call finishes. Every converted policy starts here.
 - **Shadow providers** (`l1b.shadow_providers`, planned) will be called without awaiting to
   compare candidates on the same traffic.
 - **Calibration:** per-question-type temperature fitted on our labelled data is applied

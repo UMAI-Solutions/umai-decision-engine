@@ -7,7 +7,7 @@ python -m evals.run --suite gateway-latency [--tag NAME]
 python -m evals.run --suite pi-tr [--split dev|test|all] --detector heuristic[,<model>]
                                       [--model-dir DIR] [--threshold T]
 python -m evals.run --suite masking-survival --model gpt-4.1-mini[,other] [--tag NAME]  # live
-python -m evals.run --suite l1-latency [--limit 40] [--base-url URL] [--region-note TEXT]  # live
+python -m evals.run --suite l1-latency [--limit 40] [--modes all,split] [--region-note TEXT]  # live
 python -m evals.run --suite l1-cold-start [--processes 6] [--gap-s 8] [--region-note TEXT]  # live
 
 Writes evals/reports/<date>-<suite>-<tag>/summary.md (committed) and results.jsonl (local).

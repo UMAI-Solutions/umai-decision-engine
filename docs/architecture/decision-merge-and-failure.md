@@ -85,7 +85,7 @@ not tried, if its timeout exceeds the remaining budget; the failure rule applies
 | L1b answer outside declared options | treated as provider error | fixed |
 | L1b refusal on a question | not an error: the question has no answer; `decide` rules using it do not match; event is marked for review | fixed |
 | L1b provider not configured | as a provider error (`L1B_UNAVAILABLE`), never an allow | fixed |
-| Shadow policy (any outcome or failure) | logged and recorded (L1b outcome record, ADR-0041); never changes the decision or adds latency when no policy enforces | bundle (`enforcement`) |
+| Shadow policy (any outcome or failure) | logged and recorded (L1b outcome record, ADR-0041); never changes the decision or adds latency: always its own call, after the decision (ADR-0040 amendment 2026-10-30), also when the enforcing call failed | bundle (`enforcement`) |
 | `flags.allow_model_calls = false` | L1b skipped; `final = floor`; `degraded: true` if an L1b policy applied | request |
 | Record emit failure (store down, queue full, unknown tenant) | decision unaffected; a failed batch is retried with backoff; when the queue is full a record is dropped and counted by reason, `records.stats` logged (ADR-0042) | `UMAI_DE_RECORDS_*` |
 
