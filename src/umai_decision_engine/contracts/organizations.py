@@ -34,7 +34,7 @@ class Role(StrEnum):
 
 
 Region = Literal["eu", "us", "sh"]
-Edition = Literal["community", "enterprise"]
+Edition = Literal["community", "pro", "enterprise"]  # pro: paid monthly (organizations 0.4)
 OrganizationStatus = Literal["provisioning", "active", "suspended", "deleting"]
 
 

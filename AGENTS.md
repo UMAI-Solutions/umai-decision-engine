@@ -185,6 +185,12 @@ operator overrides (`PUT /v1/tenants/{id}/plan`, migration 0008), into its signe
 (credentials 0.7); the engine API and the gateway count requests per tenant and month in memory
 from the usage ledger (`tenancy/quota.py`, `events/ledger.py`) and answer 429 `quota_exceeded`
 (evaluation API 0.13, gateway API 0.13); `GET /v1/entitlements` shows plan and count.
+Billing (2026-10-30, ADR-0044, contract billing 0.1): the policy service sells plans with a
+`billing` block (entitlements 0.2, edition `pro`) through iyzico subscriptions (`billing/`:
+async client with `IYZWSv2` signing, the state machine, reconciliation, `billing.cli sync`);
+billing details, hosted checkout confirmed by token, plan change, cancel at period end, 14-day
+grace with retries (`/v1/billing…`), signed webhooks on the public `/hooks/iyzico`; migration 0009.
+Tested against a fake iyzico; the sandbox run waits for keys.
 Tenants are organizations created in the console; API keys, bundles and HMAC keys are per tenant.
 The console signs people in with OIDC (Auth0 development tenant, `umai-control-center`, locally
 since 2026-10-18 and on `umai-beta` since 2026-10-19).
@@ -201,6 +207,7 @@ since 2026-10-18 and on `umai-beta` since 2026-10-19).
 | Console structure, applications, how the AI gateway fits | [`docs/architecture/console-information-architecture.md`](docs/architecture/console-information-architecture.md), ADR-0039 |
 | Sign-in, onboarding, organizations, invitations, login branding | [`docs/architecture/sign-in-and-onboarding.md`](docs/architecture/sign-in-and-onboarding.md), ADR-0033, ADR-0024 |
 | UMAI secure gateway, guardrail hooks in other gateways | [`docs/architecture/ai-gateway.md`](docs/architecture/ai-gateway.md), [`docs/contracts/gateway-api.md`](docs/contracts/gateway-api.md), ADR-0034 to ADR-0036, [`docs/reference/ai-gateways.md`](docs/reference/ai-gateways.md) |
+| Billing, paid plans, iyzico | [`docs/contracts/billing.md`](docs/contracts/billing.md), ADR-0044, [`docs/reference/iyzico-subscriptions.md`](docs/reference/iyzico-subscriptions.md) |
 | SaaS vs self-hosted, editions, quotas, tenancy | [`docs/architecture/deployment-and-editions.md`](docs/architecture/deployment-and-editions.md), ADR-0018, ADR-0019 |
 | Policy bundles, loading, hot reload | [`docs/contracts/policy-bundle.md`](docs/contracts/policy-bundle.md), [`docs/architecture/policy-lifecycle.md`](docs/architecture/policy-lifecycle.md) |
 | Change a policy, write golden cases | [`docs/workflow/policy-authoring.md`](docs/workflow/policy-authoring.md), [`docs/contracts/policy-tests.md`](docs/contracts/policy-tests.md) |

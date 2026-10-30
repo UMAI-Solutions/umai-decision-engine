@@ -52,6 +52,15 @@
 		}
 	}
 
+	# iyzico's subscription notifications (ADR-0044 D5): the one path of the policy service that is
+	# reachable from outside. No token: each notification carries an X-IYZ-SIGNATURE-V3 the policy
+	# service verifies. Everything else of the policy service stays internal.
+	@hooks path /hooks/iyzico
+	handle @hooks {
+		header Cache-Control "no-store"
+		reverse_proxy policy:9200
+	}
+
 	@engine path /v1/* /healthz /readyz
 	handle @engine {
 		header Cache-Control "no-store"

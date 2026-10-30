@@ -9,15 +9,17 @@ import asyncio
 import base64
 import contextlib
 import hmac
+import json
 import logging
 import re
 import uuid
 from collections import defaultdict
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any, Literal
 
+import httpx
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, ValidationError
@@ -30,6 +32,14 @@ from umai_decision_engine.applications import (
     write_application_file,
 )
 from umai_decision_engine.applications import problem as application_problem
+from umai_decision_engine.billing.iyzico import IyzicoClient
+from umai_decision_engine.billing.service import BillingError, BillingService
+from umai_decision_engine.contracts.billing import (
+    BillingAccount,
+    CheckoutCompletion,
+    CheckoutRequest,
+    PlanChange,
+)
 from umai_decision_engine.contracts.common import Action as DecisionAction
 from umai_decision_engine.contracts.common import Phase
 from umai_decision_engine.contracts.credentials import KeyEnv, Scope
@@ -56,6 +66,7 @@ from umai_decision_engine.control_plane.authz import (
     authorize,
     check_tenant,
 )
+from umai_decision_engine.control_plane.authz import allowed as _allowed
 from umai_decision_engine.control_plane.keys import KeyPublisher, KeyService
 from umai_decision_engine.control_plane.organizations import (
     DISPOSABLE_EMAIL_DOMAINS,
@@ -433,6 +444,121 @@ async def get_entitlements(
     _, start, end = month_bounds(None)
     used = await request.app.state.records.requests_used(tenant, start, end)
     return _entitlements_view(request, tenant, used).model_dump(mode="json")
+
+
+# ------------------------------------------------------------------ billing (ADR-0044)
+
+
+def _billing(request: Request) -> BillingService:
+    return request.app.state.billing
+
+
+def _can_manage_billing(request: Request, actor: Actor) -> bool:
+    """What ``authorize(BILLING_MANAGE)`` would answer: a person with the role (without the
+    rbac entitlement an admin holds the billing role's permissions, ADR-0029 §2), or the
+    operator where assertions are optional (single-operator installs)."""
+
+    if actor.kind == "operator":
+        return request.app.state.settings.actor_assertion == "optional"
+    return _allowed(Action.BILLING_MANAGE, actor.roles, rbac=False)
+
+
+@router.get("/billing")
+async def get_billing(
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.BILLING_READ],
+) -> dict[str, Any]:
+    """The tenant's plan, subscription, billing details and the plans on sale (billing 0.1)."""
+
+    view = await _billing(request).view(tenant, can_manage=_can_manage_billing(request, actor))
+    return view.model_dump(mode="json")
+
+
+@router.put("/billing/account")
+async def put_billing_account(
+    body: BillingAccount,
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.BILLING_MANAGE],
+) -> dict[str, Any]:
+    await _billing(request).save_account(tenant, body, actor.label)
+    view = await _billing(request).view(tenant, can_manage=True)
+    return view.model_dump(mode="json")
+
+
+@router.post("/billing/checkout")
+async def start_checkout(
+    body: CheckoutRequest,
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.BILLING_MANAGE],
+) -> dict[str, Any]:
+    """Opens iyzico's hosted form for a paid plan; card data never reaches UMAI (D2)."""
+
+    started = await _billing(request).start_checkout(tenant, body.edition, actor.label)
+    return started.model_dump(mode="json")
+
+
+@router.post("/billing/checkouts/{checkout_id}/complete")
+async def complete_checkout(
+    checkout_id: str,
+    body: CheckoutCompletion,
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.BILLING_COMPLETE],
+) -> dict[str, Any]:
+    """The console's public return route, as operator: confirms the form by its token."""
+
+    result = await _billing(request).complete_checkout(tenant, checkout_id[:64], body.token)
+    return result.model_dump(mode="json")
+
+
+@router.post("/billing/plan")
+async def change_billing_plan(
+    body: PlanChange,
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.BILLING_MANAGE],
+) -> dict[str, Any]:
+    await _billing(request).change_plan(tenant, body.edition, actor.label)
+    view = await _billing(request).view(tenant, can_manage=True)
+    return view.model_dump(mode="json")
+
+
+@router.post("/billing/cancel")
+async def cancel_billing(
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.BILLING_MANAGE],
+) -> dict[str, Any]:
+    await _billing(request).cancel(tenant, actor.label)
+    view = await _billing(request).view(tenant, can_manage=True)
+    return view.model_dump(mode="json")
+
+
+hooks = APIRouter(prefix="/hooks")  # public: no bearer token; each hook proves itself
+
+
+@hooks.post("/iyzico")
+async def iyzico_webhook(request: Request) -> dict[str, Any]:
+    """iyzico's subscription notifications (D5): signature, dedupe, then re-read. The body is
+    references only and is never logged."""
+
+    raw = await request.body()
+    if len(raw) > 8_192:
+        raise HTTPException(413, {"error": "too_large", "detail": "notification too large"})
+    try:
+        payload = json.loads(raw)
+    except ValueError:
+        raise HTTPException(400, {"error": "invalid_json", "detail": "not JSON"}) from None
+    if not isinstance(payload, dict):
+        raise HTTPException(400, {"error": "invalid_json", "detail": "not an object"})
+    outcome = await _billing(request).handle_webhook(
+        payload, request.headers.get("x-iyz-signature-v3", "")
+    )
+    log.info("billing.webhook outcome=%s type=%s", outcome, str(payload.get("iyziEventType"))[:40])
+    return {"received": True}
 
 
 # ------------------------------------------------------------------ tenants and API keys
@@ -1056,7 +1182,11 @@ async def accept_invitation(
 
 
 def create_app(
-    settings: Settings | None = None, *, detector: EntityDetector | None = None
+    settings: Settings | None = None,
+    *,
+    detector: EntityDetector | None = None,
+    billing_transport: httpx.AsyncBaseTransport | None = None,  # tests: a fake iyzico
+    billing_clock: Callable[[], datetime] | None = None,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -1133,6 +1263,38 @@ def create_app(
             ),
         )
         app.state.records = RecordsReader(db)
+        # Billing (ADR-0044): iyzico when configured; plans on offer checked against it.
+        client = None
+        if cfg.billing_provider == "iyzico":
+            if not (cfg.iyzico_api_key and cfg.iyzico_secret_key and cfg.iyzico_merchant_id):
+                raise RuntimeError(
+                    "UMAI_DE_BILLING_PROVIDER=iyzico needs UMAI_DE_IYZICO_API_KEY, "
+                    "UMAI_DE_IYZICO_SECRET_KEY and UMAI_DE_IYZICO_MERCHANT_ID"
+                )
+            client = IyzicoClient(
+                cfg.iyzico_base_url,
+                cfg.iyzico_api_key.get_secret_value(),
+                cfg.iyzico_secret_key.get_secret_value(),
+                timeout_s=cfg.iyzico_timeout_s,
+                transport=billing_transport,
+            )
+        app.state.billing = BillingService(
+            db,
+            tenants,
+            app.state.keys,
+            client=client,
+            merchant_id=cfg.iyzico_merchant_id,
+            secret_key=cfg.iyzico_secret_key.get_secret_value() if cfg.iyzico_secret_key else None,
+            return_url=cfg.billing_return_url,
+            grace_days=cfg.billing_grace_days,
+            retry_days=cfg.billing_retry_days,
+            plan_refs=cfg.billing_plan_refs,
+            **({"clock": billing_clock} if billing_clock else {}),
+        )
+        await app.state.billing.verify_plans()
+        reconcile = None
+        if client is not None and cfg.billing_reconcile_interval_s > 0:
+            reconcile = asyncio.create_task(app.state.billing.run(cfg.billing_reconcile_interval_s))
         # Retention (ADR-0041 §5) with the owner role: the application role cannot delete records.
         retention = None
         if cfg.records_retention_interval_s > 0:
@@ -1148,6 +1310,12 @@ def create_app(
         try:
             yield
         finally:
+            if reconcile is not None:
+                reconcile.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await reconcile
+            if client is not None:
+                await client.aclose()
             if retention is not None:
                 retention.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
@@ -1166,6 +1334,12 @@ def create_app(
             body["details"] = exc.details
         return JSONResponse(body, status_code=exc.status)
 
+    @app.exception_handler(BillingError)
+    async def _billing_error(_request: Request, exc: BillingError) -> JSONResponse:
+        return JSONResponse(
+            {"detail": {"error": exc.code, "detail": exc.detail}}, status_code=exc.status
+        )
+
     @app.exception_handler(OrganizationError)
     async def _organization_error(_request: Request, exc: OrganizationError) -> JSONResponse:
         return JSONResponse(
@@ -1177,6 +1351,7 @@ def create_app(
         return {"status": "ok"}
 
     app.include_router(router)
+    app.include_router(hooks)
     return app
 
 

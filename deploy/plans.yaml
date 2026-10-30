@@ -1,12 +1,18 @@
-# Plans (contract entitlements 0.1, ADR-0043, ADR-0018): limits per edition. Data, not code: a
-# commercial change edits this file and restarts the policy service, which rewrites every
+# Plans (contract entitlements 0.2, ADR-0043, ADR-0044, ADR-0018): limits per edition. Data, not
+# code: a commercial change edits this file and restarts the policy service, which rewrites every
 # tenant's snapshot. Null: counted, never refused (requests) or the deployment's cap (size).
 # Requests: admitted POST /v1/evaluate calls plus AI Gateway calls, per calendar month (UTC).
-contract_version: "0.1"
+# A plan with a `billing` block (price per month, VAT included) can be bought in the console; Pro
+# gets its block once the product owner sets the price (P1); its limits are the proposal.
+contract_version: "0.2"
 plans:
   community:
     monthly_requests: 10000
     monthly_test_requests: 1000
+    max_input_chars: 32000
+  pro:
+    monthly_requests: 100000
+    monthly_test_requests: 10000
     max_input_chars: 32000
   enterprise:
     monthly_requests: null

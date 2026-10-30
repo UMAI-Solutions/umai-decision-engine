@@ -179,7 +179,7 @@ even while SQLite is in use, so the Postgres migration is a move, not a redesign
 | P1 | Cloud provider for UMAI Cloud | — | **Decided: Azure** (product-owner constraint recorded in the [Azure brief](azure-brief.md) and ADR-0031; the earlier AWS recommendation is void) | — |
 | P2 | EU region pair | West Europe + North Europe · Sweden Central + read replica in North Europe | **West Europe primary, North Europe DR**; the Sweden Central fallback only if zone-redundant HA is still blocked at provisioning (ADR-0031 §1); US later East US 2 ↔ Central US; Türkiye stays self-hosted (Q21) | S0 IaC |
 | P3 | SaaS identity service | — | **Decided 2026-10-18: Auth0** for UMAI Cloud, Keycloak for self-hosted (ADR-0024 §4, A10); Auth0 public cloud EU or Private Cloud on Azure is Q35. Entra External ID evaluated and rejected: no organizations, no self-service SSO, no inbound SCIM | S0 login (Q35) |
-| P4 | Billing provider | Stripe · Lago · Metronome | **Stripe** for cloud, none for self-hosted, Lago optional (ADR-0028) | S1 |
+| P4 | Billing provider | Stripe · Lago · Metronome · iyzico | **Decided 2026-10-30: iyzico** subscriptions for UMAI Cloud (ADR-0044); none for self-hosted | S1 |
 | P5 | Rate-limit and test-key defaults | Community 20 req/s per key; test keys 1,000/month | As proposed (ADR-0023 §7, ADR-0028 §2) | S0 |
 | P6 | Retention defaults | Audit 400 days; decisions 30 days Community, 30–400 Enterprise | As proposed (ADR-0030 §4) | S1 |
 | P7 | SOC 2 scope and timing | Security only · + Availability + Confidentiality; Type I before S2 | **Security + Availability + Confidentiality**, Type I before S2, Type II after 6 months | S1 program start |

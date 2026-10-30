@@ -1,10 +1,10 @@
 # Contract: entitlements (plans, tenant limits, quota read)
 
-**Version:** 0.1 · **Producer → consumer:** deployment configuration → policy service (plans
+**Version:** 0.2 · **Producer → consumer:** deployment configuration → policy service (plans
 file), policy service → engines (the `entitlements` block of the key-registry snapshot,
 [credentials](credentials.md) 0.7), policy service ↔ console (`GET /v1/entitlements`), operator
 → policy service (`PUT /v1/tenants/{id}/plan`) · **Decisions:**
-[ADR-0043](../adr/0043-plans-and-monthly-quotas.md), [ADR-0019](../adr/0019-editions-as-runtime-entitlements.md)
+[ADR-0043](../adr/0043-plans-and-monthly-quotas.md), [ADR-0044](../adr/0044-billing-with-iyzico-subscriptions.md), [ADR-0019](../adr/0019-editions-as-runtime-entitlements.md)
 
 A plan names limits; a tenant's **edition** picks its plan; an operator may override single
 limits per tenant. The policy service writes the tenant's effective limits into its signed
@@ -22,21 +22,39 @@ in code.
 ## Plans file
 
 YAML, path `UMAI_DE_PLANS_FILE`, read by the policy service at startup. One entry per edition
-(`community`, `enterprise`); an edition the file does not name has no limits. Without the file,
-no snapshot carries entitlements and nothing is refused for quota (self-hosted default).
+(`community`, `pro`, `enterprise`); an edition the file does not name has no limits. Without the
+file, no snapshot carries entitlements and nothing is refused for quota (self-hosted default).
+The repository's `deploy/plans.yaml` is the product's file:
 
 ```yaml
-contract_version: "0.1"
+contract_version: "0.2"
 plans:
   community:
     monthly_requests: 10000
     monthly_test_requests: 1000
+    max_input_chars: 32000
+  pro:
+    monthly_requests: 100000
+    monthly_test_requests: 10000
     max_input_chars: 32000
   enterprise:
     monthly_requests: null
     monthly_test_requests: null
     max_input_chars: null
 ```
+
+A plan with a **`billing`** block (0.2, [ADR-0044](../adr/0044-billing-with-iyzico-subscriptions.md))
+can be bought in the console ([billing](billing.md)); one without is assigned by an operator.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `billing.price` | decimal > 0, two places | Charged per interval, VAT included. The provider's plan must have the same price, currency and interval, or the plan is not offered (checked at startup) |
+| `billing.currency` | `TRY` (default), `USD`, `EUR` | iyzico: foreign currency only with non-Turkish cards |
+| `billing.interval` | `MONTHLY` | Monthly only, for now |
+
+For example `pro: {monthly_requests: 100000, …, billing: {price: "1499.00", currency: TRY}}` (an
+illustration, not a price). `deploy/plans.yaml` gives Pro a `billing` block once the product
+owner sets the price.
 
 ## Snapshot block — `TenantEntitlements`
 
@@ -64,7 +82,7 @@ the engine may be a few seconds ahead (ADR-0043 D4).
 
 ```json
 {
-  "contract_version": "0.1",
+  "contract_version": "0.2",
   "tenant_id": "smarttech",
   "edition": "community",
   "limits": {
@@ -96,5 +114,7 @@ published.
 
 ## Changelog
 
+- 0.2 (2026-10-30, ADR-0044): edition `pro`; a plan's `billing` block (price, currency, interval).
+  0.1 files are still read.
 - 0.1 (2026-10-30, ADR-0043): initial: limits, plans file, snapshot block, `GET /v1/entitlements`,
   `PUT /v1/tenants/{id}/plan`.

@@ -234,6 +234,26 @@ print(httpx.put("http://127.0.0.1:9200/v1/tenants/<tenant>/plan", headers=header
 EOF
 ```
 
+## 7c. Billing with iyzico (optional, ADR-0044)
+
+Needs plans (`UMAI_PLANS=true`, §7b) with a `billing` block for each paid edition. iyzico must
+have enabled subscriptions and the `X-IYZ-SIGNATURE-V3` webhook signature for the merchant
+(sandbox and live separately, entegrasyon@iyzico.com), and the live merchant must have no 3-D
+Secure obligation (subscriptions are NON3D). Then:
+
+1. Keys, never echoed: `read -rs K && printf %s "$K" | ssh … "sudo …/umai.sh set-secret UMAI_IYZICO_API_KEY"`,
+   the same for `UMAI_IYZICO_SECRET_KEY`.
+2. `config.env`: `UMAI_BILLING=iyzico`, `UMAI_IYZICO_MERCHANT_ID`, `UMAI_IYZICO_BASE_URL` (empty: sandbox).
+3. Create the product and plans once, inside the policy container:
+   `sudo docker exec umai-policy-1 python -m umai_decision_engine.billing.cli sync`; put the printed
+   `{"pro": "…"}` into `UMAI_BILLING_PLAN_REFS`, then `umai.sh up`. `… billing.cli check` compares.
+4. In iyzico's panel, set both notification URLs (merchant notifications and subscription
+   notifications) to `https://<hostname>/hooks/iyzico`.
+
+The policy service then offers each paid plan whose provider plan charges what the plans file
+says; the console's Billing page sells it. `/hooks/iyzico` is the only path of the policy service
+Caddy exposes.
+
 ## 8. What this deployment does not have
 
 Records (ADR-0041): the engine and the gateway write decision events and usage to the same

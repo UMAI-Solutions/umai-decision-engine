@@ -171,6 +171,45 @@ def _row(table: str, tenant_id: uuid.UUID, user_id: uuid.UUID | None = None) -> 
             "source": "api",
             "degraded": False,
         }
+    if table == "billing_accounts":
+        return {
+            **base,
+            "company_name": "Acme Teknoloji A.Ş.",
+            "tax_number": "1234567890",
+            "tax_office": "Kadıköy",
+            "contact_name": "Ayşe",
+            "contact_surname": "Demir",
+            "email": "billing@example.com",
+            "phone": "+905551112233",
+            "address": "Örnek Mah. 1",
+            "city": "İstanbul",
+            "country": "Turkey",
+            "updated_by": "person:test",
+        }
+    if table == "subscriptions":
+        ref = f"sub-{uuid.uuid4().hex[:8]}"
+        return {
+            **base,
+            "provider": "iyzico",
+            "parent_reference": ref,
+            "reference": ref,
+            "pricing_plan_reference": "plan-1",
+            "edition": "pro",
+            "status": "active",
+            "retry_count": 0,
+        }
+    if table == "billing_checkouts":
+        return {
+            **base,
+            "checkout_id": f"co-{uuid.uuid4().hex[:8]}",
+            "edition": "pro",
+            "pricing_plan_reference": "plan-1",
+            "status": "open",
+            "created_by": "person:test",
+            "expires_at": datetime(2099, 1, 1, tzinfo=UTC),
+        }
+    if table == "billing_events":
+        return {**base, "kind": "checkout_started", "occurred_at": datetime.now(UTC)}
     raise AssertionError(f"no row factory for {table}: add one when adding a tenant table")
 
 
@@ -256,7 +295,8 @@ async def test_records_are_append_only_for_the_application_role(pg, two_tenants,
     model = TENANT_MODELS[table]
     async with tenant_session(pg, a.id) as session:
         await session.execute(insert(model).values(**_row(table, a.id)))
-    for statement in (update(model).values(event_id="ta-changed"), delete(model)):
+    changed = {"kind": "changed"} if table == "billing_events" else {"event_id": "ta-changed"}
+    for statement in (update(model).values(**changed), delete(model)):
         with pytest.raises(DBAPIError):  # permission denied: INSERT and SELECT only
             async with tenant_session(pg, a.id) as session:
                 await session.execute(statement)

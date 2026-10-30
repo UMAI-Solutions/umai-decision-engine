@@ -5,6 +5,7 @@ read. No limit value lives in code: plans come from the deployment's plans file.
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Literal
 
 from pydantic import Field
@@ -12,7 +13,7 @@ from pydantic import Field
 from umai_decision_engine.contracts.common import ContractModel
 from umai_decision_engine.contracts.organizations import Edition
 
-CONTRACT_VERSION = "0.1"
+CONTRACT_VERSION = "0.2"  # 0.2: edition pro, a plan's billing block (ADR-0044)
 
 QuotaEnvironment = Literal["live", "test"]
 
@@ -33,11 +34,29 @@ class Limits(ContractModel):
         return self.model_validate({**self.model_dump(), **overrides})
 
 
+class PlanBilling(ContractModel):
+    """What a paid plan costs (entitlements 0.2, ADR-0044): the amount charged per interval, VAT
+    included. iyzico cannot change a plan's price: a new price is a new provider plan."""
+
+    price: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
+    currency: Literal["TRY", "USD", "EUR"] = "TRY"
+    interval: Literal["MONTHLY"] = "MONTHLY"
+
+
+class Plan(Limits):
+    """A plan in the plans file: its limits and, for a paid plan, its price."""
+
+    billing: PlanBilling | None = None
+
+    def limits(self) -> Limits:
+        return Limits.model_validate(self.model_dump(exclude={"billing"}))
+
+
 class PlansFile(ContractModel):
     """``UMAI_DE_PLANS_FILE``: limits per edition; an edition it does not name has none."""
 
-    contract_version: Literal["0.1"] = CONTRACT_VERSION
-    plans: dict[Edition, Limits]
+    contract_version: Literal["0.1", "0.2"] = CONTRACT_VERSION
+    plans: dict[Edition, Plan]
 
 
 class TenantEntitlements(Limits):
@@ -54,7 +73,7 @@ class RequestsUsed(ContractModel):
 class EntitlementsView(ContractModel):
     """``GET /v1/entitlements``: the calling tenant's plan and this month's requests."""
 
-    contract_version: Literal["0.1"] = CONTRACT_VERSION
+    contract_version: Literal["0.1", "0.2"] = CONTRACT_VERSION
     tenant_id: str
     edition: Edition
     limits: Limits
