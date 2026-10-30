@@ -362,7 +362,7 @@ async def test_retention_runs_as_owner_under_forced_rls_and_keeps_recent_rows(
 @postgres
 @pytest.mark.asyncio
 async def test_summary_and_daily_usage_group_by_utc_day_on_postgres(pg, two_tenants) -> None:
-    from umai_decision_engine.control_plane.records import RecordsReader
+    from umai_decision_engine.control_plane.records import EventFilters, RecordsReader
     from umai_decision_engine.db.models import DecisionEventRow, UsageEventRow
 
     a, b = two_tenants
@@ -378,15 +378,14 @@ async def test_summary_and_daily_usage_group_by_utc_day_on_postgres(pg, two_tena
                 insert(UsageEventRow).values(**{**_row("usage_events", a.id), "occurred_at": at})
             )
     reader = RecordsReader(pg)
-    summary = await reader.summary(
-        a, since=datetime(2026, 10, 1, tzinfo=UTC), until=datetime(2026, 11, 2, tzinfo=UTC)
+    october = EventFilters(
+        since=datetime(2026, 10, 1, tzinfo=UTC), until=datetime(2026, 11, 2, tzinfo=UTC)
     )
+    summary = await reader.summary(a, october)
     assert [d.date for d in summary.by_day] == ["2026-10-30", "2026-10-31"]
     usage = await reader.usage(a, "2026-10")
     assert [d.date for d in usage.daily] == ["2026-10-30", "2026-10-31"]
-    other = await reader.summary(
-        b, since=datetime(2026, 10, 1, tzinfo=UTC), until=datetime(2026, 11, 2, tzinfo=UTC)
-    )
+    other = await reader.summary(b, october)
     assert other.total == 0
 
 

@@ -50,6 +50,7 @@ to the ADR or report. Mark questions that block a phase.
 | Q57 | A per-application *Monitor only* mode (watch a new application before enforcing), or monitor stays a guardrail property? | evaluation-api, gateway-api | product + eng | `architecture/console-information-architecture.md` §8, Q-P5 |
 | Q59 | L1b sends redacted content to OpenAI (US by default; EU processing needs OpenAI's approval, ZDR and +10 %). Which customers accept it, do we apply for EU processing, and which provider serves on-prem customers? | L1b enforcement in the cloud, on-prem L1b | product + legal | ADR-0040, `reference/openai-decisions-api.md` (Data handling); related Q4, Q51 |
 | Q60 | Actions of the nine converted L1b policies: which may BLOCK (proposed: prompt attacks, exfiltration attempts, cyber/fraud/influence misuse, toxic content, sectarian hostility, religious insult), which only warn or tag, and who signs off each threshold | L1b leaving shadow | product | ADR-0040 §8 table; thresholds from step 3 evals |
+| Q61 | Erasure of an organization: which records must survive it and for how long (billing account, subscriptions, payments under commercial and tax record-keeping duties), and what replaces deletion for them (anonymisation, restricted access)? Decision events and usage are already deleted by retention | Erasure (ADR-0025 §9), launch plan S1 item 7 | product + legal | ADR-0047 D5: export is built, erasure waits for this |
 
 ## Answered
 

@@ -29,6 +29,7 @@ EXPECTED = {
     Action.TENANT_CREATE: set(),
     Action.MEMBER_UPDATE: {OWN, A},
     Action.ORGANIZATION_READ: {OWN, A, E, P, V, B},
+    Action.ORGANIZATION_EXPORT: {OWN},  # every member's e-mail, the billing account (ADR-0047)
     Action.APPLICATION_READ: {OWN, A, E, P, V},
     Action.APPLICATION_WRITE: {OWN, A},
     Action.GATEWAY_READ: {OWN, A, E, P, V},
@@ -54,6 +55,7 @@ def test_admin_without_rbac_holds_every_non_owner_permission() -> None:
     assert allowed(Action.GUARDRAIL_ACTIVATE, admin, rbac=False)
     assert not allowed(Action.GUARDRAIL_PUBLISH, admin, rbac=True)
     assert not allowed(Action.TENANT_CREATE, admin, rbac=False)  # operator only
+    assert not allowed(Action.ORGANIZATION_EXPORT, admin, rbac=False)  # owner only
 
 
 def test_billing_and_viewer_cannot_change_policy() -> None:

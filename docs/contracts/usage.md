@@ -48,6 +48,9 @@ retried write never counts twice.
 
 **Retention:** 400 days (ADR-0041 §5, `UMAI_DE_RECORDS_USAGE_RETENTION_DAYS`). No content, ever.
 
+**Export:** a month of the ledger per UTC day and dimension as CSV, `GET /v1/usage/export.csv`, and
+the whole retained ledger in the organization archive: [data-export](data-export.md) §2–§3.
+
 ## Read API (policy service)
 
 `GET /v1/usage?month=YYYY-MM` (default: the current month, UTC) returns the month's ledger for

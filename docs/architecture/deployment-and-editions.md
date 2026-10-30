@@ -222,7 +222,7 @@ supplies controls and evidence:
 | Traceability | Bundle id, version, hash on every decision; engine version (planned) | partial |
 | Access control | Per-tenant keys, scopes, console RBAC | missing |
 | Audit trail | Audit events for configuration and access changes | missing |
-| Retention and erasure | Per-tenant retention settings and deletion for stores | missing |
+| Retention, export and erasure | Per-tenant retention settings, export and deletion for stores | partial: records retention (ADR-0041 §5) and export (ADR-0047: CSV, organization archive); erasure open (Q61) |
 | Encryption | See above | missing |
 | Sub-processors | Provider registry lists every external processor per region | missing |
 

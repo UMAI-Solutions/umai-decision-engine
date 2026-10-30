@@ -132,7 +132,7 @@ ASVS tally over the rows above (2026-10-18, after ADR-0023/0025 code): **holds 1
 | CC6.3 role-based access, least privilege, segregation of duties | Role matrix, four-eyes on production changes, access reviews | **missing** | no roles | ADR-0029 |
 | CC6.4 / CC6.5 physical access, disposal | Cloud provider's reports; data erasure procedure | n/a (company) | provider SOC reports to collect; erasure design exists | ADR-0025 §9, launch plan |
 | CC6.6 protection against external threats | TLS, ingress, rate limiting, WAF | **missing** | none deployed | launch plan S0 |
-| CC6.7 restrict transmission/removal of information | Content never leaves L0; exports controlled; encryption in transit | partial | ADR-0005 holds in code; no TLS, no export controls yet | ADR-0030, S0 |
+| CC6.7 restrict transmission/removal of information | Content never leaves L0; exports controlled; encryption in transit | partial | ADR-0005 holds in code; exports are permission-checked, capped and content-free (ADR-0047: CSV with the read permissions, organization archive owners only); no TLS yet | ADR-0030, ADR-0047, S0 |
 | CC6.8 malicious software prevention/detection | Dependency scanning, image scanning, signed images | **missing** | — | launch plan S0 |
 | CC7.1 detect configuration changes and vulnerabilities | Audit events, IaC drift detection, vulnerability scanning | partial | the change log names the actor of every publish and activation (readiness A1 green, 2026-10-19); audit events, drift detection and scanning are missing | ADR-0030, S0 |
 | CC7.2 monitor for anomalies | Metrics, alerts, usage anomalies | **missing** | no metrics pipeline | ADR-0028 §7, S0 |

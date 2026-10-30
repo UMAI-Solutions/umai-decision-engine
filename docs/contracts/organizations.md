@@ -1,6 +1,6 @@
 # Contract: organizations
 
-**Version:** 0.4 · **Producer → consumer:** policy service ↔ console (organizations, memberships,
+**Version:** 0.5 · **Producer → consumer:** policy service ↔ console (organizations, memberships,
 invitations, verified domains) · **Decisions:** [ADR-0033](../adr/0033-organizations-and-onboarding.md),
 [ADR-0029](../adr/0029-authorization-roles-and-four-eyes.md) · **Design:**
 [`architecture/sign-in-and-onboarding.md`](../architecture/sign-in-and-onboarding.md)
@@ -158,6 +158,7 @@ Implemented 2026-10-19 except the domain routes (stage 1).
 | `POST /v1/organizations` | `organization.create` (self-service, verified e-mail) | Create: tenant, owner membership, starter guardrail |
 | `GET /v1/organizations/{id}` | `organization.read` | Status, name, region, edition |
 | `PATCH /v1/organizations/{id}` | `organization.update` | Display name |
+| `GET /v1/organizations/{id}/export.zip` | `organization.export` (owners only) | The organization archive ([data-export](data-export.md) §3, 0.5) |
 | `GET /v1/organizations/{id}/members` | `member.read` | List |
 | `PATCH /v1/organizations/{id}/members/{user}` | `member.update` | Roles |
 | `DELETE /v1/organizations/{id}/members/{user}` | `member.remove` | Remove |
@@ -184,8 +185,10 @@ wrapper, like every policy-service refusal).
 | 409 | `last_owner` | the change would leave the organization without an active owner |
 | 409 | `invitation_used` | the invitation was already accepted |
 | 409 | `domain_taken` | another organization in the region holds the domain |
+| 409 | `export_running` | an archive of the organization is being built (0.5) |
 | 409 | `invitation_limit_reached` | the tenant has its maximum of pending invitations (default 20) |
 | 410 | `invitation_expired`, `invitation_revoked` | the invitation can no longer be accepted |
+| 422 | `export_too_large` | the organization holds more records than one archive carries (0.5; [data-export](data-export.md) §4) |
 | 422 | `disposable_email_domain` | creating an organization from a disposable address |
 | 422 | `personal_domain` | verifying a personal-mail domain |
 | 422 | `region_unavailable` | `region` is not this stack's region |
@@ -195,6 +198,8 @@ wrapper, like every policy-service refusal).
 
 ## Changelog
 
+- 0.5 (2026-10-30, ADR-0047): `GET /v1/organizations/{id}/export.zip`, owners only; errors
+  `export_running`, `export_too_large`.
 - 0.4 (2026-10-30, ADR-0044): edition `pro`.
 - 0.3 (2026-10-20, review fixes): error bodies documented as they are sent (`{"detail": {…}}`);
   `email_invalid`; creation is one transaction (limit, owner membership, terms) and records the
