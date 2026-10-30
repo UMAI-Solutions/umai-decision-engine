@@ -68,6 +68,9 @@ class Action(StrEnum):
     BILLING_READ = "billing.read"
     BILLING_MANAGE = "billing.manage"
     BILLING_COMPLETE = "billing.complete"  # the console's public return route: operator only
+    # webhooks (ADR-0048): see endpoints and the delivery log; add, change, test, delete
+    WEBHOOK_READ = "webhook.read"
+    WEBHOOK_MANAGE = "webhook.manage"
 
 
 @dataclass(frozen=True)
@@ -130,6 +133,8 @@ MATRIX: dict[Action, Rule] = {
     Action.BILLING_READ: _r(_O, _A, _B, operator=True),
     Action.BILLING_MANAGE: _r(_O, _B),  # a purchase names a person (ADR-0023 §1)
     Action.BILLING_COMPLETE: _r(operator=True),
+    Action.WEBHOOK_READ: _r(_O, _A, operator=True),
+    Action.WEBHOOK_MANAGE: _r(_O, _A),  # sends organization data outward: a person is named
 }
 
 _ADMIN_WITHOUT_RBAC = frozenset({_A, _E, _P, _V, _B})

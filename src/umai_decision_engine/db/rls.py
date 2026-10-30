@@ -23,6 +23,9 @@ TENANT_TABLES: tuple[str, ...] = (
     "subscriptions",
     "billing_checkouts",
     "billing_events",
+    "webhook_endpoints",  # ADR-0048
+    "webhook_messages",
+    "webhook_deliveries",
 )
 
 # Records (ADR-0041): append-only, the application role may INSERT and SELECT only (ADR-0030 §3).
@@ -31,6 +34,7 @@ APPEND_ONLY_TABLES: tuple[str, ...] = (
     "l1b_outcomes",
     "usage_events",
     "billing_events",  # ADR-0044: the billing history
+    "webhook_deliveries",  # ADR-0048: the delivery log
 )
 
 # Global tables: the explicit allowlist (ADR-0025 §2; users: ADR-0033 §2).

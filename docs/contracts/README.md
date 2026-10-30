@@ -20,6 +20,7 @@ in the same commit (skill `change-contract`).
 | [gateway-api](gateway-api.md) | 0.13 | caller ↔ UMAI gateway: OpenAI Chat Completions, Responses and embeddings surfaces, applications and providers, refusals, streaming modes (ADR-0034, ADR-0039) |
 | [entitlements](entitlements.md) | 0.2 | plans file → policy service → engines (tenant snapshot) and console: plans, tenant limits, monthly quota (ADR-0043) |
 | [billing](billing.md) | 0.1 | console ↔ policy service: plan, billing details, checkout, plan change, cancel; iyzico → policy service: webhook (ADR-0044) |
+| [webhooks](webhooks.md) | 0.1 | console ↔ policy service: endpoints, test, delivery log; policy service → the organization's receivers (generic, signed) and Slack incoming webhooks: blocked decisions per window, quota thresholds, billing changes (ADR-0048) |
 | [organizations](organizations.md) | 0.4 | policy service ↔ console: organizations, memberships, invitations, verified domains (ADR-0033) |
 
 ## Versioning rules

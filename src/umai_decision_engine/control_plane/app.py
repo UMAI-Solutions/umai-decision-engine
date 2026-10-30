@@ -58,6 +58,11 @@ from umai_decision_engine.contracts.organizations import (
     OrganizationCreate,
     OrganizationUpdate,
 )
+from umai_decision_engine.contracts.webhooks import (
+    EndpointCreate,
+    EndpointTestResult,
+    EndpointUpdate,
+)
 from umai_decision_engine.control_plane.actors import load_public_key
 from umai_decision_engine.control_plane.authz import (
     Action,
@@ -77,6 +82,7 @@ from umai_decision_engine.control_plane.plans import Plans
 from umai_decision_engine.control_plane.records import BadCursor, RecordsReader, retention_loop
 from umai_decision_engine.control_plane.repository import GuardrailRepositories
 from umai_decision_engine.control_plane.service import PolicyService, ServiceError
+from umai_decision_engine.control_plane.webhooks import WebhookConfig, WebhookError, WebhookService
 from umai_decision_engine.db.migrate import upgrade
 from umai_decision_engine.db.organizations import (
     InvitationRepository,
@@ -97,6 +103,8 @@ from umai_decision_engine.l0.recognizers.catalog import SPECS_BY_ENTITY, TAG_BY_
 from umai_decision_engine.settings import Settings, get_settings
 from umai_decision_engine.telemetry.logging import configure_logging
 from umai_decision_engine.tenancy.quota import month_bounds
+from umai_decision_engine.webhooks.guard import GuardedTransport, Resolver, system_resolver
+from umai_decision_engine.webhooks.sender import WebhookSender
 
 log = logging.getLogger("umai.control_plane")
 
@@ -535,6 +543,113 @@ async def cancel_billing(
     await _billing(request).cancel(tenant, actor.label)
     view = await _billing(request).view(tenant, can_manage=True)
     return view.model_dump(mode="json")
+
+
+# ------------------------------------------------------------------ webhooks (ADR-0048)
+
+
+def _webhooks(request: Request) -> WebhookService:
+    return request.app.state.webhooks
+
+
+@router.get("/webhooks")
+async def get_webhooks(
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.WEBHOOK_READ],
+) -> dict[str, Any]:
+    """The organization's endpoints, URLs masked (webhooks 0.1)."""
+
+    return (await _webhooks(request).view(tenant)).model_dump(mode="json")
+
+
+@router.post("/webhooks/endpoints", status_code=201)
+async def create_webhook_endpoint(
+    body: EndpointCreate,
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.WEBHOOK_MANAGE],
+) -> dict[str, Any]:
+    """The signing secret is in this answer once (generic endpoints); it is never stored."""
+
+    created = await _webhooks(request).create(tenant, body, actor.label)
+    return created.model_dump(mode="json")
+
+
+@router.get("/webhooks/endpoints/{endpoint_id}")
+async def get_webhook_endpoint(
+    endpoint_id: str,
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.WEBHOOK_READ],
+) -> dict[str, Any]:
+    endpoint = await _webhooks(request).endpoint(tenant, endpoint_id[:64])
+    return {"endpoint": endpoint.model_dump(mode="json")}
+
+
+@router.patch("/webhooks/endpoints/{endpoint_id}")
+async def update_webhook_endpoint(
+    endpoint_id: str,
+    body: EndpointUpdate,
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.WEBHOOK_MANAGE],
+) -> dict[str, Any]:
+    endpoint = await _webhooks(request).update(tenant, endpoint_id[:64], body, actor.label)
+    return {"endpoint": endpoint.model_dump(mode="json")}
+
+
+@router.delete("/webhooks/endpoints/{endpoint_id}", status_code=204)
+async def delete_webhook_endpoint(
+    endpoint_id: str,
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.WEBHOOK_MANAGE],
+) -> None:
+    await _webhooks(request).delete(tenant, endpoint_id[:64], actor.label)
+
+
+@router.post("/webhooks/endpoints/{endpoint_id}/secret")
+async def rotate_webhook_secret(
+    endpoint_id: str,
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.WEBHOOK_MANAGE],
+) -> dict[str, Any]:
+    """A new signing secret, once; the previous one keeps signing for 24 hours."""
+
+    rotated = await _webhooks(request).rotate(tenant, endpoint_id[:64], actor.label)
+    return rotated.model_dump(mode="json")
+
+
+@router.post("/webhooks/endpoints/{endpoint_id}/test")
+async def test_webhook_endpoint(
+    endpoint_id: str,
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.WEBHOOK_MANAGE],
+) -> dict[str, Any]:
+    """Sends one ``webhook.test`` event now and answers with the attempt."""
+
+    delivery = await _webhooks(request).test(tenant, endpoint_id[:64], actor.label)
+    return EndpointTestResult(delivery=delivery).model_dump(mode="json")
+
+
+@router.get("/webhooks/deliveries")
+async def list_webhook_deliveries(
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.WEBHOOK_READ],
+    endpoint_id: str | None = Query(None, max_length=64),
+    limit: int = Query(50, ge=1, le=200),
+    cursor: str | None = Query(None, max_length=200),
+) -> dict[str, Any]:
+    """The delivery log, newest first: status codes and error codes, never answer bodies."""
+
+    page = await _webhooks(request).deliveries(
+        tenant, endpoint_id=endpoint_id, limit=limit, cursor=cursor
+    )
+    return page.model_dump(mode="json")
 
 
 hooks = APIRouter(prefix="/hooks")  # public: no bearer token; each hook proves itself
@@ -1187,6 +1302,9 @@ def create_app(
     detector: EntityDetector | None = None,
     billing_transport: httpx.AsyncBaseTransport | None = None,  # tests: a fake iyzico
     billing_clock: Callable[[], datetime] | None = None,
+    webhook_transport: httpx.AsyncBaseTransport | None = None,  # tests: a fake receiver
+    webhook_resolver: Resolver | None = None,  # tests: a fake DNS
+    webhook_clock: Callable[[], datetime] | None = None,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -1295,6 +1413,35 @@ def create_app(
         reconcile = None
         if client is not None and cfg.billing_reconcile_interval_s > 0:
             reconcile = asyncio.create_task(app.state.billing.run(cfg.billing_reconcile_interval_s))
+        # Webhooks (ADR-0048): a guarded sender and the worker, when the deployment has a key.
+        webhook_key = cfg.webhook_key()
+        resolver = webhook_resolver or system_resolver
+        sender = None
+        if webhook_key is not None:
+            sender = WebhookSender(
+                webhook_transport
+                or GuardedTransport(resolver, connect_timeout_s=cfg.webhooks_connect_timeout_s),
+                connect_timeout_s=cfg.webhooks_connect_timeout_s,
+                timeout_s=cfg.webhooks_timeout_s,
+            )
+        app.state.webhooks = WebhookService(
+            db,
+            tenants,
+            app.state.keys.plans,
+            master_key=webhook_key,
+            sender=sender,
+            config=WebhookConfig.from_settings(cfg),
+            resolver=resolver,
+            **({"clock": webhook_clock} if webhook_clock else {}),
+        )
+        log.info(
+            "control_plane.webhooks available=%s active_tenants=%d",
+            app.state.webhooks.available,
+            await app.state.webhooks.rebuild(),
+        )
+        webhook_worker = None
+        if sender is not None and cfg.webhooks_interval_s > 0:
+            webhook_worker = asyncio.create_task(app.state.webhooks.run(cfg.webhooks_interval_s))
         # Retention (ADR-0041 §5) with the owner role: the application role cannot delete records.
         retention = None
         if cfg.records_retention_interval_s > 0:
@@ -1305,17 +1452,21 @@ def create_app(
                     decision_days=cfg.records_decision_retention_days,
                     usage_days=cfg.records_usage_retention_days,
                     interval_s=cfg.records_retention_interval_s,
+                    webhook_days=cfg.webhooks_retention_days,
                 )
             )
         try:
             yield
         finally:
-            if reconcile is not None:
-                reconcile.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await reconcile
+            for task in (reconcile, webhook_worker):
+                if task is not None:
+                    task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await task
             if client is not None:
                 await client.aclose()
+            if sender is not None:
+                await sender.aclose()
             if retention is not None:
                 retention.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
@@ -1336,6 +1487,12 @@ def create_app(
 
     @app.exception_handler(BillingError)
     async def _billing_error(_request: Request, exc: BillingError) -> JSONResponse:
+        return JSONResponse(
+            {"detail": {"error": exc.code, "detail": exc.detail}}, status_code=exc.status
+        )
+
+    @app.exception_handler(WebhookError)
+    async def _webhook_error(_request: Request, exc: WebhookError) -> JSONResponse:
         return JSONResponse(
             {"detail": {"error": exc.code, "detail": exc.detail}}, status_code=exc.status
         )

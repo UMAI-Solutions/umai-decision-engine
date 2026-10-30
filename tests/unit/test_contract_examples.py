@@ -210,3 +210,19 @@ def test_entitlements_examples() -> None:
     shown = EntitlementsView.model_validate_json(view)
     assert shown.limits == parsed.plans["community"].limits()
     assert PlanUpdate.model_validate_json(update).override_values() == {"monthly_requests": 50_000}
+
+
+def test_webhooks_examples() -> None:
+    from umai_decision_engine.contracts.webhooks import (
+        DATA_MODELS,
+        DeliveryPage,
+        WebhookEvent,
+        WebhooksView,
+    )
+
+    blocked, quota, view, deliveries = _blocks("contracts/webhooks.md", "json")
+    for block in (blocked, quota):
+        event = WebhookEvent.model_validate_json(block)
+        DATA_MODELS[event.type].model_validate(event.data)
+    assert WebhooksView.model_validate_json(view).endpoints[0].signed is True
+    assert DeliveryPage.model_validate_json(deliveries).deliveries[0].error == "http_status"

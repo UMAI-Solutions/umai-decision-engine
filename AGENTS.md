@@ -191,6 +191,13 @@ async client with `IYZWSv2` signing, the state machine, reconciliation, `billing
 billing details, hosted checkout confirmed by token, plan change, cancel at period end, 14-day
 grace with retries (`/v1/billing…`), signed webhooks on the public `/hooks/iyzico`; migration 0009.
 Tested against a fake iyzico; the sandbox run waits for keys.
+Webhooks (2026-10-30, ADR-0048 Proposed, contract webhooks 0.1): organizations register HTTPS or
+Slack endpoints (`/v1/webhooks…`, `webhook.read` / `webhook.manage`); a worker in the policy service
+(`control_plane/webhooks.py`) reads the tenant's records and sends `decision.blocked` (one event per
+5-minute window), `quota.threshold` (80 %, 100 %) and `billing.*`, signed with `X-Umai-Signature`
+(secrets derived from `UMAI_DE_WEBHOOK_MASTER_KEY`, URLs encrypted at rest), through an SSRF guard
+that connects to the address it checked (`webhooks/`); retries 1 m–6 h, failing endpoints turned
+off; migration 0012 (`webhook_endpoints`, `webhook_messages`, append-only `webhook_deliveries`).
 Tenants are organizations created in the console; API keys, bundles and HMAC keys are per tenant.
 The console signs people in with OIDC (Auth0 development tenant, `umai-control-center`, locally
 since 2026-10-18 and on `umai-beta` since 2026-10-19).
@@ -207,6 +214,7 @@ since 2026-10-18 and on `umai-beta` since 2026-10-19).
 | Console structure, applications, how the AI gateway fits | [`docs/architecture/console-information-architecture.md`](docs/architecture/console-information-architecture.md), ADR-0039 |
 | Sign-in, onboarding, organizations, invitations, login branding | [`docs/architecture/sign-in-and-onboarding.md`](docs/architecture/sign-in-and-onboarding.md), ADR-0033, ADR-0024 |
 | UMAI secure gateway, guardrail hooks in other gateways | [`docs/architecture/ai-gateway.md`](docs/architecture/ai-gateway.md), [`docs/contracts/gateway-api.md`](docs/contracts/gateway-api.md), ADR-0034 to ADR-0036, [`docs/reference/ai-gateways.md`](docs/reference/ai-gateways.md) |
+| Webhooks, Slack, outbound calls to customer URLs (SSRF) | [`docs/contracts/webhooks.md`](docs/contracts/webhooks.md), ADR-0048, [`docs/reference/slack-incoming-webhooks.md`](docs/reference/slack-incoming-webhooks.md) |
 | Billing, paid plans, iyzico | [`docs/contracts/billing.md`](docs/contracts/billing.md), ADR-0044, [`docs/reference/iyzico-subscriptions.md`](docs/reference/iyzico-subscriptions.md) |
 | SaaS vs self-hosted, editions, quotas, tenancy | [`docs/architecture/deployment-and-editions.md`](docs/architecture/deployment-and-editions.md), ADR-0018, ADR-0019 |
 | Policy bundles, loading, hot reload | [`docs/contracts/policy-bundle.md`](docs/contracts/policy-bundle.md), [`docs/architecture/policy-lifecycle.md`](docs/architecture/policy-lifecycle.md) |

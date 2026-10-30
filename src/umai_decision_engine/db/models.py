@@ -403,3 +403,90 @@ class BillingLinkRow(Base):
         Uuid, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(UtcDateTime(), default=_now)
+
+
+# ------------------------------------------------------------------ webhooks (ADR-0048)
+
+
+class WebhookEndpointRow(Base):
+    """Tenant table (ADR-0048 §4): an organization's endpoint. The URL is stored AES-GCM-encrypted
+    (it can carry a credential; Slack's always does) and the signing secret is not stored at all:
+    it is derived from the deployment's master key and ``secret_version``."""
+
+    __tablename__ = "webhook_endpoints"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = _tenant_fk()
+    url_sealed: Mapped[str] = mapped_column(String(4096), nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)  # generic | slack
+    event_types: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    description: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    enabled_since: Mapped[datetime] = mapped_column(UtcDateTime(), nullable=False)
+    disabled_reason: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    disabled_at: Mapped[datetime | None] = mapped_column(UtcDateTime(), nullable=True)
+    secret_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    secret_rotated_at: Mapped[datetime | None] = mapped_column(UtcDateTime(), nullable=True)
+    consecutive_failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failing_since: Mapped[datetime | None] = mapped_column(UtcDateTime(), nullable=True)
+    last_success_at: Mapped[datetime | None] = mapped_column(UtcDateTime(), nullable=True)
+    last_failure_at: Mapped[datetime | None] = mapped_column(UtcDateTime(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime(), default=_now)
+    created_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime(), default=_now)
+
+
+class WebhookMessageRow(Base):
+    """Tenant table (ADR-0048 §3–§4): the outbox, one event for one endpoint, with its delivery
+    state. ``(tenant_id, endpoint_id, dedupe_key)`` is unique: an event read twice (after a restart)
+    is sent once. ``data`` is the event's contract ``data`` (ids, types, codes, counts)."""
+
+    __tablename__ = "webhook_messages"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "endpoint_id", "dedupe_key", name="uq_webhook_messages_key"),
+        Index("ix_webhook_messages_tenant_due", "tenant_id", "status", "next_attempt_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = _tenant_fk()
+    # No foreign key (like every reference between tenant tables here): referential checks
+    # bypass RLS; deleting an endpoint deletes its messages explicitly.
+    endpoint_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    event_id: Mapped[str] = mapped_column(String(40), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    dedupe_key: Mapped[str] = mapped_column(String(200), nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(UtcDateTime(), nullable=False)
+    data: Mapped[dict] = mapped_column(JSON, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False
+    )  # pending|delivered|failed|canceled
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(UtcDateTime(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime(), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime(), default=_now)
+
+
+class WebhookDeliveryRow(Base):
+    """Tenant table, append-only (ADR-0048 §4): one row per attempt. Status code, error code and
+    duration only: the receiver's answer body is never read or stored."""
+
+    __tablename__ = "webhook_deliveries"
+    __table_args__ = (
+        Index("ix_webhook_deliveries_tenant_attempted", "tenant_id", "attempted_at"),
+        Index("ix_webhook_deliveries_endpoint", "tenant_id", "endpoint_id", "attempted_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = _tenant_fk()
+    endpoint_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)  # no FK: outlives it
+    message_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    event_id: Mapped[str] = mapped_column(String(40), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False)
+    attempted_at: Mapped[datetime] = mapped_column(UtcDateTime(), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(16), nullable=False)  # delivered | failed
+    status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    error: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    duration_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(UtcDateTime(), nullable=True)
+    test: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

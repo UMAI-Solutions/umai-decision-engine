@@ -35,6 +35,8 @@ EXPECTED = {
     Action.GATEWAY_WRITE: {OWN, A},
     Action.DECISIONS_READ: {OWN, A, E, P, V},
     Action.USAGE_READ: {OWN, A, E, P, V, B},  # billing reads usage, not decisions (ADR-0029)
+    Action.WEBHOOK_READ: {OWN, A},  # ADR-0048
+    Action.WEBHOOK_MANAGE: {OWN, A},
 }
 
 
