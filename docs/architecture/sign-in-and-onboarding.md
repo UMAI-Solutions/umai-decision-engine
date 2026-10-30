@@ -166,7 +166,7 @@ identity service's page, styled by our tokens (§8); "console" means a page in
 | Entry | "Forgot password" on S3 |
 | States | Ask for the e-mail → **always** "If an account exists, we have sent a link" (no account enumeration) → E3 → set a new password (policy shown) → done → sign-in |
 | Errors | Link expired or used (request a new one); new password below policy; too many requests |
-| After | E4 "your password was changed" (later, S12); other sessions end once server-side sessions exist (ADR-0024 §2) |
+| After | E4 "your password was changed" (later, S12); the person can end their other console sessions (Sessions, "Sign out other devices"); ending them automatically after a password change comes with the identity mirror (ADR-0024 §2 amendment) |
 
 ### S5 MFA (hosted enrolment and challenge)
 
@@ -218,7 +218,8 @@ identity service's page, styled by our tokens (§8); "console" means a page in
 |---|---|
 | States | Sign-out button → console session cleared → logout at the identity service → "You are signed out" page in the person's language with "Sign in again" |
 | Errors | The identity service offers no logout endpoint: the console session still ends and the page says the identity-service session may still be active |
-| Later | "Sign out everywhere" and an administrator ending someone's sessions, once sessions are stored server-side (ADR-0024 §2) |
+| Since 2026-10-30 | Sign-out also ends the console session's record in the policy service; the user menu's **Sessions** lists the person's sessions (device, signed in, last active) and ends one or all others (ADR-0024 §2 amendment, contract console-sessions 0.1) |
+| Later | An administrator ending someone's sessions; ending the identity service's sessions together with the console's |
 
 ### S11 Error pages
 
