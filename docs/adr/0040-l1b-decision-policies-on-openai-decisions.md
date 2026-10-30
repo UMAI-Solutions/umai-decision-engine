@@ -214,3 +214,93 @@ deadline over the whole call, the first decisions reusing the connection opened 
 local server counting TCP connections), keep-alive from settings, the runtime warming before
 traffic. Live: [`l1-cold-start` on umai-beta](../../evals/reports/2026-10-26-l1-cold-start-beta-westeurope/summary.md)
 (six fresh processes per variant, before and after).
+
+## Amendment 2026-10-30: shadow policies in their own call
+
+**Context.** smarttech's guardrail v3 on umai-beta enforces two of its nine policies
+(`malicious-use`, `prompt-attack`, p ≥ 0.5) with `l1b.timeout_ms` 1 400, `batch: all` and
+`fail_closed`; the other seven are in shadow; the evaluation budget is 1 500 ms. Until now shadow
+policies rode on the enforcing call whenever a policy enforced (decision 4 sent them to the
+background only when none did), so every evaluation's request path asked all nine questions.
+Measured from the VM on 2026-10-30, before this change (200 calls, 40 synthetic Turkish prompts
+in five classes, warm connection):
+
+| Call shape | p50 ms | p95 ms | max ms | Input tokens |
+|---|---|---|---|---|
+| All nine policies in one call | 409 | 635 | 1 045 | ≈ 11 000 |
+| Only the two enforcing policies | 426 | 607 | 632 | ≈ 2 600 |
+| One call per policy, in parallel | 613 | — | — | — |
+
+The median is the same; the tail is not, and the tail is what meets the timeout. Earlier the same
+day two calls on beta took longer than the 1 400 ms `l1b.timeout_ms` (`L1B_TIMEOUT`), so
+`fail_closed` blocked them.
+
+**Decision.**
+
+1. **The request path asks only the enforcing policies.** Shadow policies always run in their
+   own call, in the background, started after the enforcing call has returned so the two never
+   compete; with their own `l1b.timeout_ms`, and also when the enforcing call failed or had no
+   budget left. `per_policy` batching applies to each group. Decision 4 becomes: shadow policies
+   never add latency, whether or not a policy enforces.
+2. **Records.** Each call writes its own L1b outcome records: the enforcing ones with the
+   decision, the shadow ones when their call finishes (ADR-0041). Usage stays one record per
+   meter and evaluation (`(tenant_id, event_id, meter)` is unique, so a second `l1b_calls` row
+   would be dropped as a duplicate): the evaluation's last L1b call, the shadow call when there
+   is one, writes `l1b_calls` and the token meters for both calls. The decision event's `l1b`
+   summary describes the enforcing call (error kind, latency). No contract shape changes.
+3. **Held evaluations.** A gateway stream's window re-check holds its records for the caller to
+   commit or drop (ADR-0041). Its hold now lasts until its shadow call has reported: before the
+   commit the shadow records join the held ones, after it they are written directly, and without
+   a commit they are dropped with the rest. Before, a late shadow call's records were dropped
+   even for the re-check that stopped the stream.
+
+**Alternatives.**
+
+| Option | Why not |
+|---|---|
+| Keep one call for both | The request path pays for nine questions to decide with two: four times the input tokens and a longer tail at the same median |
+| Start the shadow call together with the enforcing one | Two concurrent calls compete for the connection pool and the provider while the decision waits; the shadow call has no deadline that requires it |
+| One call per policy | Slower: p50 613 ms, each evaluation waits for the slowest call |
+| Separate usage meters for shadow calls (`l1b_shadow_calls`, …) | A contract change (usage 0.3) for every consumer; worth doing when the console shows shadow cost on its own, not needed to keep the totals right |
+| One usage record per call | Breaks the ledger's uniqueness: the second call's row is dropped as a duplicate |
+
+**Consequences.**
+
+- An evaluation with both kinds of policy makes two provider calls (`l1b_calls` 2 where it was
+  1) and sends the excerpt and context twice; requests per minute at the provider double for
+  those evaluations, input tokens grow about 1 % (measured below).
+- A shadow call can still be running when the next evaluation's enforcing call starts; under
+  load the provider sees more concurrent requests than before.
+- An evaluation's L1b usage is written when its shadow call finishes. A process that stops
+  before then loses that call's records, now including the evaluation's L1b usage; a graceful
+  shutdown waits for shadow calls before it flushes the records (`runtime`).
+
+**Validation.** Tests: the request path asks only the enforcing questions and the shadow call
+follows (also after a failed enforcing call and with `per_policy`); outcome records for both
+calls, the enforcing ones at the decision; one usage record per meter with both calls' counts
+and tokens; with no budget left only the shadow call is counted; a held evaluation's late shadow
+records are committed (shadow before and after the commit) or dropped, and its hold released.
+Live: [`l1-latency --modes all,split` on umai-beta](../../evals/reports/2026-10-30-l1-latency-split-beta-westeurope/summary.md)
+(from the VM, 2026-10-30, 200 `pi-tr` cases, smarttech v3, both shapes per case in alternating
+order, warm connection, client timeout 10 s to see the whole distribution). On the 178 cases
+where both kinds of policy apply (the other 22 are `TOOL_OUTPUT`, where only `prompt-attack`
+applies and both shapes send the same call):
+
+| Call | p50 ms | p95 ms | p99 ms | max ms | No answer within 10 s | Input tokens |
+|---|---|---|---|---|---|---|
+| Before: all nine policies in one call (request path) | 425 | 656 | 748 | 987 | 4 | 11 092 |
+| After: the two enforcing policies (request path) | 421 | 622 | 663 | 801 | 0 | 2 669 |
+| After: the seven shadow policies (background) | 506 | 683 | — | 1 093 | 0 | 8 544 |
+
+- **The stalls.** The four nine-question calls without an answer within 10 s came within about a
+  minute (cases 61–91), each right after the same prompt's enforcing and shadow calls had
+  answered in 281–503 and 554–669 ms. Asking those four prompts again 20 times in each order
+  (alone, and after an enforcing + shadow pair) gave no stall, at most 671 ms, so it was a
+  transient provider episode, not the prompts or the order. With 1 400 ms and `fail_closed`
+  each would have been a BLOCK. In this run the episode met only the nine-question call: four
+  events, a hint rather than proof that the smaller call is less exposed.
+- **Answers.** The same winning answer per question in both shapes: 1 588/1 588, enforcing
+  questions 370/370. Asking fewer questions in a call did not change the enforcing answers.
+- **Overlap.** 85 of 200 request-path calls started while the previous case's shadow call was
+  still running: p50 441 ms against 416 ms without, p95 614 against 622 ms.
+- **Tokens.** Both calls together 11 213 input tokens against 11 092 for the single call (+1 %).
