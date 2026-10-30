@@ -1,7 +1,7 @@
 """Records (ADR-0041): the decision event and the L1b outcome record (docs/contracts/
 tagged-action.md, version in ``CONTRACT_VERSION``) and the usage record (docs/contracts/usage.md,
-``USAGE_CONTRACT_VERSION``). Ids, types, counts, codes, actions, probabilities and latencies
-only: no content, not even redacted (ADR-0041 §2)."""
+``USAGE_CONTRACT_VERSION``), and their read API in the policy service. Ids, types, counts,
+codes, actions, probabilities and latencies only: no content, not even redacted (ADR-0041 §2)."""
 
 from __future__ import annotations
 
@@ -21,8 +21,8 @@ from umai_decision_engine.contracts.common import (
 from umai_decision_engine.contracts.entities import EntitySummary
 from umai_decision_engine.contracts.evaluation import Destination, Tag
 
-CONTRACT_VERSION = "0.3"  # tagged-action
-USAGE_CONTRACT_VERSION = "0.1"  # usage
+CONTRACT_VERSION = "0.4"  # tagged-action
+USAGE_CONTRACT_VERSION = "0.2"  # usage
 
 Source = Literal["api", "gateway"]
 Environment = Literal["live", "test"]
@@ -37,6 +37,9 @@ class RecordContext(ContractModel):
     environment: Environment | None = None
     application_id: str | None = None
     gateway_call_id: str | None = None
+    # False: the records are built but held on the evaluation for the caller to commit or drop
+    # (the window re-checks of a gateway stream, ADR-0041 §4). Never serialized.
+    record: bool = True
 
 
 class EventBundle(ContractModel):
@@ -101,7 +104,7 @@ class EventLatency(ContractModel):
 
 
 class DecisionEvent(ContractModel):
-    contract_version: Literal["0.3"] = CONTRACT_VERSION
+    contract_version: Literal["0.3", "0.4"] = CONTRACT_VERSION
     event_id: str = Field(min_length=1, max_length=64)
     request_id: str = Field(max_length=128)
     tenant_id: str
@@ -132,7 +135,7 @@ class L1bOutcomeRecord(ContractModel):
     """One L1b policy's outcome for one evaluation. A shadow outcome is written when its
     background call finishes, after the decision event (ADR-0041 §1)."""
 
-    contract_version: Literal["0.3"] = CONTRACT_VERSION
+    contract_version: Literal["0.3", "0.4"] = CONTRACT_VERSION
     event_id: str = Field(min_length=1, max_length=64)
     tenant_id: str
     occurred_at: datetime
@@ -154,11 +157,19 @@ class L1bOutcomeRecord(ContractModel):
     latency_ms: float | None = None
 
 
-Meter = Literal["evaluations", "l1b_calls", "l1b_input_tokens", "l1b_output_tokens"]
+Meter = Literal[
+    "evaluations",
+    "l1b_calls",
+    "l1b_input_tokens",
+    "l1b_output_tokens",
+    "gateway_calls",
+    "provider_input_tokens",
+    "provider_output_tokens",
+]
 
 
 class UsageRecord(ContractModel):
-    contract_version: Literal["0.1"] = USAGE_CONTRACT_VERSION
+    contract_version: Literal["0.1", "0.2"] = USAGE_CONTRACT_VERSION
     event_id: str = Field(min_length=1, max_length=64)
     tenant_id: str
     occurred_at: datetime
@@ -172,6 +183,45 @@ class UsageRecord(ContractModel):
     bundle_version: int | None = None
     decision: Action | None = None
     degraded: bool = False
+    provider: str | None = None  # gateway meters: the provider the call went to (0.2)
+    model: str | None = None  # gateway meters: the upstream model (0.2)
 
 
 Record = DecisionEvent | L1bOutcomeRecord | UsageRecord
+
+
+# ------------------------------------------------------------------ read API (policy service)
+
+
+class DecisionEventPage(ContractModel):
+    """``GET /v1/decision-events``: newest first; ``next_cursor`` continues the listing."""
+
+    events: list[DecisionEvent]
+    next_cursor: str | None = None
+
+
+class DecisionEventDetail(ContractModel):
+    """``GET /v1/decision-events/{event_id}``: the event and its L1b outcome records."""
+
+    event: DecisionEvent
+    l1b_outcomes: list[L1bOutcomeRecord] = Field(default_factory=list)
+
+
+class UsageGroup(ContractModel):
+    meter: Meter
+    source: Source
+    environment: Environment | None = None
+    application_id: str | None = None
+    quantity: int = Field(ge=0)
+
+
+class UsageSummary(ContractModel):
+    """``GET /v1/usage``: one calendar month (UTC) of the ledger."""
+
+    contract_version: Literal["0.2"] = USAGE_CONTRACT_VERSION
+    tenant_id: str
+    month: str = Field(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
+    from_: datetime = Field(alias="from")
+    to: datetime
+    totals: dict[str, int] = Field(default_factory=dict)  # meter → quantity, every source
+    groups: list[UsageGroup] = Field(default_factory=list)

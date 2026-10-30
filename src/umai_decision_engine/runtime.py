@@ -82,10 +82,9 @@ async def start_runtime(
     store: BundleStore | None = None,
     detector: EntityDetector | None = None,
     decision_models: DecisionModels | None = None,
-    records: bool = True,
+    recorder: Recorder | None = None,
 ) -> Runtime:
-    """``records=False`` keeps this process from writing records whatever the settings say
-    (the gateway until its records land, ADR-0041 §4)."""
+    """``recorder`` overrides the one the settings ask for (tests, the leak suite)."""
 
     if cfg.env != "development" and cfg.api_token is None and cfg.key_registry_dir is None:
         raise RuntimeError(
@@ -127,7 +126,7 @@ async def start_runtime(
     if cfg.decision_warm_up_timeout_ms:
         # Last before taking traffic: the first L1b calls reuse these connections.
         await decision_models.warm_up(cfg.decision_warm_up_timeout_ms / 1000)
-    recorder = records_recorder(cfg) if records else NullRecorder()
+    recorder = recorder or records_recorder(cfg)
     runtime = Runtime(
         settings=cfg,
         store=store,

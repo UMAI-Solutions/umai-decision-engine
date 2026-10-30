@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import hmac
 import logging
 import re
@@ -14,10 +15,10 @@ import uuid
 from collections import defaultdict
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, ValidationError
 
@@ -29,6 +30,8 @@ from umai_decision_engine.applications import (
     write_application_file,
 )
 from umai_decision_engine.applications import problem as application_problem
+from umai_decision_engine.contracts.common import Action as DecisionAction
+from umai_decision_engine.contracts.common import Phase
 from umai_decision_engine.contracts.credentials import KeyEnv, Scope
 from umai_decision_engine.contracts.gateway import (
     APPLICATION_ID,
@@ -58,6 +61,7 @@ from umai_decision_engine.control_plane.organizations import (
     OrganizationError,
     OrganizationService,
 )
+from umai_decision_engine.control_plane.records import BadCursor, RecordsReader, retention_loop
 from umai_decision_engine.control_plane.repository import GuardrailRepositories
 from umai_decision_engine.control_plane.service import PolicyService, ServiceError
 from umai_decision_engine.db.migrate import upgrade
@@ -303,6 +307,74 @@ async def activate(
     return await asyncio.to_thread(
         _service(request).activate, tenant, bundle_id, body.version, body.note, actor.record()
     )
+
+
+# ------------------------------------------------------------------ records (ADR-0041)
+
+
+def _utc(value: datetime | None) -> datetime | None:
+    return value.replace(tzinfo=UTC) if value is not None and value.tzinfo is None else value
+
+
+@router.get("/decision-events")
+async def list_decision_events(
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.DECISIONS_READ],
+    limit: int = Query(50, ge=1, le=200),
+    cursor: str | None = Query(None, max_length=200),
+    since: datetime | None = None,
+    until: datetime | None = None,
+    action: DecisionAction | None = None,
+    source: Literal["api", "gateway"] | None = None,
+    application_id: str | None = Query(None, max_length=64),
+    phase: Phase | None = None,
+    review: bool | None = None,
+) -> dict[str, Any]:
+    """Decision events of the tenant, newest first (tagged-action 0.4)."""
+
+    try:
+        page = await request.app.state.records.events(
+            tenant,
+            limit=limit,
+            cursor=cursor,
+            since=_utc(since),
+            until=_utc(until),
+            action=action,
+            source=source,
+            application_id=application_id,
+            phase=phase,
+            review=review,
+        )
+    except BadCursor as exc:
+        raise HTTPException(400, {"error": "bad_cursor", "detail": str(exc)}) from exc
+    return page.model_dump(mode="json", by_alias=True, exclude_none=True)
+
+
+@router.get("/decision-events/{event_id}")
+async def get_decision_event(
+    event_id: str,
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.DECISIONS_READ],
+) -> dict[str, Any]:
+    detail = await request.app.state.records.event(tenant, event_id[:64])
+    if detail is None:
+        raise HTTPException(404, {"error": "not_found", "detail": "no such decision event"})
+    return detail.model_dump(mode="json", by_alias=True, exclude_none=True)
+
+
+@router.get("/usage")
+async def get_usage(
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.USAGE_READ],
+    month: str | None = Query(None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$"),
+) -> dict[str, Any]:
+    """One calendar month (UTC) of the usage ledger (usage 0.2)."""
+
+    summary = await request.app.state.records.usage(tenant, month)
+    return summary.model_dump(mode="json", by_alias=True)
 
 
 # ------------------------------------------------------------------ tenants and API keys
@@ -964,9 +1036,27 @@ def create_app(
                 else None
             ),
         )
+        app.state.records = RecordsReader(db)
+        # Retention (ADR-0041 §5) with the owner role: the application role cannot delete records.
+        retention = None
+        if cfg.records_retention_interval_s > 0:
+            owner_db = make_engine(admin_url)
+            retention = asyncio.create_task(
+                retention_loop(
+                    owner_db,
+                    decision_days=cfg.records_decision_retention_days,
+                    usage_days=cfg.records_usage_retention_days,
+                    interval_s=cfg.records_retention_interval_s,
+                )
+            )
         try:
             yield
         finally:
+            if retention is not None:
+                retention.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await retention
+                await owner_db.dispose()
             await db.dispose()
             if own_detector:
                 engine.close()

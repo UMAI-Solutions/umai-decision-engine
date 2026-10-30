@@ -48,8 +48,8 @@ async def _count(engine, tenant, model) -> int:
 
 
 async def test_the_contract_examples_are_written_once_even_when_retried(db_url) -> None:
-    event, outcome = _examples("tagged-action.md")
-    [usage] = _examples("usage.md")
+    event, outcome, _page = _examples("tagged-action.md")
+    usage, _summary = _examples("usage.md")
     batch = [
         DecisionEvent.model_validate(event),
         L1bOutcomeRecord.model_validate(outcome),
@@ -71,7 +71,7 @@ async def test_the_contract_examples_are_written_once_even_when_retried(db_url) 
 
 
 async def test_records_of_a_tenant_the_store_does_not_know_are_counted_not_written(db_url) -> None:
-    [usage] = _examples("usage.md")
+    usage, _summary = _examples("usage.md")
     writer = DatabaseRecordWriter(make_engine(db_url))
     result = await writer.write([UsageRecord.model_validate({**usage, "tenant_id": "nobody"})])
     assert (result.written, result.unknown_tenant) == (0, 1)

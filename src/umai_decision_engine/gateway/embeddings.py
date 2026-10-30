@@ -29,6 +29,7 @@ from umai_decision_engine.gateway.chat import (
     _subject,
     _target,
     call_headers,
+    record_context,
     refusal_error,
     send_upstream,
 )
@@ -90,7 +91,9 @@ async def create_embeddings(request: Request) -> Response:
             413, "input_too_large", f"the text content exceeds {limit} characters"
         )
     call = Call(
-        ctx=CallContext(request_id, tenant, route, _subject(request, body)),
+        ctx=CallContext(
+            request_id, tenant, route, _subject(request, body), record_context(caller, route)
+        ),
         provider_key=provider_key,
         session=MaskSession(),
         guard=state.guard,
@@ -100,6 +103,7 @@ async def create_embeddings(request: Request) -> Response:
         headers=call_headers(request_id, route),
         fallback=fallback,
     )
+    request.state.call = call  # recorded at its end, whatever the exit (app middleware)
     if unscanned:
         call.headers["X-Umai-Unscanned-Parts"] = str(unscanned)
     upstream_body = copy.deepcopy(body)

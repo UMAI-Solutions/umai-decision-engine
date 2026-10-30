@@ -168,6 +168,46 @@ def l1b_usage(
     ]
 
 
+def gateway_usage(
+    context: RecordContext,
+    *,
+    tenant_id: str,
+    occurred_at: datetime,
+    bundle_id: str | None,
+    provider: str | None,
+    model: str | None,
+    input_tokens: int | None,
+    output_tokens: int | None,
+) -> list[UsageRecord]:
+    """One gateway call (usage 0.2): ``gateway_calls`` and the provider's token counts when it
+    reported them. ``event_id`` is the call's id."""
+
+    assert context.gateway_call_id is not None
+    quantities = {
+        "gateway_calls": 1,
+        "provider_input_tokens": input_tokens,
+        "provider_output_tokens": output_tokens,
+    }
+    return [
+        UsageRecord(
+            event_id=context.gateway_call_id,
+            tenant_id=tenant_id,
+            occurred_at=occurred_at,
+            meter=meter,
+            quantity=quantity,
+            source=context.source,
+            key_id=context.key_id,
+            environment=context.environment,
+            application_id=context.application_id,
+            bundle_id=bundle_id,
+            provider=provider,
+            model=model,
+        )
+        for meter, quantity in quantities.items()
+        if quantity is not None and (meter == "gateway_calls" or quantity > 0)
+    ]
+
+
 def l1b_outcome(
     *,
     event_id: str,

@@ -38,6 +38,7 @@ from umai_decision_engine.gateway.chat import (
     _subject,
     _target,
     call_headers,
+    record_context,
     refusal_error,
     send_upstream,
 )
@@ -301,7 +302,9 @@ async def create_response(request: Request) -> Response:
             413, "input_too_large", f"the text content exceeds {limit} characters"
         )
     call = Call(
-        ctx=CallContext(request_id, tenant, route, _subject(request, body)),
+        ctx=CallContext(
+            request_id, tenant, route, _subject(request, body), record_context(caller, route)
+        ),
         provider_key=provider_key,
         session=MaskSession.for_call(
             (s.text for s in segments), stored_history=_stored_history(body)
@@ -313,6 +316,7 @@ async def create_response(request: Request) -> Response:
         headers=call_headers(request_id, route),
         fallback=fallback,
     )
+    request.state.call = call  # recorded at its end, whatever the exit (app middleware)
     if unscanned:
         call.headers["X-Umai-Unscanned-Parts"] = str(unscanned)
     stream = body.get("stream") is True
@@ -772,6 +776,7 @@ async def _stream(call: Call, upstream_body: dict[str, Any], *, client_model: st
             await response.aclose()
             _log(call, status=status, usage=usage, stream=True)
 
+    call.streaming = True  # _events writes the call's log line and record when it closes
     return StreamingResponse(
         _events(),
         media_type="text/event-stream",

@@ -166,8 +166,10 @@ class AnswerStream:
 
     # -------------------------------------------------------------- checks
 
-    async def _check(self, text: str) -> Check:
-        check = await self.call.guard.check(self.call.ctx, Phase.POST_LLM, [("assistant", text)])
+    async def _check(self, text: str, *, record: bool = True) -> Check:
+        check = await self.call.guard.check(
+            self.call.ctx, Phase.POST_LLM, [("assistant", text)], record=record
+        )
         note_output(self.call, check)
         return check
 
@@ -202,8 +204,12 @@ class AnswerStream:
             return []
         # window (and buffer at the end): check the raw tail, hold what straddles the boundary
         scan_from = 0 if final else max(0, st.released - self.holdback)
-        check = await self._check(st.raw[scan_from:])
+        # A window re-check is recorded only when it decides; the final check always is
+        # (ADR-0041 §4: one stream, one answer record, not one per window step).
+        check = await self._check(st.raw[scan_from:], record=final)
         if not check.allowed:
+            if not final:
+                self.call.guard.commit(check)
             st.blocked = True
             st.block_check = check
             return []
@@ -493,6 +499,7 @@ async def stream_completion(
             _log(call, status=status, usage=usage, stream=True)
         yield _sse("[DONE]")
 
+    call.streaming = True  # _events writes the call's log line and record when it closes
     return StreamingResponse(
         _events(),
         media_type="text/event-stream",

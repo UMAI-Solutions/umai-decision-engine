@@ -23,6 +23,7 @@ from umai_decision_engine.contracts.evaluation import (
     EvaluationResponse,
     Subject,
 )
+from umai_decision_engine.contracts.events import RecordContext
 from umai_decision_engine.contracts.gateway import Route
 from umai_decision_engine.gateway.content import segment_offsets
 from umai_decision_engine.gateway.masking import Span
@@ -36,6 +37,8 @@ class CallContext:
     tenant_id: str
     route: Route
     subject: Subject
+    # Who called, for the records of every check and of the call (ADR-0041 §4)
+    record: RecordContext = field(default_factory=lambda: RecordContext(source="gateway"))
 
 
 @dataclass(frozen=True)
@@ -84,7 +87,11 @@ class Guard:
         texts: list[tuple[str, str]],  # (evaluation role, text)
         *,
         action: AgentAction | None = None,
+        record: bool = True,
     ) -> Check:
+        """``record=False`` holds the check's records on the result: :meth:`commit` writes them
+        (a stream's window re-check that decided), otherwise they are dropped."""
+
         route = ctx.route
         request = EvaluationRequest(
             contract_version="0.9",
@@ -104,8 +111,19 @@ class Guard:
             ),
             action=action,
         )
-        evaluated = await self._evaluator.evaluate_detailed(request, target="FULL_HISTORY")
+        context = ctx.record if record else ctx.record.model_copy(update={"record": False})
+        evaluated = await self._evaluator.evaluate_detailed(
+            request, target="FULL_HISTORY", context=context
+        )
         return Check(phase, evaluated, _spans_by_text(evaluated, [t for _, t in texts]))
+
+    def commit(self, check: Check) -> None:
+        self._evaluator.commit(check.evaluated)
+
+    def record_call(self, context: RecordContext, **call: object) -> None:
+        """The call's usage records (usage 0.2), built by the pipeline."""
+
+        self._evaluator.record_call(context, **call)  # type: ignore[arg-type]
 
 
 def _spans_by_text(evaluated: Evaluated, texts: list[str]) -> list[list[Span]]:

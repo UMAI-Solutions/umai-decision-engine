@@ -25,7 +25,13 @@ from umai_decision_engine.contracts.evaluation import (
     InputTooLargeBody,
     ValidationErrorBody,
 )
-from umai_decision_engine.contracts.events import DecisionEvent, L1bOutcomeRecord, UsageRecord
+from umai_decision_engine.contracts.events import (
+    DecisionEvent,
+    DecisionEventPage,
+    L1bOutcomeRecord,
+    UsageRecord,
+    UsageSummary,
+)
 from umai_decision_engine.contracts.policy_tests import GoldenCase, PolicyTestFile
 from umai_decision_engine.policy.manifest import BundleManifest
 from umai_decision_engine.policy.validate import validate_bundle
@@ -85,14 +91,19 @@ def test_policy_bundle_contract_version_is_current() -> None:
 
 
 def test_tagged_action_examples() -> None:
-    event, outcome = (json.loads(b) for b in _blocks("contracts/tagged-action.md", "json"))
-    assert DecisionEvent.model_validate(event).contract_version == "0.3"
+    event, outcome, page = (json.loads(b) for b in _blocks("contracts/tagged-action.md", "json"))
+    assert DecisionEvent.model_validate(event).contract_version == "0.4"
     assert L1bOutcomeRecord.model_validate(outcome).outcome == "decided"
+    assert DecisionEventPage.model_validate(page).events[0].source == "gateway"
 
 
-def test_usage_example() -> None:
-    [usage] = _blocks("contracts/usage.md", "json")
-    assert UsageRecord.model_validate(json.loads(usage)).meter == "evaluations"
+def test_usage_examples() -> None:
+    usage, summary = (json.loads(b) for b in _blocks("contracts/usage.md", "json"))
+    assert UsageRecord.model_validate(usage).meter == "evaluations"
+    parsed = UsageSummary.model_validate(summary)
+    assert parsed.totals["evaluations"] == sum(
+        g.quantity for g in parsed.groups if g.meter == "evaluations"
+    )
 
 
 def test_l1_doc_examples() -> None:

@@ -1,11 +1,11 @@
 # Contract: usage record (ledger)
 
-**Version:** 0.1
+**Version:** 0.2
 
-**Implementation status (2026-10-26):** written by the engine API for every admitted
-evaluation ([ADR-0041](../adr/0041-records-decision-events-and-usage-ledger.md), ledger shape
-from [ADR-0028](../adr/0028-metering-entitlements-and-billing.md) §1–§2); the gateway's meters
-and the read API (`GET /v1/usage` in the policy service) follow. Model: `contracts/events.py`.
+**Implementation status (2026-10-30):** written by the engine API and the gateway
+([ADR-0041](../adr/0041-records-decision-events-and-usage-ledger.md), ledger shape from
+[ADR-0028](../adr/0028-metering-entitlements-and-billing.md) §1–§2), read with `GET /v1/usage` in
+the policy service, deleted after 400 days. Models: `contracts/events.py`.
 
 The ledger is UMAI's own record of what a tenant used: the source for usage pages, quotas
 (ADR-0019 §4), exports and invoices (ADR-0028). One record per meter and event, append-only and
@@ -14,7 +14,7 @@ retried write never counts twice.
 
 ```json
 {
-  "contract_version": "0.1",
+  "contract_version": "0.2",
   "event_id": "ta-3f2b9c41d6e84a1b9c0d7e5f6a1b2c3d",
   "tenant_id": "tenant-demo",
   "occurred_at": "2026-10-26T09:30:00Z",
@@ -36,15 +36,44 @@ retried write never counts twice.
 | `evaluations` | 1 per admitted `POST /v1/evaluate`, failure-policy decisions included; requests refused before evaluation (401, 403, 413, 422, 429) are not counted | with the decision event |
 | `l1b_calls` | Decision-model calls made for the evaluation (1 with `batch: all`, one per policy with `per_policy`, plus a fallback call), shadow calls included | when the L1b call finishes |
 | `l1b_input_tokens`, `l1b_output_tokens` | Tokens the provider reported for those calls | when the L1b call finishes, if the provider reports them |
+| `gateway_calls` | 1 per gateway call that passed admission (Chat Completions, Responses, embeddings), whatever its outcome: answered, refused, upstream error, timeout. Each check of the call is also an `evaluations` record (source `gateway`) | when the call ends (a stream: when it closes) |
+| `provider_input_tokens`, `provider_output_tokens` | Tokens the upstream provider reported for the call (`prompt_tokens` / `input_tokens`, `completion_tokens` / `output_tokens`) | with `gateway_calls`, when reported |
 
 | Field | Notes |
 |---|---|
-| `event_id` | The evaluation's event id |
+| `event_id` | The evaluation's event id; for gateway meters the call's id (`gc-<uuid4 hex>`) |
 | `environment` | `live` or `test` (ADR-0023 §3); test keys are metered separately and never billed; `null` for the shared operator token |
 | `decision`, `degraded` | The final decision of the evaluation (`evaluations` only) |
+| `provider`, `model` | Gateway meters: the provider and upstream model the call went to (0.2) |
 
-**Retention:** 400 days (ADR-0041 §5). No content, ever.
+**Retention:** 400 days (ADR-0041 §5, `UMAI_DE_RECORDS_USAGE_RETENTION_DAYS`). No content, ever.
+
+## Read API (policy service)
+
+`GET /v1/usage?month=YYYY-MM` (default: the current month, UTC) returns the month's ledger for
+the tenant: totals per meter, and the same split by source, environment and application. Roles
+(ADR-0029): owner, admin, policy editor, approver, viewer, billing; the operator token with
+`X-Umai-Tenant`.
+
+```json
+{
+  "contract_version": "0.2",
+  "tenant_id": "tenant-demo",
+  "month": "2026-10",
+  "from": "2026-10-01T00:00:00Z",
+  "to": "2026-11-01T00:00:00Z",
+  "totals": { "evaluations": 1250, "gateway_calls": 410, "provider_input_tokens": 182340 },
+  "groups": [
+    { "meter": "evaluations", "source": "api", "environment": "live", "application_id": "main", "quantity": 430 },
+    { "meter": "evaluations", "source": "gateway", "environment": "live", "application_id": "main", "quantity": 820 },
+    { "meter": "gateway_calls", "source": "gateway", "environment": "live", "application_id": "main", "quantity": 410 },
+    { "meter": "provider_input_tokens", "source": "gateway", "environment": "live", "application_id": "main", "quantity": 182340 }
+  ]
+}
+```
 
 ## Changelog
 
+- 0.2 (2026-10-30): gateway meters `gateway_calls`, `provider_input_tokens`,
+  `provider_output_tokens` with `provider` and `model`; read API `GET /v1/usage`; retention job.
 - 0.1 (2026-10-26): initial version, written by the engine API (ADR-0041).

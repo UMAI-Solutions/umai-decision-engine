@@ -85,6 +85,23 @@ application and key (ADR-0039). Only the policy service connects to the tenant s
 - Must still be built: gateway records, read routes, the retention job, console pages (WP7),
   quota enforcement from the ledger (ADR-0019 §4, ADR-0028 §3), L2 delivery of `review` events.
 
+## Implementation
+
+- 2026-10-26 (PR 1): engine API records, migration 0006, write path (ADR-0042).
+- 2026-10-30 (PR 2): gateway records. Each call gets a server-made id (`gc-<uuid4 hex>`; a
+  caller's request id may repeat) that names its usage record (`gateway_calls`,
+  `provider_input_tokens`, `provider_output_tokens`, with provider and model, migration 0007)
+  and the `gateway_call_id` of every check's decision event. The usage record is written once per
+  call: by the handler, by the stream when it closes, or by an app middleware for exits raised as
+  errors (refusals with `refusal: error`, upstream failures, timeouts). A stream's window
+  re-checks run with records held on the evaluation and dropped, except the re-check that stops
+  the stream, which is committed; the final check is recorded. Read API in the policy service
+  (`GET /v1/decision-events`, `/v1/decision-events/{id}`, `/v1/usage`; permissions
+  `records.decisions.read`, `records.usage.read`). Retention job in the policy service, hourly,
+  with the owner role, tenant by tenant (RLS stays forced): 30 days of decision events and L1b
+  outcomes, 400 days of usage (`UMAI_DE_RECORDS_*_RETENTION_DAYS`); per-tenant ranges come with
+  entitlements. Retention is not yet an audit event (ADR-0030 §3 waits for audit events).
+
 ## Validation
 
 - Isolation tests I1–I3 cover the three tables; a Postgres test shows the application role

@@ -280,3 +280,5 @@ class UsageEventRow(Base):
     bundle_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     decision: Mapped[str | None] = mapped_column(String(32), nullable=True)
     degraded: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    provider: Mapped[str | None] = mapped_column(String(64), nullable=True)  # gateway meters (0007)
+    model: Mapped[str | None] = mapped_column(String(128), nullable=True)

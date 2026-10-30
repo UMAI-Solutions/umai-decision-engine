@@ -33,6 +33,8 @@ EXPECTED = {
     Action.APPLICATION_WRITE: {OWN, A},
     Action.GATEWAY_READ: {OWN, A, E, P, V},
     Action.GATEWAY_WRITE: {OWN, A},
+    Action.DECISIONS_READ: {OWN, A, E, P, V},
+    Action.USAGE_READ: {OWN, A, E, P, V, B},  # billing reads usage, not decisions (ADR-0029)
 }
 
 

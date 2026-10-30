@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import os
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 import pytest_asyncio
@@ -287,6 +287,36 @@ async def test_the_records_writer_writes_once_and_only_for_its_tenant(pg, two_te
         assert len((await session.execute(select(UsageEventRow))).all()) == 1
     async with tenant_session(pg, b.id) as session:
         assert (await session.execute(select(UsageEventRow))).all() == []
+
+
+@postgres
+@pytest.mark.asyncio
+async def test_retention_runs_as_owner_under_forced_rls_and_keeps_recent_rows(
+    pg, two_tenants
+) -> None:
+    from umai_decision_engine.control_plane.records import apply_retention
+    from umai_decision_engine.db.models import DecisionEventRow
+
+    a, b = two_tenants
+    now = datetime.now(UTC)
+    old = {**_row("decision_events", a.id), "occurred_at": now - timedelta(days=45)}
+    other_old = {**_row("decision_events", b.id), "occurred_at": now - timedelta(days=45)}
+    recent = _row("decision_events", a.id)
+    async with tenant_session(pg, a.id) as session:
+        await session.execute(insert(DecisionEventRow).values(**old))
+        await session.execute(insert(DecisionEventRow).values(**recent))
+    async with tenant_session(pg, b.id) as session:
+        await session.execute(insert(DecisionEventRow).values(**other_old))
+    owner = make_engine(ADMIN_URL)
+    try:
+        deleted = await apply_retention(owner, decision_days=30, usage_days=400, now=now)
+    finally:
+        await owner.dispose()
+    assert deleted["decision_events"] >= 2  # both tenants' old rows, tenant by tenant
+    for tenant, expected in ((a, [recent["event_id"]]), (b, [])):
+        async with tenant_session(pg, tenant.id) as session:
+            rows = (await session.execute(select(DecisionEventRow.event_id))).scalars().all()
+        assert rows == expected
 
 
 # ------------------------------------------------------------ member_self (ADR-0033 §2)
