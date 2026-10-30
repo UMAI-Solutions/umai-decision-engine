@@ -162,6 +162,7 @@ def _record(row: ApiKey, slug: str) -> ApiKeyRecord:
         region=row.region,  # type: ignore[arg-type]
         scopes=[Scope(s) for s in row.scopes],
         application_id=row.application_id,
+        allowed_ips=row.allowed_ips or None,
         created_by=row.created_by,
         created_at=row.created_at,
         expires_at=row.expires_at,
@@ -185,8 +186,10 @@ class ApiKeyRepository:
         created_by: str,
         expires_at: datetime | None = None,
         application_id: str | None = None,
+        allowed_ips: list[str] | None = None,
     ) -> tuple[ApiKeyRecord, str]:
-        """Returns the record and the presentation secret (shown once, never stored)."""
+        """Returns the record and the presentation secret (shown once, never stored).
+        ``allowed_ips`` are canonical CIDRs (the caller validated them)."""
 
         generated = generate_key(env, region)
         row = ApiKey(
@@ -197,6 +200,7 @@ class ApiKeyRepository:
             region=region,
             scopes=[s.value for s in (scopes or list(DEFAULT_SCOPES))],
             application_id=application_id,
+            allowed_ips=allowed_ips or None,
             name=name,
             created_by=created_by,
             expires_at=expires_at,
@@ -225,6 +229,23 @@ class ApiKeyRepository:
                 await session.flush()
             return _record(row, tenant.slug)
 
+    async def set_allowed_ips(
+        self, tenant: TenantInfo, key_id: str, allowed_ips: list[str] | None
+    ) -> ApiKeyRecord:
+        """Replace an active key's networks (canonical CIDRs; ``None``: any address)."""
+
+        async with tenant_session(self.engine, tenant.id) as session:
+            row = await session.scalar(
+                select(ApiKey).where(ApiKey.tenant_id == tenant.id, ApiKey.key_id == key_id)
+            )
+            if row is None:
+                raise NotFound(f"key {key_id} does not exist")
+            if row.revoked_at is not None:
+                raise Conflict(f"key {key_id} is revoked")
+            row.allowed_ips = allowed_ips or None
+            await session.flush()
+            return _record(row, tenant.slug)
+
     async def touch(self, tenant: TenantInfo, key_id: str, at: datetime) -> None:
         async with tenant_session(self.engine, tenant.id) as session:
             await session.execute(
@@ -250,6 +271,7 @@ class ApiKeyRepository:
                     application_id=k.application_id,
                     status="revoked" if k.revoked_at else "active",
                     expires_at=k.expires_at,
+                    allowed_ips=k.allowed_ips,
                 )
                 for k in keys
             ],

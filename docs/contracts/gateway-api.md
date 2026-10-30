@@ -1,6 +1,6 @@
 # Contract: gateway API
 
-**Version:** 0.13 · **Status:** implemented for Chat Completions and the Responses API,
+**Version:** 0.14 · **Status:** implemented for Chat Completions and the Responses API,
 non-streaming and streaming, and for embeddings (input checks): applications, providers, input, tool-result, answer and tool-call checks, masking,
 restoration and refusals (WP2, WP3, WP5; [design](../architecture/ai-gateway.md) §8) · **Endpoints**
 (gateway host, e.g. `eu.gateway.<domain>`): `POST /v1/chat/completions`, `POST /v1/responses`, `POST /v1/embeddings`,
@@ -397,6 +397,7 @@ Admission and gateway errors use the OpenAI error shape with `type: "umai_gatewa
 | 400 | `provider_key_required` | The target provider is `pass_through` and `X-Umai-Provider-Key` is missing |
 | 400 | `unsupported_content` | A content part cannot be scanned and the application says `reject` |
 | 401 | `invalid_credential` | Missing or unknown UMAI key |
+| 403 | `ip_not_allowed` | The key has allowed networks and the caller's address is outside them ([credentials](credentials.md) 0.8, ADR-0046); nothing is checked or forwarded |
 | 403 | `insufficient_scope` | The key lacks `gateway` |
 | 403 | `application_mismatch` | `X-Umai-Application` names another application than the key's |
 | 403 | `provider_not_allowed` | The application has a `providers` list without the target provider, or the provider's address (also the built-in `openai` one) is not on the deployment's allow-list |
@@ -404,6 +405,7 @@ Admission and gateway errors use the OpenAI error shape with `type: "umai_gatewa
 | 404 | `unknown_provider` | The `@<provider>/` prefix names no enabled provider, or there is no default provider |
 | 404 | `model_not_allowed` | The application has a `models` list and `model` is neither in it nor an alias |
 | 413 | `request_too_large`, `input_too_large` | Body bytes or scanned characters above the limit |
+| 429 | `too_many_failed_attempts` | The caller's address (an IPv4 address or an IPv6 /64) presented too many bad credentials (default 20 in 60 s); every credential from it is refused before any lookup until `Retry-After` (ADR-0046) |
 | 429 | `rate_limited` | Admission limit per key, with `Retry-After` |
 | 429 | `quota_exceeded` | The tenant used this month's requests ([entitlements](entitlements.md), ADR-0043); `Retry-After` until the first of next month (UTC). Nothing is checked or forwarded. Each Chat Completions, Responses or embeddings call counts once; `GET /v1/models` never counts and is never refused for quota |
 | 500 | `provider_misconfigured` | A `secret` provider whose key the deployment does not hold |
@@ -423,6 +425,10 @@ latency. No record carries prompt, answer, provider key or mask map (ADR-0035).
 
 ## Changelog
 
+- 0.14 (2026-10-30, ADR-0046): 403 `ip_not_allowed` for a key used outside its allowed
+  networks and 429 `too_many_failed_attempts` for an address with too many bad credentials, both
+  before anything is checked or forwarded; the caller's address comes from trusted proxies only
+  (`UMAI_DE_TRUSTED_PROXIES`).
 - 0.13 (2026-10-30, ADR-0043): 429 `quota_exceeded` when the tenant's monthly requests are used;
   a call counts once toward the quota.
 - 0.12 (2026-10-20, review fixes after merging): the default provider never moves silently:

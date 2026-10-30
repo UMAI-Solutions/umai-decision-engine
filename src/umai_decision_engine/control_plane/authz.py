@@ -42,6 +42,7 @@ class Action(StrEnum):
     KEY_READ = "key.read"
     KEY_CREATE = "key.create"
     KEY_REVOKE = "key.revoke"
+    KEY_UPDATE = "key.update"  # a key's allowed networks (credentials 0.8, ADR-0046)
     KEY_PUBLISH = "key.publish"
     # organizations contract (ADR-0033); self-service actions need a person, no tenant role
     ME_ORGANIZATIONS = "me.organizations"
@@ -109,6 +110,7 @@ MATRIX: dict[Action, Rule] = {
     Action.KEY_READ: _r(_O, _A, operator=True),
     Action.KEY_CREATE: _r(_O, _A, operator=True),
     Action.KEY_REVOKE: _r(_O, _A, operator=True),
+    Action.KEY_UPDATE: _r(_O, _A, operator=True),
     Action.KEY_PUBLISH: _r(operator=True),
     Action.ME_ORGANIZATIONS: _SELF,
     Action.ORGANIZATION_CREATE: _SELF,

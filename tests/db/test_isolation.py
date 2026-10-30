@@ -25,6 +25,7 @@ from umai_decision_engine.db.models import Base, Membership, User
 from umai_decision_engine.db.organizations import MembershipRepository, UserRepository
 from umai_decision_engine.db.repositories import (
     ApiKeyRepository,
+    Conflict,
     DraftRepository,
     NotFound,
     TenantRepository,
@@ -432,6 +433,37 @@ async def test_quota_counts_requests_of_its_own_tenant_only_on_postgres(pg, two_
 
 
 # ------------------------------------------------------------ member_self (ADR-0033 §2)
+
+
+@postgres
+@pytest.mark.asyncio
+async def test_key_networks_round_trip_for_their_tenant_only_on_postgres(pg, two_tenants) -> None:
+    """A key's allowed networks (credentials 0.8, migration 0013) are stored, edited and
+    published for its own tenant; another tenant can neither see nor change them."""
+
+    a, b = two_tenants
+    keys = ApiKeyRepository(pg)
+    record, _ = await keys.create(
+        a,
+        name="office",
+        env="live",
+        region="eu",
+        scopes=None,
+        created_by="t",
+        allowed_ips=["203.0.113.0/24", "2001:db8::/32"],
+    )
+    assert record.allowed_ips == ["203.0.113.0/24", "2001:db8::/32"]
+    with pytest.raises(NotFound):
+        await keys.set_allowed_ips(b, record.key_id, ["198.51.100.0/24"])
+    changed = await keys.set_allowed_ips(a, record.key_id, ["198.51.100.0/24"])
+    assert changed.allowed_ips == ["198.51.100.0/24"]
+    (entry,) = (await keys.snapshot(a)).keys
+    assert entry.allowed_ips == ["198.51.100.0/24"]
+    cleared = await keys.set_allowed_ips(a, record.key_id, None)
+    assert cleared.allowed_ips is None
+    await keys.revoke(a, record.key_id)
+    with pytest.raises(Conflict):
+        await keys.set_allowed_ips(a, record.key_id, ["198.51.100.0/24"])
 
 
 @postgres

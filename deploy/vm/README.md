@@ -254,6 +254,32 @@ The policy service then offers each paid plan whose provider plan charges what t
 says; the console's Billing page sells it. `/hooks/iyzico` is the only path of the policy service
 Caddy exposes.
 
+## 7d. Client addresses and key network restrictions (ADR-0046)
+
+Keys can be limited to networks (console: Applications → application → Keys → Allowed networks),
+and a source address that presents too many bad credentials gets 429
+`too_many_failed_attempts`. Both need the caller's address, which Caddy knows and the engine and
+the gateway only see as Caddy's. So the Compose network has a fixed subnet, `172.30.240.0/24`
+(other containers get addresses from its upper half), Caddy the fixed address `172.30.240.2`, and
+the engine and the gateway trust that address alone: `UMAI_DE_TRUSTED_PROXIES:
+'["172.30.240.2/32"]'` in `docker-compose.yml`. Caddy ignores an `X-Forwarded-For` sent by a client
+and passes the address it saw; the engine reads the header only from Caddy and runs uvicorn with
+`--no-proxy-headers`. Nothing else trusts the header.
+
+- **Upgrading a VM from an earlier release:** the first `umai.sh up` with this release recreates the
+  `umai_default` network with the fixed subnet (Docker Compose ≥ 2.24 does so by itself; check with
+  `docker compose version`). With an older Compose stop the stack once first (volumes stay):
+  `docker compose --project-directory $D --env-file /opt/umai/config.env --profile gateway down`.
+- **Subnet taken** (another Docker network or a VPN uses `172.30.240.0/24`): change the subnet, the
+  `ip_range`, Caddy's `ipv4_address` and `UMAI_DE_TRUSTED_PROXIES` together in `docker-compose.yml`.
+- **Check:** `docker compose -p umai logs engine | grep admission:` shows `trusted_proxies=1`. A key
+  limited to your address works from it and gets 403 `ip_not_allowed` from another one.
+- **Throttle:** 20 bad credentials per source address (IPv6: per /64) in 60 s, then 429 until the
+  bucket refills (`UMAI_DE_AUTH_FAILURE_LIMIT`, `UMAI_DE_AUTH_FAILURE_WINDOW_S` in `engine.env` to
+  change it; empty limit: off). The engine log names a throttled source once
+  (`admission.throttled source=…`), never the credential it presented. Callers behind one NAT share
+  a bucket.
+
 ## 8. What this deployment does not have
 
 Records (ADR-0041): the engine and the gateway write decision events and usage to the same

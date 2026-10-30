@@ -1,6 +1,6 @@
 # Contract: credentials
 
-**Version:** 0.7 · **Producer → consumer:** control plane → engines (key-registry snapshot), control plane ↔ console (key records), console → policy service (on-behalf-of assertion) · **Decisions:** [ADR-0023](../adr/0023-identity-planes-and-api-keys.md), [ADR-0029](../adr/0029-authorization-roles-and-four-eyes.md)
+**Version:** 0.8 · **Producer → consumer:** control plane → engines (key-registry snapshot), control plane ↔ console (key records), console → policy service (on-behalf-of assertion) · **Decisions:** [ADR-0023](../adr/0023-identity-planes-and-api-keys.md), [ADR-0029](../adr/0029-authorization-roles-and-four-eyes.md), [ADR-0046](../adr/0046-api-key-network-restrictions.md)
 
 Three shapes: the **API key record** the console manages, the **key-registry snapshot** the
 control plane publishes per tenant and every engine loads like a bundle (verify → validate →
@@ -35,6 +35,7 @@ Sent as `Authorization: Bearer <key>` only; never in a query string.
   "region": "eu",
   "scopes": ["evaluate"],
   "application_id": null,
+  "allowed_ips": ["203.0.113.0/24", "2001:db8:1::/48"],
   "created_by": "control-token",
   "created_at": "2026-10-18T09:00:00Z",
   "expires_at": null,
@@ -53,9 +54,30 @@ other ([gateway-api](gateway-api.md)), on the evaluation API the application's g
 and a request naming another is refused ([evaluation-api](evaluation-api.md) 0.10). It is set
 when the key is created (`POST /v1/tenants/{id}/keys` with `{"name", "application_id"}`; the
 application must exist; `scopes` then default to `["evaluate", "gateway"]`) and cannot change;
-create a new key to move an application. `null`: the key belongs to no application. `status` is derived
+create a new key to move an application. `null`: the key belongs to no application.
+`allowed_ips` (0.8, ADR-0046) are the networks the key may be used from (below); `null` or
+absent: any address. `status` is derived
 (`revoked` when `revoked_at` is set). `last_used_at` is reserved: engines do not write to the
 store, so it stays `null` until usage telemetry exists.
+
+### Allowed networks (0.8, ADR-0046)
+
+A key may be restricted to 1–50 IPv4 or IPv6 networks. Each entry is a CIDR (`203.0.113.0/24`,
+`2001:db8:1::/48`) or a bare address (one host: `/32`, `/128`); the policy service stores them
+canonically (lower-case, compressed IPv6, a bare address with its prefix length). Refused with
+**422** `{"error": "invalid_allowed_ips", "detail": "<which entry, why>"}`: anything that is not
+an address or network, host bits set (`203.0.113.5/24` → "entry 1 has host bits set: write
+203.0.113.0/24 for the whole network, or the address alone for one host"), a zone index
+(`fe80::1%eth0`), a repeated network, more than 50 entries.
+
+| Route | Permission | Does |
+|---|---|---|
+| `POST /v1/tenants/{id}/keys` with `"allowed_ips": [...]` | `key.create` | Creates the key with its networks |
+| `PATCH /v1/tenants/{id}/keys/{key_id}` with `{"allowed_ips": [...]}` | `key.update` (owner, admin, operator) | Replaces an active key's networks; `null` or `[]` clears them (any address). Answers `{"key": <record>, "published": <bool>}`. 404 unknown key; 409 `key_revoked` for a revoked key; 422 `invalid_allowed_ips`, or an unknown field |
+
+Every change republishes the tenant's snapshot; engines and the gateway enforce it within one
+poll interval. A request with the key from another address gets **403** `ip_not_allowed`
+before anything is evaluated or forwarded (below).
 
 ## Key-registry snapshot — `KeyRegistrySnapshot`
 
@@ -64,7 +86,7 @@ plane; engines poll the directory (`UMAI_DE_KEY_REGISTRY_POLL_INTERVAL_S`, defau
 
 ```json
 {
-  "contract_version": "0.4",
+  "contract_version": "0.5",
   "tenant_id": "tenant-demo",
   "generated_at": "2026-10-18T09:00:05Z",
   "entitlements": {
@@ -82,7 +104,8 @@ plane; engines poll the directory (`UMAI_DE_KEY_REGISTRY_POLL_INTERVAL_S`, defau
       "scopes": ["evaluate", "gateway"],
       "application_id": "hr-assistant",
       "status": "active",
-      "expires_at": null
+      "expires_at": null,
+      "allowed_ips": ["203.0.113.0/24", "2001:db8:1::/48"]
     }
   ],
   "signing_key_id": "vm-2026-10",
@@ -92,9 +115,10 @@ plane; engines poll the directory (`UMAI_DE_KEY_REGISTRY_POLL_INTERVAL_S`, defau
 
 | Field | Notes |
 |---|---|
-| `contract_version` | `0.4` since credentials 0.7 (`entitlements`); `0.3` since 0.6 (entries may carry `application_id`); engines still accept `0.1` to `0.3` files (0.2 calls the field `gateway_id`; its signature covers that name) |
+| `contract_version` | `0.5` since credentials 0.8 (entries may carry `allowed_ips`); `0.4` since 0.7 (`entitlements`); `0.3` since 0.6 (entries may carry `application_id`); engines still accept `0.1` to `0.4` files (0.2 calls the field `gateway_id`; its signature covers that name). An engine older than 0.8 refuses a 0.5 file and keeps the tenant's last good keys: update engines first |
 | `entitlements` | The tenant's limits ([entitlements](entitlements.md) 0.1, ADR-0043): edition, `monthly_requests`, `monthly_test_requests`, `max_input_chars`; null or absent fields mean no limit (the size: the deployment's). Absent when the deployment has no plans file |
 | `keys[].application_id` | The key's application (0.6); absent when the key belongs to none |
+| `keys[].allowed_ips` | The key's networks, canonical CIDRs, 1–50 (0.8, ADR-0046); absent: any address |
 | `keys[].status` | `active` or `revoked`; revoked keys stay listed so a reload can never resurrect one |
 | `signing_key_id`, `signature` | Ed25519 over the JSON of the snapshot without `signature`, with the control plane's bundle-signing key; verified against `UMAI_DE_BUNDLE_PUBLIC_KEYS`. Required whenever signed bundles are required (everything but development) |
 
@@ -149,18 +173,39 @@ wrong algorithm or type, unknown key, bad signature, expired, wrong issuer or au
 assertion names no tenant); 403 `tenant_mismatch` (the target tenant is not the assertion's); 403
 `forbidden` (the roles do not allow the action).
 
-## Errors at admission (evaluation API 0.6)
+## Client address (0.8, ADR-0046)
+
+Admission needs the caller's address for allowed networks and for the failed-credential
+throttle. It is the socket peer, unless the peer is a trusted proxy
+(`UMAI_DE_TRUSTED_PROXIES`, a JSON list of CIDRs; **default empty: no proxy is trusted**). Behind
+a trusted proxy `X-Forwarded-For` (every line, in order) is read from the right, skipping
+trusted hops; the first untrusted hop is the client, so entries a caller wrote themselves are
+never used. No other header (`Forwarded`, `X-Real-IP`) is read; uvicorn's own proxy-header
+handling is off in the images (`--no-proxy-headers`). An IPv4-mapped IPv6 address counts as
+IPv4. A client whose address cannot be read is outside every allowed network. The single VM
+trusts its Caddy only (`deploy/vm`).
+
+## Errors at admission (evaluation API 0.6, 0.14)
+
+Checked in this order; a refused request is never evaluated or forwarded.
 
 | HTTP | `error` | When |
 |---|---|---|
-| 401 | `invalid_credential` | unknown key id, wrong secret, revoked, expired, wrong shared token; `WWW-Authenticate: Bearer` |
+| 401 | `invalid_credential` | missing credential, unknown key id, wrong secret, revoked, expired, wrong shared token; `WWW-Authenticate: Bearer`. A presented credential that fails counts against its source |
+| 429 | `too_many_failed_attempts` | (0.8) the source (an IPv4 address or an IPv6 /64) presented `UMAI_DE_AUTH_FAILURE_LIMIT` bad credentials (default 20) within `UMAI_DE_AUTH_FAILURE_WINDOW_S` (default 60 s); every credential from it is refused before any lookup until a token is back (`Retry-After` in seconds). A success does not reset the count |
+| 403 | `ip_not_allowed` | (0.8) the key has `allowed_ips` and the client address is outside them (or unknown); not counted as a failed credential, does not spend the key's rate budget |
+| 429 | `rate_limited` | token bucket per credential exhausted; `Retry-After` in seconds |
 | 403 | `tenant_mismatch` | the body's `tenant_id` differs from the credential's tenant |
 | 403 | `insufficient_scope` | the route's scope is not in the key's scopes |
-| 429 | `rate_limited` | token bucket per credential exhausted; `Retry-After` in seconds |
 | 400 | `tenant_required` | shared operator token without `tenant_id` in the body |
 
 ## Changelog
 
+- 0.8 (2026-10-30, ADR-0046): `allowed_ips` on key records, key creation and registry entries
+  (snapshot payload `contract_version` 0.5; 0.1 to 0.4 still read); `PATCH
+  /v1/tenants/{id}/keys/{key_id}` (permission `key.update`) and 422 `invalid_allowed_ips`, 409
+  `key_revoked`; admission errors 403 `ip_not_allowed` and 429 `too_many_failed_attempts`; the
+  client address from trusted proxies only. Tenant-store migration 0013.
 - 0.7 (2026-10-30, ADR-0043): the snapshot carries the tenant's `entitlements` (contract
   [entitlements](entitlements.md) 0.1); snapshot payload `contract_version` 0.4 (0.1 to 0.3
   still read).

@@ -98,6 +98,7 @@ python -m umai_decision_engine.policy.cli keygen | sign | verify  # bundle signi
 python -m umai_decision_engine.db.migrate <database url>         # tenant store migrations (ADR-0025)
 python -m evals.run --suite l0-pii-tr --split dev --tag <label>  # L0 accuracy (also: --suite leak)
 python -m evals.run --suite gateway-latency --tag <label>        # gateway cost per call (also: masking-survival, live)
+python -m evals.run --suite admission --tag <label>              # admission cost per request (ADR-0046)
 python -m evals.run --suite l1-cold-start --tag <label>          # live: first L1b calls of a new process (also: l1-latency)
 docker build -t umai-decision-engine .                            # one image: engine API, policy service, gateway
 az deployment group create -g <rg> -f deploy/azure/main.bicep -p deploy/azure/main.bicepparam  # starter VM (ADR-0032)
@@ -191,6 +192,14 @@ async client with `IYZWSv2` signing, the state machine, reconciliation, `billing
 billing details, hosted checkout confirmed by token, plan change, cancel at period end, 14-day
 grace with retries (`/v1/billing…`), signed webhooks on the public `/hooks/iyzico`; migration 0009.
 Tested against a fake iyzico; the sandbox run waits for keys.
+Key network restrictions (2026-10-30, ADR-0046 Proposed, credentials 0.8): a key may carry
+`allowed_ips` (1–50 CIDRs, IPv4 and IPv6; set at creation, replaced with
+`PATCH /v1/tenants/{id}/keys/{key_id}`, permission `key.update`, migration 0013, snapshot payload
+0.5); the engine API and the gateway answer 403 `ip_not_allowed` from other addresses and 429
+`too_many_failed_attempts` to a source (IPv4 address, IPv6 /64) with too many bad credentials,
+before any lookup (`tenancy/network.py`, `FailedAuthThrottle`; evaluation API 0.14, gateway API
+0.14). The client address is the socket peer or, behind `UMAI_DE_TRUSTED_PROXIES` only (default
+none; the VM trusts Caddy at a fixed address), `X-Forwarded-For` read from the right.
 Tenants are organizations created in the console; API keys, bundles and HMAC keys are per tenant.
 The console signs people in with OIDC (Auth0 development tenant, `umai-control-center`, locally
 since 2026-10-18 and on `umai-beta` since 2026-10-19).

@@ -129,12 +129,16 @@ def record_context(caller: Caller, route: Route) -> RecordContext:
 
 
 def _admit(request: Request) -> Caller:
-    """Authenticate, rate-limit and check the ``gateway`` scope; return the caller."""
+    """Authenticate (with the key's allowed networks and the failed-credential throttle,
+    ADR-0046), rate-limit and check the ``gateway`` scope; return the caller."""
 
     state = request.app.state
+    admission = state.admission
     try:
-        principal = state.admission.authenticate(request.headers.get("authorization"))
-        state.admission.admit(principal)
+        principal = admission.authenticate(
+            request.headers.get("authorization"), client=admission.client_of(request)
+        )
+        admission.admit(principal)
     except HTTPException as exc:
         raise from_admission(exc) from None
     if Scope.GATEWAY not in principal.scopes:

@@ -22,7 +22,7 @@ from typing import Any, Literal
 import httpx
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from umai_decision_engine import __version__
 from umai_decision_engine.applications import (
@@ -42,7 +42,7 @@ from umai_decision_engine.contracts.billing import (
 )
 from umai_decision_engine.contracts.common import Action as DecisionAction
 from umai_decision_engine.contracts.common import Phase
-from umai_decision_engine.contracts.credentials import KeyEnv, Scope
+from umai_decision_engine.contracts.credentials import KeyEnv, NetworkListError, Scope
 from umai_decision_engine.contracts.entitlements import EntitlementsView, PlanUpdate, RequestsUsed
 from umai_decision_engine.contracts.gateway import (
     APPLICATION_ID,
@@ -157,6 +157,21 @@ class KeyCreate(BaseModel):
     # The application the key belongs to; its guardrail binds every call of the key (credentials
     # 0.6, ADR-0039). Scopes then default to evaluate and gateway.
     application_id: str | None = Field(None, pattern=APPLICATION_ID)
+    # Networks the key may be used from (credentials 0.8, ADR-0046): IPv4 / IPv6 addresses or
+    # CIDRs; absent, null or empty: any address.
+    allowed_ips: list[str] | None = None
+
+
+class KeyUpdate(BaseModel):
+    """A key's changeable settings (credentials 0.8): its allowed networks; null or []: any."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    allowed_ips: list[str] | None
+
+
+def _invalid_networks(exc: NetworkListError) -> HTTPException:
+    return HTTPException(422, {"error": "invalid_allowed_ips", "detail": str(exc)})
 
 
 async def require_token(request: Request) -> None:
@@ -674,10 +689,39 @@ async def create_key(
             expires_at=body.expires_at,
             created_by="control-token" if actor.kind == "operator" else actor.label,
             application_id=body.application_id,
+            allowed_ips=body.allowed_ips,
         )
+    except NetworkListError as exc:
+        raise _invalid_networks(exc) from exc
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     return {"key": _key_view(record), "secret": secret, "published": published}
+
+
+@router.patch("/tenants/{tenant_id}/keys/{key_id}")
+async def update_key(
+    tenant_id: str,
+    key_id: str,
+    body: KeyUpdate,
+    request: Request,
+    actor: Actor = _ALLOW[Action.KEY_UPDATE],
+) -> dict[str, Any]:
+    """Set or clear an active key's allowed networks; the snapshot is republished so engines
+    enforce the change within one poll interval (ADR-0046 D1)."""
+
+    check_tenant(actor, tenant_id)
+    tenant = await _tenant(request, tenant_id)
+    try:
+        record, published = await _keys(request).set_allowed_ips(tenant, key_id, body.allowed_ips)
+    except NetworkListError as exc:
+        raise _invalid_networks(exc) from exc
+    except NotFound as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except Conflict as exc:
+        raise HTTPException(
+            409, {"error": "key_revoked", "detail": "a revoked key cannot be changed"}
+        ) from exc
+    return {"key": _key_view(record), "published": published}
 
 
 @router.delete("/tenants/{tenant_id}/keys/{key_id}")
