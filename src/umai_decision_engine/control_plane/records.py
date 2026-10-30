@@ -15,8 +15,13 @@ from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from umai_decision_engine.contracts.events import (
+    DecisionDay,
     DecisionEventDetail,
     DecisionEventPage,
+    DecisionEventSummary,
+    EntityCount,
+    PolicyCount,
+    UsageDay,
     UsageGroup,
     UsageSummary,
 )
@@ -27,7 +32,7 @@ from umai_decision_engine.db.models import (
     UsageEventRow,
 )
 from umai_decision_engine.db.repositories import TenantInfo
-from umai_decision_engine.db.session import global_session, tenant_session
+from umai_decision_engine.db.session import global_session, is_postgres, tenant_session
 from umai_decision_engine.events.database import event_from_row, outcome_from_row
 
 log = logging.getLogger("umai.control.records")
@@ -62,9 +67,37 @@ def month_bounds(month: str | None, now: datetime | None = None) -> tuple[str, d
     return month, start, end
 
 
+# Events whose entity types and deciding policies the summary counts; a larger window says so
+# (``truncated``) instead of answering slowly. Day and action counts are exact.
+SUMMARY_SCAN = 20_000
+SUMMARY_TOP = 10
+SUMMARY_DEFAULT_DAYS = 30
+
+
+def _filtered(query, row, filters: dict):
+    for name, value in filters.items():
+        if value is None:
+            continue
+        if name == "since":
+            query = query.where(row.occurred_at >= value)
+        elif name == "until":
+            query = query.where(row.occurred_at < value)
+        else:
+            query = query.where(getattr(row, name) == value)
+    return query
+
+
 class RecordsReader:
-    def __init__(self, engine: AsyncEngine) -> None:
+    def __init__(self, engine: AsyncEngine, *, summary_scan: int = SUMMARY_SCAN) -> None:
         self._engine = engine
+        self._summary_scan = summary_scan
+
+    def _day(self, column):
+        """The UTC calendar day of a timestamp, as ``YYYY-MM-DD``, in the store's dialect."""
+
+        if is_postgres(self._engine):
+            return func.to_char(func.timezone("UTC", column), "YYYY-MM-DD")
+        return func.strftime("%Y-%m-%d", column)
 
     async def events(
         self,
@@ -81,20 +114,19 @@ class RecordsReader:
         review: bool | None = None,
     ) -> DecisionEventPage:
         row = DecisionEventRow
-        query = select(row).where(row.tenant_id == tenant.id)
-        for column, value in (
-            (row.action, action),
-            (row.source, source),
-            (row.application_id, application_id),
-            (row.phase, phase),
-            (row.review, review),
-        ):
-            if value is not None:
-                query = query.where(column == value)
-        if since is not None:
-            query = query.where(row.occurred_at >= since)
-        if until is not None:
-            query = query.where(row.occurred_at < until)
+        query = _filtered(
+            select(row).where(row.tenant_id == tenant.id),
+            row,
+            {
+                "since": since,
+                "until": until,
+                "action": action,
+                "source": source,
+                "application_id": application_id,
+                "phase": phase,
+                "review": review,
+            },
+        )
         if cursor is not None:
             at, row_id = _decode_cursor(cursor)
             query = query.where(
@@ -107,6 +139,82 @@ class RecordsReader:
         return DecisionEventPage(
             events=[event_from_row(r, tenant.slug) for r in page],
             next_cursor=_encode_cursor(page[-1]) if more and page else None,
+        )
+
+    async def summary(
+        self,
+        tenant: TenantInfo,
+        *,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        action: str | None = None,
+        source: str | None = None,
+        application_id: str | None = None,
+        phase: str | None = None,
+        review: bool | None = None,
+    ) -> DecisionEventSummary:
+        """Counts for charts (tagged-action 0.5): per UTC day and decision, per source, and the
+        entity types and policies of the newest events. Default window: the last 30 days."""
+
+        until = until or datetime.now(UTC)
+        since = since or until - timedelta(days=SUMMARY_DEFAULT_DAYS)
+        row = DecisionEventRow
+        filters = {
+            "since": since,
+            "until": until,
+            "action": action,
+            "source": source,
+            "application_id": application_id,
+            "phase": phase,
+            "review": review,
+        }
+        day = self._day(row.occurred_at)
+        by_day_query = _filtered(
+            select(day, row.action, func.count()).where(row.tenant_id == tenant.id), row, filters
+        ).group_by(day, row.action)
+        by_source_query = _filtered(
+            select(row.source, func.count()).where(row.tenant_id == tenant.id), row, filters
+        ).group_by(row.source)
+        sample_query = (
+            _filtered(
+                select(row.entities, row.matched).where(row.tenant_id == tenant.id), row, filters
+            )
+            .order_by(row.occurred_at.desc())
+            .limit(self._summary_scan + 1)
+        )
+        async with tenant_session(self._engine, tenant.id) as session:
+            day_rows = (await session.execute(by_day_query)).all()
+            source_rows = (await session.execute(by_source_query)).all()
+            sample = (await session.execute(sample_query)).all()
+        days: dict[str, dict[str, int]] = {}
+        by_action: dict[str, int] = {}
+        for date, action_, count in day_rows:
+            days.setdefault(date, {})[action_] = int(count)
+            by_action[action_] = by_action.get(action_, 0) + int(count)
+        truncated = len(sample) > self._summary_scan
+        sample = sample[: self._summary_scan]
+        entities: dict[str, int] = {}
+        policies: dict[tuple[str, str], int] = {}
+        for found, matched in sample:
+            for type_ in {e.get("type") for e in found or [] if isinstance(e, dict)}:
+                if type_:
+                    entities[type_] = entities.get(type_, 0) + 1
+            for key in {(m.get("kind"), m.get("id")) for m in matched or [] if isinstance(m, dict)}:
+                if key[0] and key[1]:
+                    policies[key] = policies.get(key, 0) + 1
+        top_entities = sorted(entities.items(), key=lambda kv: (-kv[1], kv[0]))[:SUMMARY_TOP]
+        top_policies = sorted(policies.items(), key=lambda kv: (-kv[1], kv[0]))[:SUMMARY_TOP]
+        return DecisionEventSummary(
+            since=since,
+            until=until,
+            total=sum(by_action.values()),
+            by_action=by_action,
+            by_source={s: int(n) for s, n in source_rows},
+            by_day=[DecisionDay(date=d, actions=a) for d, a in sorted(days.items())],
+            top_entities=[EntityCount(type=t, decisions=n) for t, n in top_entities],
+            top_policies=[PolicyCount(kind=k, id=i, decisions=n) for (k, i), n in top_policies],
+            scanned=len(sample),
+            truncated=truncated,
         )
 
     async def event(self, tenant: TenantInfo, event_id: str) -> DecisionEventDetail | None:
@@ -139,8 +247,18 @@ class RecordsReader:
             .group_by(u.meter, u.source, u.environment, u.application_id)
             .order_by(u.meter, u.source, u.environment, u.application_id)
         )
+        day = self._day(u.occurred_at)
+        daily_query = (
+            select(day, u.meter, func.sum(u.quantity))
+            .where(u.tenant_id == tenant.id, u.occurred_at >= start, u.occurred_at < end)
+            .group_by(day, u.meter)
+        )
         async with tenant_session(self._engine, tenant.id) as session:
             rows = (await session.execute(query)).all()
+            daily_rows = (await session.execute(daily_query)).all()
+        daily: dict[str, dict[str, int]] = {}
+        for date, meter, quantity in daily_rows:
+            daily.setdefault(date, {})[meter] = int(quantity or 0)
         groups = [
             UsageGroup(
                 meter=meter,
@@ -162,6 +280,9 @@ class RecordsReader:
                 "to": end,
                 "totals": totals,
                 "groups": [g.model_dump() for g in groups],
+                "daily": [
+                    UsageDay(date=d, meters=m).model_dump() for d, m in sorted(daily.items())
+                ],
             }
         )
 

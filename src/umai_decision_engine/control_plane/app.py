@@ -351,6 +351,35 @@ async def list_decision_events(
     return page.model_dump(mode="json", by_alias=True, exclude_none=True)
 
 
+@router.get("/decision-events/summary")
+async def summarize_decision_events(
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.DECISIONS_READ],
+    since: datetime | None = None,
+    until: datetime | None = None,
+    action: DecisionAction | None = None,
+    source: Literal["api", "gateway"] | None = None,
+    application_id: str | None = Query(None, max_length=64),
+    phase: Phase | None = None,
+    review: bool | None = None,
+) -> dict[str, Any]:
+    """Counts for charts over the same filters as the list (tagged-action 0.5). Declared before
+    ``/decision-events/{event_id}`` so ``summary`` is not taken for an event id."""
+
+    summary = await request.app.state.records.summary(
+        tenant,
+        since=_utc(since),
+        until=_utc(until),
+        action=action,
+        source=source,
+        application_id=application_id,
+        phase=phase,
+        review=review,
+    )
+    return summary.model_dump(mode="json", by_alias=True)
+
+
 @router.get("/decision-events/{event_id}")
 async def get_decision_event(
     event_id: str,

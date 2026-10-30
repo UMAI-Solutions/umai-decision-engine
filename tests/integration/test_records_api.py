@@ -206,3 +206,122 @@ def test_retention_deletes_only_what_is_past_its_period(tmp_path) -> None:
     assert result["deleted"] == {"decision_events": 1, "l1b_outcomes": 0, "usage_events": 1}
     assert result["events"] == [f"ta-{2:032x}"]  # 31 days old: gone; 5 days: kept
     assert result["usage"] == [f"ta-{1:032x}"]  # usage keeps 400 days
+
+
+# ------------------------------------------------------------ summary and daily usage (0.5 / 0.3)
+
+WINDOW = {"since": "2026-10-29T00:00:00Z", "until": "2026-11-02T00:00:00Z"}
+
+
+def _seed_summary(store) -> None:
+    store(
+        [
+            event(
+                1,
+                decision={"action": "BLOCK", "severity": "HIGH", "decided_by": "L0"},
+                entities=[{"type": "TR_TCKN", "count": 2, "distinct": 1}],
+                matched=[
+                    {"kind": "l0_policy", "id": "identity-data", "version": 1, "action": "BLOCK"}
+                ],
+            ),
+            event(
+                2,
+                decision={
+                    "action": "ALLOW_WITH_MODIFICATIONS",
+                    "severity": "LOW",
+                    "decided_by": "L0",
+                },
+                entities=[{"type": "EMAIL_ADDRESS", "count": 1, "distinct": 1}],
+                matched=[
+                    {
+                        "kind": "l0_policy",
+                        "id": "contact-data",
+                        "version": 1,
+                        "action": "ALLOW_WITH_MODIFICATIONS",
+                    }
+                ],
+            ),
+            event(3, source="gateway", gateway_call_id="gc-1"),
+            event(
+                24 * 60 + 5,  # the next UTC day
+                decision={
+                    "action": "ALLOW_WITH_MODIFICATIONS",
+                    "severity": "LOW",
+                    "decided_by": "L0",
+                },
+                entities=[{"type": "EMAIL_ADDRESS", "count": 3, "distinct": 2}],
+                matched=[
+                    {
+                        "kind": "l0_policy",
+                        "id": "contact-data",
+                        "version": 1,
+                        "action": "ALLOW_WITH_MODIFICATIONS",
+                    }
+                ],
+            ),
+        ]
+    )
+
+
+def test_the_summary_counts_days_decisions_sources_and_what_was_found(client, store) -> None:  # noqa: F811
+    _seed_summary(store)
+    summary = client.get("/v1/decision-events/summary", params=WINDOW).json()
+    assert summary["total"] == 4
+    assert summary["by_action"] == {"BLOCK": 1, "ALLOW_WITH_MODIFICATIONS": 2, "ALLOW": 1}
+    assert summary["by_source"] == {"api": 3, "gateway": 1}
+    assert summary["by_day"] == [
+        {"date": "2026-10-30", "actions": {"ALLOW": 1, "ALLOW_WITH_MODIFICATIONS": 1, "BLOCK": 1}},
+        {"date": "2026-10-31", "actions": {"ALLOW_WITH_MODIFICATIONS": 1}},
+    ]
+    # events in which a type was found, not values: EMAIL_ADDRESS in two events
+    assert summary["top_entities"] == [
+        {"type": "EMAIL_ADDRESS", "decisions": 2},
+        {"type": "TR_TCKN", "decisions": 1},
+    ]
+    assert summary["top_policies"][0] == {"kind": "l0_policy", "id": "contact-data", "decisions": 2}
+    assert (summary["scanned"], summary["truncated"]) == (4, False)
+
+
+def test_the_summary_takes_the_lists_filters(client, store) -> None:  # noqa: F811
+    _seed_summary(store)
+    gateway = client.get(
+        "/v1/decision-events/summary", params={**WINDOW, "source": "gateway"}
+    ).json()
+    assert (gateway["total"], gateway["by_source"]) == (1, {"gateway": 1})
+    blocked = client.get("/v1/decision-events/summary", params={**WINDOW, "action": "BLOCK"}).json()
+    assert blocked["by_action"] == {"BLOCK": 1} and blocked["top_entities"][0]["type"] == "TR_TCKN"
+    first_day = client.get(
+        "/v1/decision-events/summary",
+        params={"since": "2026-10-30T00:00:00Z", "until": "2026-10-31T00:00:00Z"},
+    ).json()
+    assert [d["date"] for d in first_day["by_day"]] == ["2026-10-30"]
+
+
+def test_a_large_window_says_its_top_lists_are_from_the_newest_events(client, store) -> None:  # noqa: F811
+    _seed_summary(store)
+    client.app.state.records._summary_scan = 2  # the limit is 20 000 in service
+    summary = client.get("/v1/decision-events/summary", params=WINDOW).json()
+    assert summary["total"] == 4  # day and decision counts stay exact
+    assert (summary["scanned"], summary["truncated"]) == (2, True)
+
+
+def test_summary_is_not_taken_for_an_event_id_and_needs_the_decisions_permission(client) -> None:  # noqa: F811
+    assert client.get("/v1/decision-events/summary").status_code == 200
+    billing = _as(_assertion(roles=("billing",), sub="auth0|bill2"))
+    assert client.get("/v1/decision-events/summary", headers=billing).status_code == 403
+
+
+def test_usage_comes_per_day_too(client, store) -> None:  # noqa: F811
+    store(
+        [
+            usage(1, "evaluations", 1, at=T0),
+            usage(2, "evaluations", 1, at=T0),
+            usage(3, "gateway_calls", 1, at=T0, source="gateway"),
+            usage(4, "evaluations", 1, at=T0 + timedelta(days=1)),
+        ]
+    )
+    summary = client.get("/v1/usage", params={"month": "2026-10"}).json()
+    assert summary["daily"] == [
+        {"date": "2026-10-30", "meters": {"evaluations": 2, "gateway_calls": 1}},
+        {"date": "2026-10-31", "meters": {"evaluations": 1}},
+    ]
