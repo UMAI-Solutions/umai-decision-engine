@@ -242,24 +242,27 @@ class OrganizationService:
 
     async def set_roles(
         self, tenant: TenantInfo, actor: Actor, user_id: uuid.UUID, roles: list[Role]
-    ) -> dict[str, Any]:
-        self._check_assignable(roles)
-        await self._change(tenant, actor, user_id, [r.value for r in roles])
-        return member_view(
-            next(m for m in await self.memberships.list(tenant) if m.user.id == user_id)
-        )
+    ) -> tuple[dict[str, Any], list[str]]:
+        """The member as it is now, and their roles before (for the audit log)."""
 
-    async def remove(self, tenant: TenantInfo, actor: Actor, user_id: uuid.UUID) -> None:
-        await self._change(tenant, actor, user_id, None)
+        self._check_assignable(roles)
+        before = await self._change(tenant, actor, user_id, [r.value for r in roles])
+        member = next(m for m in await self.memberships.list(tenant) if m.user.id == user_id)
+        return member_view(member), before
+
+    async def remove(self, tenant: TenantInfo, actor: Actor, user_id: uuid.UUID) -> list[str]:
+        """Returns the roles the member had."""
+
+        return await self._change(tenant, actor, user_id, None)
 
     async def _change(
         self, tenant: TenantInfo, actor: Actor, user_id: uuid.UUID, roles: list[str] | None
-    ) -> None:
+    ) -> list[str]:
         """Roles or removal; the ownership rules are checked on the locked memberships, so a
         concurrent grant cannot slip past them."""
 
         try:
-            await self.memberships.change(
+            return await self.memberships.change(
                 tenant, user_id, roles, may_change_owners=Role.OWNER in actor.roles
             )
         except NotFound as exc:

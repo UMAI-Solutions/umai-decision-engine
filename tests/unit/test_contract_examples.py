@@ -10,6 +10,7 @@ from typing import get_args
 import pytest
 import yaml
 
+from umai_decision_engine.contracts.audit import AuditEvent, AuditEventPage
 from umai_decision_engine.contracts.bundle import (
     CONTRACT_VERSION,
     ConditionGroup,
@@ -210,3 +211,10 @@ def test_entitlements_examples() -> None:
     shown = EntitlementsView.model_validate_json(view)
     assert shown.limits == parsed.plans["community"].limits()
     assert PlanUpdate.model_validate_json(update).override_values() == {"monthly_requests": 50_000}
+
+
+def test_audit_examples() -> None:
+    success, denied, page = _blocks("contracts/audit.md", "json")
+    assert AuditEvent.model_validate_json(success).details["roles"]["after"] == ["admin"]
+    assert AuditEvent.model_validate_json(denied).outcome == "denied"
+    assert AuditEventPage.model_validate_json(page).events[0].actor.type == "operator"

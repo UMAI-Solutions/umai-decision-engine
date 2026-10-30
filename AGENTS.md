@@ -191,6 +191,14 @@ async client with `IYZWSv2` signing, the state machine, reconciliation, `billing
 billing details, hosted checkout confirmed by token, plan change, cancel at period end, 14-day
 grace with retries (`/v1/billing…`), signed webhooks on the public `/hooks/iyzico`; migration 0009.
 Tested against a fake iyzico; the sandbox run waits for keys.
+Audit log (2026-10-30, ADR-0045 Proposed, contract audit 0.1): every changing policy-service route
+declares an audit action (`audit: Audit = _AUDIT[...]`) and the router's `AuditRoute`
+(`control_plane/audit.py`) writes one event per call to the append-only tenant table
+`audit_events` (migration 0010): `success`, or `denied` for a 403; actor as subject and user id,
+before/after of non-secret fields, never secrets or billing details. `GET /v1/audit-events`
+(filters, cursor) and `GET /v1/audit-events/export` (CSV) behind `audit.read` (owner, admin);
+400 days (`UMAI_DE_AUDIT_RETENTION_DAYS`). A route-walk test fails for a new changing route
+without an action.
 Tenants are organizations created in the console; API keys, bundles and HMAC keys are per tenant.
 The console signs people in with OIDC (Auth0 development tenant, `umai-control-center`, locally
 since 2026-10-18 and on `umai-beta` since 2026-10-19).

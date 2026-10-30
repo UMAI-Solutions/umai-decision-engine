@@ -153,6 +153,7 @@ class Settings(BaseSettings):
     # and L1b outcomes, and the usage ledger. Per-tenant ranges come with entitlements.
     records_decision_retention_days: int = Field(30, ge=1, le=400)
     records_usage_retention_days: int = Field(400, ge=30, le=3650)
+    audit_retention_days: int = Field(400, ge=30, le=3650)  # ADR-0045, ADR-0030 §4
     records_retention_interval_s: float = Field(3600.0, ge=0)  # 0: the job does not run
     gateway_max_request_bytes: int = Field(16_000_000, ge=10_000, le=200_000_000)
     # Characters the gateway scans per call: the whole history, resent every turn (gateway-api

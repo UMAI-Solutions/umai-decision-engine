@@ -28,6 +28,8 @@ from umai_decision_engine.control_plane.actors import (
 
 log = logging.getLogger("umai.control_plane.authz")
 
+TENANT_HEADER = "X-Umai-Tenant"  # the tenant the operator acts in (ADR-0023 §1)
+
 
 class Action(StrEnum):
     CATALOG_READ = "catalog.read"
@@ -68,6 +70,8 @@ class Action(StrEnum):
     BILLING_READ = "billing.read"
     BILLING_MANAGE = "billing.manage"
     BILLING_COMPLETE = "billing.complete"  # the console's public return route: operator only
+    # the audit log (ADR-0045): read and export
+    AUDIT_READ = "audit.read"
 
 
 @dataclass(frozen=True)
@@ -130,6 +134,7 @@ MATRIX: dict[Action, Rule] = {
     Action.BILLING_READ: _r(_O, _A, _B, operator=True),
     Action.BILLING_MANAGE: _r(_O, _B),  # a purchase names a person (ADR-0023 §1)
     Action.BILLING_COMPLETE: _r(operator=True),
+    Action.AUDIT_READ: _r(_O, _A, operator=True),
 }
 
 _ADMIN_WITHOUT_RBAC = frozenset({_A, _E, _P, _V, _B})

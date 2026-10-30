@@ -210,6 +210,19 @@ def _row(table: str, tenant_id: uuid.UUID, user_id: uuid.UUID | None = None) -> 
         }
     if table == "billing_events":
         return {**base, "kind": "checkout_started", "occurred_at": datetime.now(UTC)}
+    if table == "audit_events":
+        return {
+            **record,
+            "event_id": f"au-{uuid.uuid4().hex}",
+            "actor_type": "person",
+            "actor_sub": "auth0|ada",
+            "action": "key.create",
+            "target_type": "api_key",
+            "target_id": "k0000000",
+            "outcome": "success",
+            "request_id": "req-i",
+            "details": {},
+        }
     raise AssertionError(f"no row factory for {table}: add one when adding a tenant table")
 
 
