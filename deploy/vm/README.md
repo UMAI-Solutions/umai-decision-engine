@@ -216,6 +216,24 @@ processing) and `UMAI_DE_DECISION_PROVIDER_KEYS` into `engine.env`; Compose recr
 and the gateway. Redacted content then goes to OpenAI, in the US unless EU processing is approved
 (Q59). Every converted policy stays in shadow until Q60 is decided.
 
+## 7b. Plans and monthly quotas (optional, ADR-0043)
+
+`UMAI_PLANS=true` in `config.env`, then `umai.sh up`: the policy service reads the image's
+`/app/plans.yaml` (the repository's `deploy/plans.yaml`: Community 10 000 live and 1 000 test-key
+requests a month, 32 000 characters per request; Enterprise metered, not refused) and rewrites
+every tenant's signed snapshot with its limits. Over the limit the engine and the gateway answer
+429 `quota_exceeded`. Counting needs the records (`UMAI_RECORDS_SINK=database`, the default).
+Change one organization's plan as the operator, inside the policy container:
+
+```bash
+sudo docker exec -i umai-policy-1 python - <<'EOF'
+import os, httpx
+headers = {"Authorization": f"Bearer {os.environ['UMAI_DE_CONTROL_API_TOKEN']}"}
+print(httpx.put("http://127.0.0.1:9200/v1/tenants/<tenant>/plan", headers=headers,
+                json={"edition": "enterprise"}).json())
+EOF
+```
+
 ## 8. What this deployment does not have
 
 Records (ADR-0041): the engine and the gateway write decision events and usage to the same

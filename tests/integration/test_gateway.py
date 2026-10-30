@@ -505,6 +505,48 @@ def test_key_needs_the_gateway_scope(make_gateway, tmp_path) -> None:
     assert _call(allowed.presentation).status_code == 200
 
 
+def test_a_used_quota_is_refused_before_anything_is_forwarded(
+    make_gateway, upstream, tmp_path
+) -> None:
+    """gateway-api 0.13, ADR-0043: a call counts once; over the month's requests the gateway
+    answers 429 ``quota_exceeded`` in the OpenAI shape and forwards nothing; ``/v1/models``
+    never counts."""
+
+    key = generate_key("live", "sh")
+    keys = tmp_path / "keys"
+    keys.mkdir()
+    snapshot = KeyRegistrySnapshot.model_validate(
+        {
+            "tenant_id": "tenant-a",
+            "generated_at": datetime.now(UTC),
+            "entitlements": {"edition": "community", "monthly_requests": 2},
+            "keys": [
+                KeyRegistryEntry(
+                    key_id=key.key_id,
+                    secret_sha256=key.secret_sha256,
+                    env="live",
+                    region="sh",
+                    scopes=[Scope.GATEWAY],
+                    status="active",
+                )
+            ],
+        }
+    )
+    (keys / "tenant-a.json").write_text(snapshot.model_dump_json(), encoding="utf-8")
+    client = make_gateway(env="test", key_registry_dir=keys, require_signed_bundles=False)
+    client.headers["Authorization"] = f"Bearer {key.presentation}"
+    assert client.get("/v1/models").status_code == 200
+    assert [ask(client, "selam").status_code for _ in range(2)] == [200, 200]
+    forwarded = len(upstream.requests)
+    refused = ask(client, "selam")
+    assert refused.status_code == 429
+    error = GatewayErrorBody.model_validate(refused.json()).error
+    assert (error.code, error.type) == ("quota_exceeded", "umai_gateway")
+    assert int(refused.headers["retry-after"]) > 0
+    assert len(upstream.requests) == forwarded  # nothing went to the provider
+    assert client.get("/v1/models").status_code == 200
+
+
 # ------------------------------------------------------------------ input checks
 
 

@@ -19,10 +19,17 @@ from umai_decision_engine.contracts.bundle import (
     PolicyBundle,
 )
 from umai_decision_engine.contracts.entities import EntityDetectionResult
+from umai_decision_engine.contracts.entitlements import (
+    EntitlementsView,
+    PlansFile,
+    PlanUpdate,
+    TenantEntitlements,
+)
 from umai_decision_engine.contracts.evaluation import (
     EvaluationRequest,
     EvaluationResponse,
     InputTooLargeBody,
+    QuotaExceededBody,
     ValidationErrorBody,
 )
 from umai_decision_engine.contracts.events import (
@@ -55,6 +62,8 @@ def test_evaluation_api_examples() -> None:
     ValidationErrorBody.model_validate_json(error)
     (too_large,) = [block for block in blocks if '"input_too_large"' in block]
     InputTooLargeBody.model_validate_json(too_large)
+    (over_quota,) = [block for block in blocks if '"quota_exceeded"' in block]
+    QuotaExceededBody.model_validate_json(over_quota)
 
 
 def test_entity_detection_example() -> None:
@@ -176,5 +185,19 @@ def test_credentials_examples() -> None:
 
     record, snapshot, assertion = _blocks("contracts/credentials.md", "json")
     json.loads(record)
-    json.loads(snapshot)
+    TenantEntitlements.model_validate(json.loads(snapshot)["entitlements"])
     ActorAssertion.model_validate_json(assertion)
+
+
+def test_entitlements_examples() -> None:
+    (plans,) = _blocks("contracts/entitlements.md", "yaml")
+    block, view, update = _blocks("contracts/entitlements.md", "json")
+    parsed = PlansFile.model_validate(yaml.safe_load(plans))
+    assert parsed.plans["community"].monthly_requests == 10_000
+    # the doc's plans are the shipped ones (deploy/plans.yaml)
+    shipped = yaml.safe_load((DOCS.parent / "deploy" / "plans.yaml").read_text(encoding="utf-8"))
+    assert PlansFile.model_validate(shipped) == parsed
+    assert TenantEntitlements.model_validate_json(block).edition == "community"
+    shown = EntitlementsView.model_validate_json(view)
+    assert shown.limits == parsed.plans["community"]
+    assert PlanUpdate.model_validate_json(update).override_values() == {"monthly_requests": 50_000}

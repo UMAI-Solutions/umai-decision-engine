@@ -7,7 +7,7 @@ in the same commit (skill `change-contract`).
 
 | Contract | Version | Producer → consumer |
 |---|---|---|
-| [evaluation-api](evaluation-api.md) | 0.12 | caller ↔ engine |
+| [evaluation-api](evaluation-api.md) | 0.13 | caller ↔ engine |
 | [policy-bundle](policy-bundle.md) | 0.9 | policy author / loader → engine |
 | [entity-detection](entity-detection.md) | 0.2 | L0 → L1, pipeline |
 | [decision-questions](decision-questions.md) | 0.4 | bundle → L1b → provider adapters |
@@ -16,8 +16,9 @@ in the same commit (skill `change-contract`).
 | [l2-analysis](l2-analysis.md) | 0.1 | L2 model → worker → findings |
 | [tag-taxonomy](tag-taxonomy.md) | 0.3 | all layers |
 | [policy-tests](policy-tests.md) | 0.3 | policy author → golden-test runner, CI (ADR-0015) |
-| [credentials](credentials.md) | 0.6 | control plane → engines (key registry), control plane ↔ console (key records), console → policy service (on-behalf-of assertion) (ADR-0023) |
-| [gateway-api](gateway-api.md) | 0.11 | caller ↔ UMAI gateway: OpenAI Chat Completions, Responses and embeddings surfaces, applications and providers, refusals, streaming modes (ADR-0034, ADR-0039) |
+| [credentials](credentials.md) | 0.7 | control plane → engines (key registry), control plane ↔ console (key records), console → policy service (on-behalf-of assertion) (ADR-0023) |
+| [gateway-api](gateway-api.md) | 0.13 | caller ↔ UMAI gateway: OpenAI Chat Completions, Responses and embeddings surfaces, applications and providers, refusals, streaming modes (ADR-0034, ADR-0039) |
+| [entitlements](entitlements.md) | 0.1 | plans file → policy service → engines (tenant snapshot) and console: plans, tenant limits, monthly quota (ADR-0043) |
 | [organizations](organizations.md) | 0.2 | policy service ↔ console: organizations, memberships, invitations, verified domains (ADR-0033) |
 
 ## Versioning rules

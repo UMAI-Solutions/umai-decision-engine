@@ -3,21 +3,26 @@ scopes, within which rate. Replaces the single shared-token check of ADR-0016 wh
 that token valid for self-hosted installs (§8).
 
 Errors follow the evaluation API contract 0.6: 401 ``invalid_credential``, 403
-``tenant_mismatch`` / ``insufficient_scope``, 429 ``rate_limited`` with ``Retry-After``.
+``tenant_mismatch`` / ``insufficient_scope``, 429 ``rate_limited`` with ``Retry-After``; since
+0.13 429 ``quota_exceeded`` for a tenant's used monthly requests (ADR-0043).
 """
 
 from __future__ import annotations
 
 import hmac
 import logging
+import math
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from fastapi import HTTPException, Request
 
 from umai_decision_engine.contracts.credentials import Scope
+from umai_decision_engine.contracts.entitlements import TenantEntitlements
+from umai_decision_engine.contracts.evaluation import QuotaExceededDetail
 from umai_decision_engine.tenancy.keys import hashes_match, parse_key
 from umai_decision_engine.tenancy.limits import RateLimiter, retry_after_seconds
+from umai_decision_engine.tenancy.quota import QuotaCounter, QuotaRefusal, quota_environment
 from umai_decision_engine.tenancy.registry import KeyRegistry
 
 log = logging.getLogger("umai.tenancy.admission")
@@ -61,6 +66,27 @@ class Principal:
         return self.tenant_id
 
 
+def quota_exceeded(refusal: QuotaRefusal, now: datetime | None = None) -> HTTPException:
+    """429 ``quota_exceeded`` (evaluation API 0.13): the limit, the count, when it resets."""
+
+    wait = (refusal.resets_at - (now or datetime.now(UTC))).total_seconds()
+    detail = QuotaExceededDetail(
+        detail=(
+            f"this organization used its {refusal.limit} {refusal.environment} requests for "
+            f"the month; the quota resets at {refusal.resets_at.isoformat()}"
+        ),
+        limit=refusal.limit,
+        used=refusal.used,
+        environment=refusal.environment,
+        resets_at=refusal.resets_at,
+    )
+    return HTTPException(
+        429,
+        detail.model_dump(mode="json"),
+        headers={"Retry-After": str(max(1, math.ceil(wait)))},
+    )
+
+
 def _unauthorized() -> HTTPException:
     return HTTPException(
         401,
@@ -77,11 +103,49 @@ class Admission:
         registry: KeyRegistry | None,
         limiter: RateLimiter | None,
         development: bool,
+        quota: QuotaCounter | None = None,
     ) -> None:
         self.shared_token = shared_token
         self.registry = registry
         self.limiter = limiter
         self.development = development
+        self.quota = quota
+
+    def limits(self, tenant_id: str) -> TenantEntitlements | None:
+        """The tenant's limits from its signed snapshot (ADR-0043 D1); ``None``: none."""
+
+        return self.registry.entitlements(tenant_id) if self.registry is not None else None
+
+    def max_input_chars(self, tenant_id: str, deployment: int) -> int:
+        """The tenant's prompt-size limit, never above the deployment's."""
+
+        limits = self.limits(tenant_id)
+        if limits is None or limits.max_input_chars is None:
+            return deployment
+        return min(deployment, limits.max_input_chars)
+
+    def admit_quota(self, tenant_id: str, key_env: str | None) -> None:
+        """Count one request toward the tenant's month, or refuse it with 429 before anything
+        is evaluated (ADR-0043 D2, D5). Call it after every other admission check, so a refused
+        request is never counted."""
+
+        if self.quota is None:
+            return
+        limits = self.limits(tenant_id)
+        if limits is None:
+            return
+        environment = quota_environment(key_env)
+        refusal = self.quota.admit(tenant_id, environment, limits.monthly(environment))
+        if refusal is None:
+            return
+        log.info(
+            "admission.refused reason=quota_exceeded tenant=%s environment=%s used=%d limit=%d",
+            tenant_id,
+            environment,
+            refusal.used,
+            refusal.limit,
+        )
+        raise quota_exceeded(refusal)
 
     def authenticate(self, authorization: str | None, *, now: datetime | None = None) -> Principal:
         scheme, _, value = (authorization or "").partition(" ")

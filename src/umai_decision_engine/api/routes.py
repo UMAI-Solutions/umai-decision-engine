@@ -53,9 +53,11 @@ def _bundle_tenant(request: Request, principal: Principal) -> str:
 
 def _enforce_input_size(request: Request, body: EvaluationRequest) -> None:
     """Prompt-size admission (ADR-0019 §4, evaluation API 0.9): over the limit nothing is
-    evaluated and nothing is truncated; the caller's failure policy decides what happens next."""
+    evaluated and nothing is truncated; the caller's failure policy decides what happens next.
+    The tenant's ``max_input_chars``, capped by the deployment's (0.13, ADR-0043)."""
 
-    limit = request.app.state.settings.max_input_chars
+    state = request.app.state
+    limit = state.admission.max_input_chars(body.tenant_id, state.settings.max_input_chars)
     size = input_size(body.content)
     if size > limit:
         log.info(
@@ -156,6 +158,8 @@ async def evaluate(
     body = body.model_copy(update={"tenant_id": principal.bind_tenant(body.tenant_id)})
     body = _bind_application(request, principal, body)
     _enforce_input_size(request, body)
+    # Last admission step: only a request that passed every other check counts (ADR-0043).
+    request.app.state.admission.admit_quota(body.tenant_id, principal.env)
     context = RecordContext(  # who called, for the records (ADR-0041): from the credential
         source="api",
         key_id=principal.key_id,

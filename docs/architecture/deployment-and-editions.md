@@ -146,9 +146,12 @@ limits are per tenant, capped by a deployment-wide maximum chosen from measured 
 happens above its Community limit; our 413 is a deliberate choice.
 
 **Request quota.** Counted per tenant per calendar month (UTC) at admission. Rejected 4xx
-requests do not count; failure-policy decisions do. Under concurrency the count may overshoot
-by the number of in-flight requests across replicas; this is accepted and documented. The
-console shows usage and warns at 80 % and 100 %. Counter store for SaaS: Q23.
+requests do not count; failure-policy decisions do. A request is an evaluate call or an AI
+Gateway call (a gateway call counts once); test keys have their own quota (ADR-0043). Limits
+come from the plans file per edition with operator overrides per tenant, carried in the tenant's
+signed snapshot. Each process counts in memory from the usage ledger, so the count may overshoot
+by processes × refresh interval × request rate; this is accepted and documented. The console
+shows usage and warns at 80 % and 100 %. Counter store for many replicas: Q23 (Redis).
 
 **Rate limits.** Per-second limits against abuse belong at the SaaS ingress. They are not
 part of the edition table (Q27).

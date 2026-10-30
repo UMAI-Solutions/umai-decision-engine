@@ -118,7 +118,7 @@ roles (8.x). Not deployed on `umai-beta` yet: Caddy basic auth stays in front of
 | 15.2.3 | 2 | No test/dev features in production | holds | development gates above | — |
 | 4.1.1 | 1 | Correct `Content-Type` | holds | FastAPI JSON responses | — |
 | 2.2.2 | 1 | Server-side input validation | holds | Pydantic contracts, bundle validation | — |
-| 2.1.3, 2.3.2, 2.4.1 | 2 | Documented and implemented business limits; anti-automation | partial | size limit (413, readiness T2 green 2026-10-19) and per-key rate limit (429) hold; no monthly quota yet | ADR-0028 |
+| 2.1.3, 2.3.2, 2.4.1 | 2 | Documented and implemented business limits; anti-automation | **holds** (2026-10-30) | size limit (413, readiness T2 green 2026-10-19) and per-key rate limit (429); monthly request quota per tenant from its plan (429 `quota_exceeded`, readiness M1 green, ADR-0043) | ADR-0043; Redis counters for many replicas (ADR-0028 §3) |
 | 15.1.3 / 15.2.2 | 2 | Resource-intensive functions documented and protected | partial | regex timeout exists; scan length unbounded | ADR-0019 §4 |
 
 ASVS tally over the rows above (2026-10-18, after ADR-0023/0025 code): **holds 18 · partial 10 · missing 24 · n/a 10**.
@@ -147,7 +147,7 @@ ASVS tally over the rows above (2026-10-18, after ADR-0023/0025 code): **holds 1
 | API1 Broken object-level authorization | **missing** | any token reads any bundle version or guardrail draft |
 | API2 Broken authentication | **holds** | per-tenant keys, hashed, revocable within one poll interval, rotation by second key |
 | API3 Broken object property-level authorization | holds | `extra="forbid"` contracts; response models exclude internals |
-| API4 Unrestricted resource consumption | partial | prompt-size limit (readiness T2 green) and per-key rate limit; body cap only at the ingress; no quota |
+| API4 Unrestricted resource consumption | partial | prompt-size limit (readiness T2 green), per-key rate limit and monthly quota per tenant (readiness M1 green, 2026-10-30); body cap only at the ingress |
 | API5 Broken function-level authorization | partial | engine routes behind scopes; policy-service publish/activate still open to the operator token (roles: ADR-0029) |
 | API6 Unrestricted access to sensitive business flows | **missing** | publish → activate without approval or actor |
 | API7 SSRF | holds | no user-supplied URLs are fetched (allowed domains are matched, not fetched) |
@@ -160,7 +160,7 @@ ASVS tally over the rows above (2026-10-18, after ADR-0023/0025 code): **holds 1
 | Item | Relevance | Status |
 |---|---|---|
 | LLM02 Sensitive information disclosure | The product's purpose; also our own logs/telemetry | holds in code (ADR-0005, leak suite, 422 without input since 2026-10-19) |
-| LLM06 Unbounded consumption | Our engine must not be the unbounded component | **missing** (limits) |
+| LLM06 Unbounded consumption | Our engine must not be the unbounded component | partial (size, rate and monthly quota hold; spend alerts open, ADR-0028 §7) |
 | LLM08 Hidden context exposure | Policy bundles and exceptions are "hidden context" for a customer's agents | **missing** (bundles readable by any token holder) |
 | LLM04 Supply chain | Models (future L1b/L2), Presidio, dependencies | **missing** (no SBOM/audit) |
 | LLM01 Prompt injection | Content is data to L0; no model on the request path today | holds by design until L1b arrives |

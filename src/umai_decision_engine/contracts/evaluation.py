@@ -260,6 +260,22 @@ class InputTooLargeDetail(ContractModel):
     unit: Literal["characters"] = "characters"
 
 
+class QuotaExceededDetail(ContractModel):
+    error: Literal["quota_exceeded"] = "quota_exceeded"
+    detail: str
+    limit: int
+    used: int
+    environment: Literal["live", "test"]
+    resets_at: datetime
+
+
+class QuotaExceededBody(ContractModel):
+    """HTTP 429 body (evaluation API 0.13, ADR-0043): the month's requests are used; nothing was
+    evaluated."""
+
+    detail: QuotaExceededDetail
+
+
 class InputTooLargeBody(ContractModel):
     """HTTP 413 body (evaluation API 0.9): nothing was evaluated, nothing was truncated."""
 

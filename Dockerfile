@@ -28,6 +28,8 @@ RUN useradd --system --uid 10001 --home-dir /app umai \
 COPY --from=build /opt/venv /opt/venv
 # Seed bundles for an empty policy volume (deploy/vm/seed-policies.sh); never read in place.
 COPY --chown=umai policies /app/seed-policies
+# The product's plans (contract entitlements, ADR-0043); used when UMAI_DE_PLANS_FILE names it.
+COPY --chown=umai deploy/plans.yaml /app/plans.yaml
 WORKDIR /app
 USER umai
 

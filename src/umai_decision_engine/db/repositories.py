@@ -46,6 +46,8 @@ class TenantInfo:
     terms_version: str | None = None
     terms_accepted_by: uuid.UUID | None = None
     terms_accepted_at: datetime | None = None
+    # An operator's limits over the plan (entitlements 0.1, ADR-0043)
+    entitlement_overrides: dict | None = None
 
     def public(self) -> dict:
         return {
@@ -70,6 +72,7 @@ def tenant_info(row: Tenant) -> TenantInfo:
         row.terms_version,
         row.terms_accepted_by,
         row.terms_accepted_at,
+        row.entitlement_overrides,
     )
 
 
@@ -114,6 +117,18 @@ class TenantRepository:
         if tenant is None:
             raise NotFound(f"tenant {slug} does not exist")
         return tenant
+
+    async def set_plan(self, slug: str, edition: str, overrides: dict) -> TenantInfo:
+        """The tenant's edition and its operator overrides (ADR-0043); empty overrides: none."""
+
+        async with global_session(self.engine) as session:
+            row = await session.scalar(select(Tenant).where(Tenant.slug == slug))
+            if row is None:
+                raise NotFound(f"tenant {slug} does not exist")
+            row.edition = edition
+            row.entitlement_overrides = overrides or None
+            await session.flush()
+            return tenant_info(row)
 
     async def get_or_create(self, slug: str, region: str) -> TenantInfo:
         tenant = await self.get(slug)

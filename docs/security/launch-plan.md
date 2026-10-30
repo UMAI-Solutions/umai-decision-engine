@@ -119,7 +119,7 @@ accepted; billing provider chosen.
 | S1-2 | Per-tenant encryption of confidential columns; erasure destroys keys | key inventory; erasure test | eng | open |
 | S1-3 | West Europe and East US 2 stacks cannot reach each other's data; wrong-region key refused | AKS NetworkPolicy and VNet test; readiness T7 | ops / eng | open |
 | S1-4 | Usage ledger = usage endpoint = invoice line on a test tenant | reconciliation report; provider invoice | eng + company | open |
-| S1-5 | Quota and size enforcement from entitlements; Redis-down behaviour recorded | ADR-0019 tests; chaos test log | eng | open |
+| S1-5 | Quota and size enforcement from entitlements; Redis-down behaviour recorded | ADR-0019 tests; chaos test log | eng | partial (2026-10-30, ADR-0043: plans and per-tenant limits in the signed snapshot, 429 `quota_exceeded`, readiness M1 green, ledger-down behaviour tested; Redis counters and the chaos test open) |
 | S1-6 | Roles enforced in services; permission matrix complete | Z1 green | eng | open |
 | S1-7 | Restore drill in North Europe (geo-backup restore and read-replica promotion) within RTO | drill log with timestamps | ops | open |
 | S1-8 | Pentest #1: no open critical/high | report + retest letter | external | open |

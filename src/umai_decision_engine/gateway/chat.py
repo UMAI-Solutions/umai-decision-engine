@@ -144,6 +144,17 @@ def _admit(request: Request) -> Caller:
     return Caller(tenant, principal.application_id, principal.key_id, principal.env)
 
 
+def admit_quota(request: Request, caller: Caller) -> None:
+    """Count the call toward the tenant's month, or refuse it with 429 ``quota_exceeded``
+    before anything is checked or forwarded (gateway-api 0.13, ADR-0043). A call counts once;
+    ``/v1/models`` never calls this."""
+
+    try:
+        request.app.state.admission.admit_quota(caller.tenant, caller.environment)
+    except HTTPException as exc:
+        raise from_admission(exc) from None
+
+
 async def _read_body(request: Request) -> dict[str, Any]:
     limit = request.app.state.settings.gateway_max_request_bytes
     declared = request.headers.get("content-length")
@@ -429,6 +440,7 @@ async def chat_completions(request: Request) -> Response:
             413, "input_too_large", f"the text content exceeds {limit} characters"
         )
 
+    admit_quota(request, caller)  # last check: a refused call never counts (ADR-0043)
     call = Call(
         ctx=CallContext(
             request_id, tenant, route, _subject(request, body), record_context(caller, route)

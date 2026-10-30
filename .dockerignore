@@ -15,3 +15,4 @@ evals
 tests
 dev
 deploy
+!deploy/plans.yaml

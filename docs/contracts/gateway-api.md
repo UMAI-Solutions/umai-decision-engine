@@ -1,6 +1,6 @@
 # Contract: gateway API
 
-**Version:** 0.12 · **Status:** implemented for Chat Completions and the Responses API,
+**Version:** 0.13 · **Status:** implemented for Chat Completions and the Responses API,
 non-streaming and streaming, and for embeddings (input checks): applications, providers, input, tool-result, answer and tool-call checks, masking,
 restoration and refusals (WP2, WP3, WP5; [design](../architecture/ai-gateway.md) §8) · **Endpoints**
 (gateway host, e.g. `eu.gateway.<domain>`): `POST /v1/chat/completions`, `POST /v1/responses`, `POST /v1/embeddings`,
@@ -405,6 +405,7 @@ Admission and gateway errors use the OpenAI error shape with `type: "umai_gatewa
 | 404 | `model_not_allowed` | The application has a `models` list and `model` is neither in it nor an alias |
 | 413 | `request_too_large`, `input_too_large` | Body bytes or scanned characters above the limit |
 | 429 | `rate_limited` | Admission limit per key, with `Retry-After` |
+| 429 | `quota_exceeded` | The tenant used this month's requests ([entitlements](entitlements.md), ADR-0043); `Retry-After` until the first of next month (UTC). Nothing is checked or forwarded. Each Chat Completions, Responses or embeddings call counts once; `GET /v1/models` never counts and is never refused for quota |
 | 500 | `provider_misconfigured` | A `secret` provider whose key the deployment does not hold |
 | 502 | `upstream_unreachable`, `upstream_invalid_response` | Connection failed, or a non-JSON answer |
 | 504 | `upstream_timeout` | A gateway timeout expired |
@@ -422,6 +423,8 @@ latency. No record carries prompt, answer, provider key or mask map (ADR-0035).
 
 ## Changelog
 
+- 0.13 (2026-10-30, ADR-0043): 429 `quota_exceeded` when the tenant's monthly requests are used;
+  a call counts once toward the quota.
 - 0.12 (2026-10-20, review fixes after merging): the default provider never moves silently:
   `PUT` without `default` keeps it, `DELETE` is refused while an application relies on it.
   Changing an existing application's guardrail also needs `guardrail.activate`.

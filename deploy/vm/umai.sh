@@ -28,9 +28,14 @@ RUN="${UMAI_RUN_DIR:-/run/umai}"
 UMAI_CONSOLE_BASIC_AUTH="${UMAI_CONSOLE_BASIC_AUTH:-true}"  # unset keeps the gate of earlier releases
 UMAI_ACTOR_KEY_ID="${UMAI_ACTOR_KEY_ID:-console-1}"
 UMAI_GATEWAY="${UMAI_GATEWAY:-false}"  # true: run the UMAI gateway (Compose profile "gateway")
+UMAI_PLANS="${UMAI_PLANS:-false}"  # true: the image's plans and monthly quotas (ADR-0043)
 # A security gate is never switched off by a typo ("False", "no", "yes" …): refuse to go on.
 if [[ "$UMAI_CONSOLE_BASIC_AUTH" != "true" && "$UMAI_CONSOLE_BASIC_AUTH" != "false" ]]; then
   echo "umai: UMAI_CONSOLE_BASIC_AUTH in $CONFIG must be true or false" >&2
+  exit 1
+fi
+if [[ "$UMAI_PLANS" != "true" && "$UMAI_PLANS" != "false" ]]; then
+  echo "umai: UMAI_PLANS in $CONFIG must be true or false" >&2
   exit 1
 fi
 
@@ -209,6 +214,8 @@ secrets() {
     printf 'UMAI_DE_DATABASE_URL=postgresql+asyncpg://umai_app:%s@postgres:5432/umai\n' "$db_app"
     printf 'UMAI_DE_DATABASE_ADMIN_URL=postgresql+asyncpg://umai_owner:%s@postgres:5432/umai\n' "$db_owner"
     printf 'UMAI_DE_ACTOR_PUBLIC_KEYS={"%s":"%s"}\n' "$UMAI_ACTOR_KEY_ID" "$actor_public"
+    # Plans: the policy service writes each tenant's limits into its snapshot (ADR-0043).
+    if [[ "$UMAI_PLANS" == "true" ]]; then printf 'UMAI_DE_PLANS_FILE=/app/plans.yaml\n'; fi
   } >>"$RUN/policy.env"
   printf 'POSTGRES_PASSWORD=%s\nUMAI_DB_APP_PASSWORD=%s\n' "$db_owner" "$db_app" |
     put "$RUN/postgres.env" 0
