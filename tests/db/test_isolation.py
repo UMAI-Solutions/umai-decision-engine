@@ -17,7 +17,7 @@ from datetime import UTC, datetime
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import insert, select, text
+from sqlalchemy import delete, insert, select, text, update
 from sqlalchemy.exc import DBAPIError, ProgrammingError
 
 from umai_decision_engine.db.migrate import upgrade
@@ -30,6 +30,7 @@ from umai_decision_engine.db.repositories import (
     TenantRepository,
 )
 from umai_decision_engine.db.rls import (
+    APPEND_ONLY_TABLES,
     GLOBAL_TABLES,
     POLICY_NAME,
     SELF_POLICY_NAME,
@@ -129,6 +130,47 @@ def _row(table: str, tenant_id: uuid.UUID, user_id: uuid.UUID | None = None) -> 
         }
     if table == "drafts":
         return {**base, "bundle_id": uuid.uuid4().hex[:8], "base_version": 1, "bundle": {}}
+    record = {**base, "event_id": f"ta-{uuid.uuid4().hex}", "occurred_at": datetime.now(UTC)}
+    if table == "decision_events":
+        return {
+            **record,
+            "source": "api",
+            "request_id": "req-i",
+            "engine_version": "0.1.0",
+            "bundle_id": "gr-test",
+            "phase": "PRE_LLM",
+            "action": "ALLOW",
+            "severity": "LOW",
+            "decided_by": "L1a",
+            "degraded": False,
+            "review": False,
+            "review_reasons": [],
+            "entities": [],
+            "tags": [],
+            "matched": [],
+            "errors": [],
+            "latency_total_ms": 1.0,
+        }
+    if table == "l1b_outcomes":
+        return {
+            **record,
+            "bundle_id": "gr-test",
+            "phase": "PRE_LLM",
+            "policy_id": "prompt-attack",
+            "policy_version": 1,
+            "enforcement": "shadow",
+            "outcome": "decided",
+            "tags": [],
+            "review_reasons": [],
+        }
+    if table == "usage_events":
+        return {
+            **record,
+            "meter": "evaluations",
+            "quantity": 1,
+            "source": "api",
+            "degraded": False,
+        }
     raise AssertionError(f"no row factory for {table}: add one when adding a tenant table")
 
 
@@ -201,6 +243,50 @@ async def test_with_check_rejects_foreign_tenant_inserts(pg, two_tenants, table)
     with pytest.raises(ProgrammingError):
         async with tenant_session(pg, b.id) as session:
             await session.execute(insert(model).values(**_row(table, a.id, user)))
+
+
+# ------------------------------------------------------------ append-only records (ADR-0041)
+
+
+@postgres
+@pytest.mark.asyncio
+@pytest.mark.parametrize("table", APPEND_ONLY_TABLES)
+async def test_records_are_append_only_for_the_application_role(pg, two_tenants, table) -> None:
+    a, _ = two_tenants
+    model = TENANT_MODELS[table]
+    async with tenant_session(pg, a.id) as session:
+        await session.execute(insert(model).values(**_row(table, a.id)))
+    for statement in (update(model).values(event_id="ta-changed"), delete(model)):
+        with pytest.raises(DBAPIError):  # permission denied: INSERT and SELECT only
+            async with tenant_session(pg, a.id) as session:
+                await session.execute(statement)
+    async with tenant_session(pg, a.id) as session:
+        assert len((await session.execute(select(model))).all()) == 1
+
+
+@postgres
+@pytest.mark.asyncio
+async def test_the_records_writer_writes_once_and_only_for_its_tenant(pg, two_tenants) -> None:
+    from umai_decision_engine.contracts.events import UsageRecord
+    from umai_decision_engine.db.models import UsageEventRow
+    from umai_decision_engine.events.database import DatabaseRecordWriter
+
+    a, b = two_tenants
+    record = UsageRecord(
+        event_id=f"ta-{uuid.uuid4().hex}",
+        tenant_id=a.slug,
+        occurred_at=datetime.now(UTC),
+        meter="evaluations",
+        quantity=1,
+        source="api",
+    )
+    writer = DatabaseRecordWriter(pg)
+    assert (await writer.write([record])).written == 1
+    assert (await writer.write([record])).written == 1  # retried: ON CONFLICT DO NOTHING
+    async with tenant_session(pg, a.id) as session:
+        assert len((await session.execute(select(UsageEventRow))).all()) == 1
+    async with tenant_session(pg, b.id) as session:
+        assert (await session.execute(select(UsageEventRow))).all() == []
 
 
 # ------------------------------------------------------------ member_self (ADR-0033 §2)

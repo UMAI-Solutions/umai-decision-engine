@@ -1,4 +1,4 @@
-"""Suite `leak`: does any raw value appear in responses, traces or logs? Must be 0.
+"""Suite `leak`: does any raw value appear in responses, traces, logs or stored records? Must be 0.
 
 Every dataset case with entities is evaluated through the full pipeline (`Evaluator`) against
 a bundle (default: the active `gr-demo-data-protection`), with trace on and every log record
@@ -38,6 +38,7 @@ from umai_decision_engine.contracts.evaluation import (
     EvaluationRequest,
     Flags,
 )
+from umai_decision_engine.events.recorder import MemoryRecorder
 from umai_decision_engine.l0.detector import EntityDetector
 from umai_decision_engine.pipeline.orchestrator import Evaluator
 from umai_decision_engine.policy.sources import DirectorySource
@@ -83,7 +84,8 @@ async def _evaluate_all(
         require_signed_bundles=False,
         allow_inline_bundles=False,
     )
-    evaluator = Evaluator(store, detector, settings)
+    recorder = MemoryRecorder()  # the records the engine would store (ADR-0041)
+    evaluator = Evaluator(store, detector, settings, recorder=recorder)
 
     capture = _Capture()
     capture.setFormatter(logging.Formatter("%(name)s %(levelname)s %(message)s"))
@@ -97,6 +99,7 @@ async def _evaluate_all(
     try:
         for case in cases:
             capture.messages.clear()
+            recorder.records.clear()
             request = EvaluationRequest(
                 contract_version=CONTRACT_VERSION,
                 request_id=f"leak:{case['case_id']}",
@@ -112,16 +115,19 @@ async def _evaluate_all(
                 flags=Flags(trace=True),
             )
             response = await evaluator.evaluate(request)
+            await evaluator.l1b.drain()  # shadow outcomes are records too
             actions[str(response.decision.action)] += 1
             payload = response.model_dump(mode="json", exclude_none=True)
             redacted = (payload.get("output_modifications") or {}).pop("redacted_text", None)
             outputs = json.dumps(payload, ensure_ascii=False)
             logs = "\n".join(capture.messages)
+            records = "\n".join(r.model_dump_json() for r in recorder.records)
             row = {
                 "case_id": case["case_id"],
                 "action": str(response.decision.action),
                 "response": [],
                 "logs": [],
+                "records": [],
                 "reaches_destination": [],
             }
             # What the caller forwards when the decision allows: the masked text, or the
@@ -135,6 +141,8 @@ async def _evaluate_all(
                     row["response"].append(expected["type"])
                 if any(f in logs for f in forms):
                     row["logs"].append(expected["type"])
+                if any(f in records for f in forms):
+                    row["records"].append(expected["type"])
                 if forwarded and any(f in forwarded for f in forms):
                     row["reaches_destination"].append(expected["type"])
             rows.append(row)
@@ -158,8 +166,9 @@ def run(args: argparse.Namespace) -> Path:
 
     response_leaks = [r["case_id"] for r in rows if r["response"]]
     log_leaks = [r["case_id"] for r in rows if r["logs"]]
+    record_leaks = [r["case_id"] for r in rows if r["records"]]
     reaching = [r for r in rows if r["reaches_destination"]]
-    verdict = "PASS" if not response_leaks and not log_leaks else "FAIL"
+    verdict = "PASS" if not (response_leaks or log_leaks or record_leaks) else "FAIL"
     lines = [
         f"# leak — {info.tag}",
         "",
@@ -175,6 +184,7 @@ def run(args: argparse.Namespace) -> Path:
         "|---|---|---|",
         f"| Response and trace (outside the masked text) | {len(response_leaks)} | 0 |",
         f"| Logs | {len(log_leaks)} | 0 |",
+        f"| Stored records (decision events, L1b outcomes, usage) | {len(record_leaks)} | 0 |",
         "",
         "Decisions: " + ", ".join(f"{a} {n}" for a, n in sorted(actions.items())),
         "",
@@ -194,5 +204,7 @@ def run(args: argparse.Namespace) -> Path:
         lines += ["", f"Response leaks: {', '.join(response_leaks)}"]
     if log_leaks:
         lines += ["", f"Log leaks: {', '.join(log_leaks)}"]
+    if record_leaks:
+        lines += ["", f"Record leaks: {', '.join(record_leaks)}"]
     (directory / "summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     return directory

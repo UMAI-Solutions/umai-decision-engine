@@ -20,6 +20,7 @@ from umai_decision_engine.contracts.evaluation import (
     InputTooLargeDetail,
     input_size,
 )
+from umai_decision_engine.contracts.events import RecordContext
 from umai_decision_engine.l0.target import extract_target_text
 from umai_decision_engine.policy.validate import BundleValidationError
 from umai_decision_engine.tenancy.admission import Principal, require_scope
@@ -155,8 +156,14 @@ async def evaluate(
     body = body.model_copy(update={"tenant_id": principal.bind_tenant(body.tenant_id)})
     body = _bind_application(request, principal, body)
     _enforce_input_size(request, body)
+    context = RecordContext(  # who called, for the records (ADR-0041): from the credential
+        source="api",
+        key_id=principal.key_id,
+        environment=principal.env if principal.env in ("live", "test") else None,
+        application_id=principal.application_id,
+    )
     try:
-        return await request.app.state.evaluator.evaluate(body)
+        return await request.app.state.evaluator.evaluate(body, context=context)
     except PermissionError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

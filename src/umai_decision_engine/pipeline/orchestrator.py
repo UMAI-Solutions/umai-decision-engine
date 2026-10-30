@@ -10,6 +10,9 @@
 - L1a rules are not implemented yet: a bundle with L1a rules is answered with its
   ``on_evaluation_failure`` and an explicit ``L1_NOT_IMPLEMENTED`` error — never a silent allow
   (AGENTS.md rule 4).
+- Records (ADR-0041): every exit hands a decision event and an ``evaluations`` usage record to
+  the recorder, and every L1b call its outcome and usage records. The recorder never blocks and
+  a failing record never changes the decision (ADR-0042).
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 
 from umai_decision_engine.contracts.bundle import PolicyBundle, TargetScope
 from umai_decision_engine.contracts.common import (
@@ -41,12 +45,20 @@ from umai_decision_engine.contracts.evaluation import (
     Tag,
     TraceEntry,
 )
+from umai_decision_engine.contracts.events import EventL1b, RecordContext
+from umai_decision_engine.events.build import (
+    decision_event,
+    evaluation_usage,
+    l1b_outcome,
+    l1b_usage,
+)
+from umai_decision_engine.events.recorder import NullRecorder, Recorder
 from umai_decision_engine.l0.detector import EntityDetector
 from umai_decision_engine.l0.hashing import TenantKeyError
 from umai_decision_engine.l0.recognizers.catalog import TAG_BY_ENTITY
 from umai_decision_engine.l0.target import SEPARATOR, extract_target_parts
 from umai_decision_engine.l1.decision_models.registry import DecisionModels
-from umai_decision_engine.l1.stage import L1bStage, stricter
+from umai_decision_engine.l1.stage import L1bReport, L1bResult, L1bStage, stricter
 from umai_decision_engine.pipeline.failure import config_failure_decision, failure_decision
 from umai_decision_engine.pipeline.l0_gate import decide_l0
 from umai_decision_engine.pipeline.l0_policies import phase_config, type_rules
@@ -124,11 +136,13 @@ class Evaluator:
         detector: EntityDetector,
         settings: Settings,
         decision_models: DecisionModels | None = None,
+        recorder: Recorder | None = None,
     ) -> None:
         self._store = store
         self._detector = detector
         self._settings = settings
-        self.l1b = L1bStage(decision_models or DecisionModels({}))
+        self.recorder: Recorder = recorder or NullRecorder()
+        self.l1b = L1bStage(decision_models or DecisionModels({}), report=self._record_l1b)
 
     def resolve_bundle(
         self, request: EvaluationRequest
@@ -154,14 +168,22 @@ class Evaluator:
             )
         return loaded, None
 
-    async def evaluate(self, request: EvaluationRequest) -> EvaluationResponse:
-        return (await self.evaluate_detailed(request)).response
+    async def evaluate(
+        self, request: EvaluationRequest, *, context: RecordContext | None = None
+    ) -> EvaluationResponse:
+        return (await self.evaluate_detailed(request, context=context)).response
 
     async def evaluate_detailed(
-        self, request: EvaluationRequest, *, target: TargetScope | None = None
+        self,
+        request: EvaluationRequest,
+        *,
+        target: TargetScope | None = None,
+        context: RecordContext | None = None,
     ) -> Evaluated:
         """``target`` overrides the bundle's ``l0.target`` (the gateway scans every message it
-        forwards, gateway-api 0.2); callers of the HTTP API never set it."""
+        forwards, gateway-api 0.2); callers of the HTTP API never set it. ``context`` names the
+        caller in the records (source, key, application); ``None`` records an API call without
+        a key."""
 
         started = time.perf_counter()
         event_id = new_event_id()
@@ -187,38 +209,41 @@ class Evaluator:
             )
         if loaded is None:
             assert missing is not None
-            return Evaluated(
-                self._config_response(
-                    request,
-                    event_id,
-                    started,
-                    missing,
-                    BundleInfo(id=request.bundle.id, version=request.bundle.version),
-                )
+            response = self._config_response(
+                request,
+                event_id,
+                started,
+                missing,
+                BundleInfo(
+                    id=request.bundle.id if request.bundle else "inline",
+                    version=request.bundle.version if request.bundle else None,
+                ),
             )
+            self._record(request, response, context)
+            return Evaluated(response)
 
         bundle = loaded.bundle
         info = BundleInfo(
             id=bundle.id, version=bundle.version, mode=bundle.mode, sha256=loaded.sha256
         )
         if request.phase not in bundle.phases:
-            return Evaluated(
-                self._config_response(
-                    request,
-                    event_id,
-                    started,
-                    ErrorInfo(
-                        layer=Layer.PIPELINE,
-                        type="CONFIG_INVALID",
-                        message=(
-                            f"phase {request.phase} is not enabled in bundle "
-                            f"{bundle.id} v{bundle.version}"
-                        ),
-                        retryable=False,
+            response = self._config_response(
+                request,
+                event_id,
+                started,
+                ErrorInfo(
+                    layer=Layer.PIPELINE,
+                    type="CONFIG_INVALID",
+                    message=(
+                        f"phase {request.phase} is not enabled in bundle "
+                        f"{bundle.id} v{bundle.version}"
                     ),
-                    info,
-                )
+                    retryable=False,
+                ),
+                info,
             )
+            self._record(request, response, context)
+            return Evaluated(response)
 
         errors: list[ErrorInfo] = []
         trace: list[TraceEntry] = []
@@ -293,6 +318,7 @@ class Evaluator:
         # ---------------- L1
         l1_ms: float | None = None
         l1b_ms: float | None = None
+        l1b: L1bResult | None = None
         if decision is None and l1b_applies(bundle, request) and not l1a_has_rules(bundle):
             assert l0_result is not None
             l1b = await self.l1b.run(
@@ -302,6 +328,7 @@ class Evaluator:
                 l0_result.summary,
                 remaining_s=budget_s - (time.perf_counter() - started),
                 event_id=event_id,
+                context=context,
             )
             l1b_ms = l1b.latency_ms
             trace.extend(l1b.trace)
@@ -400,6 +427,23 @@ class Evaluator:
             trace=trace if request.flags.trace else None,
             errors=errors,
         )
+        self._record(
+            request,
+            response,
+            context,
+            floor=floor,
+            review=bool(l1b and l1b.review),
+            review_reasons=l1b.review_reasons if l1b else None,
+            l1b=EventL1b(
+                provider=bundle.l1b.provider,
+                enforcing=l1b.ran,
+                shadow=l1b.shadow,
+                failed=l1b.failed,
+                latency_ms=l1b.latency_ms,
+            )
+            if l1b is not None
+            else None,
+        )
         logger.info(
             "decision request_id=%s event_id=%s bundle=%s@%s action=%s decided_by=%s "
             "degraded=%s total_ms=%s",
@@ -420,6 +464,60 @@ class Evaluator:
             if output_modifications
             else frozenset(),
         )
+
+    # ------------------------------------------------------------------ records (ADR-0041)
+
+    def _record(
+        self,
+        request: EvaluationRequest,
+        response: EvaluationResponse,
+        context: RecordContext | None,
+        **event: object,
+    ) -> None:
+        try:
+            now = datetime.now(UTC)
+            self.recorder.record(decision_event(request, response, context, now, **event))
+            self.recorder.record(evaluation_usage(response, context, now))
+        except Exception:  # a record never changes the decision (ADR-0042)
+            logger.exception("records.build_failed event_id=%s", response.event_id)
+
+    def _record_l1b(self, report: L1bReport) -> None:
+        try:
+            now = datetime.now(UTC)
+            bundle, request = report.bundle, report.request
+            tenant = request.tenant_id or self._store.default_tenant
+            outcomes = {o.policy.id: o for o in report.outcomes}
+            for policy in report.policies:
+                self.recorder.record(
+                    l1b_outcome(
+                        event_id=report.event_id,
+                        tenant_id=tenant,
+                        bundle_id=bundle.id,
+                        bundle_version=bundle.version,
+                        request=request,
+                        policy=policy,
+                        provider=bundle.l1b.provider,
+                        occurred_at=now,
+                        latency_ms=report.latency_ms,
+                        outcome=outcomes.get(policy.id),
+                        error=report.failed,
+                    )
+                )
+            if report.stats.calls:
+                for usage in l1b_usage(
+                    event_id=report.event_id,
+                    tenant_id=tenant,
+                    bundle_id=bundle.id,
+                    bundle_version=bundle.version,
+                    context=report.context,
+                    occurred_at=now,
+                    calls=report.stats.calls,
+                    input_tokens=report.stats.input_tokens,
+                    output_tokens=report.stats.output_tokens,
+                ):
+                    self.recorder.record(usage)
+        except Exception:  # a record never changes the decision (ADR-0042)
+            logger.exception("records.build_failed event_id=%s", report.event_id)
 
     def _config_response(
         self,

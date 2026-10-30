@@ -8,6 +8,8 @@ Rules enforced here and in code review:
 - the only way to touch a tenant table is :func:`session.tenant_session`, which opens the
   transaction and sets ``app.tenant_id`` for the RLS policy; on SQLite the repositories'
   mandatory ``tenant_id`` filter is the only guard;
-- the request path (engine) never imports this package: keys reach engines as signed
-  snapshots (ADR-0023 §4).
+- the request path never waits for this package: keys reach engines as signed snapshots
+  (ADR-0023 §4), and records (ADR-0041) are handed to an in-process queue; only the records
+  writer task of the engine and gateway connects, with the application role, which may INSERT
+  and SELECT the record tables only (ADR-0042).
 """

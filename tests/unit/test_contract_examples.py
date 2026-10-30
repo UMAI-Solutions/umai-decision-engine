@@ -25,6 +25,7 @@ from umai_decision_engine.contracts.evaluation import (
     InputTooLargeBody,
     ValidationErrorBody,
 )
+from umai_decision_engine.contracts.events import DecisionEvent, L1bOutcomeRecord, UsageRecord
 from umai_decision_engine.contracts.policy_tests import GoldenCase, PolicyTestFile
 from umai_decision_engine.policy.manifest import BundleManifest
 from umai_decision_engine.policy.validate import validate_bundle
@@ -81,6 +82,17 @@ def test_policy_bundle_contract_version_is_current() -> None:
     assert accepted[-1] == CONTRACT_VERSION
     text = (DOCS / "contracts/policy-bundle.md").read_text(encoding="utf-8")
     assert f"**Version:** {CONTRACT_VERSION}\n" in text
+
+
+def test_tagged_action_examples() -> None:
+    event, outcome = (json.loads(b) for b in _blocks("contracts/tagged-action.md", "json"))
+    assert DecisionEvent.model_validate(event).contract_version == "0.3"
+    assert L1bOutcomeRecord.model_validate(outcome).outcome == "decided"
+
+
+def test_usage_example() -> None:
+    [usage] = _blocks("contracts/usage.md", "json")
+    assert UsageRecord.model_validate(json.loads(usage)).meter == "evaluations"
 
 
 def test_l1_doc_examples() -> None:

@@ -69,14 +69,18 @@ services:
     image: umai-decision-engine:current
     environment:
       <<: *engine-env
+      # Records (ADR-0041, ADR-0042): decision events and usage to the tenant store; none = off.
+      UMAI_DE_RECORDS_SINK: ${UMAI_RECORDS_SINK:-database}
     env_file:
-      - "${UMAI_RUN_DIR:-/run/umai}/engine.env"   # operator token, tenant HMAC keys
+      - "${UMAI_RUN_DIR:-/run/umai}/engine.env"   # operator token, tenant HMAC keys, records DB
       - "${UMAI_RUN_DIR:-/run/umai}/routes.env"   # provider allow-list (applications files)
     volumes:
       - policies:/data/policies:ro
       - "${UMAI_APPLICATIONS:-/opt/umai/applications}:/data/applications:ro"
     depends_on:
       seed: { condition: service_completed_successfully }
+      # The policy service runs the migrations (record tables, ADR-0041) before it is healthy.
+      policy: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:9100/readyz',timeout=3)"]
       interval: 15s

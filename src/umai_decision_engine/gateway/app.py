@@ -43,6 +43,7 @@ def create_gateway_app(
             store=store,
             detector=detector,
             decision_models=decision_models,
+            records=False,  # the gateway's records land with ADR-0041 §4 (one per call)
         )
         cfg = runtime.settings
         state.settings = cfg

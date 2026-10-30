@@ -9,6 +9,7 @@ import contextlib
 from dataclasses import dataclass, field
 
 from umai_decision_engine.applications import AllowList, ApplicationTable
+from umai_decision_engine.events.recorder import NullRecorder, QueueRecorder, Recorder
 from umai_decision_engine.l0.detector import EntityDetector
 from umai_decision_engine.l1.decision_models.registry import DecisionModels
 from umai_decision_engine.pipeline.orchestrator import Evaluator
@@ -31,6 +32,7 @@ class Runtime:
     admission: Admission
     applications: ApplicationTable
     owns_detector: bool
+    recorder: Recorder = field(default_factory=NullRecorder)
     tasks: list[asyncio.Task] = field(default_factory=list)
 
     def poll(self, coroutine) -> None:
@@ -44,10 +46,34 @@ class Runtime:
             with contextlib.suppress(asyncio.CancelledError):
                 await task
         self.tasks.clear()
-        await self.evaluator.l1b.drain()
+        await self.evaluator.l1b.drain()  # shadow outcomes are records: before the flush
         await self.evaluator.l1b.aclose()
+        if isinstance(self.recorder, QueueRecorder):
+            await self.recorder.aclose(self.settings.records_drain_timeout_ms / 1000)
+            await self.recorder.writer_aclose()
         if self.owns_detector:
             self.detector.close()
+
+
+def records_recorder(cfg: Settings) -> Recorder:
+    """The recorder the settings ask for (ADR-0041, ADR-0042): explicit, never implied."""
+
+    if cfg.records_sink == "none":
+        return NullRecorder()
+    if cfg.database_url is None:
+        raise RuntimeError("UMAI_DE_RECORDS_SINK=database requires UMAI_DE_DATABASE_URL")
+    # Imported here: only a process that writes records loads the database layer.
+    from umai_decision_engine.db.session import make_engine
+    from umai_decision_engine.events.database import DatabaseRecordWriter
+
+    return QueueRecorder(
+        DatabaseRecordWriter(make_engine(cfg.database_url.get_secret_value())),
+        queue_size=cfg.records_queue_size,
+        batch_size=cfg.records_batch_size,
+        flush_interval_s=cfg.records_flush_interval_ms / 1000,
+        write_timeout_s=cfg.records_write_timeout_ms / 1000,
+        stats_interval_s=cfg.records_stats_interval_s,
+    )
 
 
 async def start_runtime(
@@ -56,7 +82,11 @@ async def start_runtime(
     store: BundleStore | None = None,
     detector: EntityDetector | None = None,
     decision_models: DecisionModels | None = None,
+    records: bool = True,
 ) -> Runtime:
+    """``records=False`` keeps this process from writing records whatever the settings say
+    (the gateway until its records land, ADR-0041 §4)."""
+
     if cfg.env != "development" and cfg.api_token is None and cfg.key_registry_dir is None:
         raise RuntimeError(
             "UMAI_DE_API_TOKEN or UMAI_DE_KEY_REGISTRY_DIR is required outside development"
@@ -97,6 +127,7 @@ async def start_runtime(
     if cfg.decision_warm_up_timeout_ms:
         # Last before taking traffic: the first L1b calls reuse these connections.
         await decision_models.warm_up(cfg.decision_warm_up_timeout_ms / 1000)
+    recorder = records_recorder(cfg) if records else NullRecorder()
     runtime = Runtime(
         settings=cfg,
         store=store,
@@ -106,12 +137,16 @@ async def start_runtime(
             detector,
             cfg,
             decision_models=decision_models,
+            recorder=recorder,
         ),
         registry=registry,
         admission=admission,
         applications=applications,
         owns_detector=owns_detector,
+        recorder=recorder,
     )
+    if isinstance(recorder, QueueRecorder):
+        recorder.start()
     if cfg.bundle_poll_interval_s > 0:
         runtime.poll(store.poll(cfg.bundle_poll_interval_s))
     if registry is not None and cfg.key_registry_poll_interval_s > 0:

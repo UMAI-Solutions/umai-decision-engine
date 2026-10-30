@@ -198,6 +198,9 @@ secrets() {
     printf 'UMAI_DE_API_TOKEN=%s\nUMAI_DE_TENANT_HMAC_KEYS=%s\nUMAI_DE_TENANT_HMAC_MASTER_KEY=%s\n' \
       "$api" "$hmac" "$hmac_master"
     [[ -z "$decision" ]] || printf '%s\n' "$decision"
+    # Records (ADR-0041): the engine writes decision events and usage with the application
+    # role (INSERT and SELECT on the record tables only).
+    printf 'UMAI_DE_DATABASE_URL=postgresql+asyncpg://umai_app:%s@postgres:5432/umai\n' "$db_app"
   } | put "$RUN/engine.env" 0
   secret umai-console-actor-key | base64 -d | put "$RUN/actor.pem" "$CONSOLE_UID"
   actor_public="$(openssl pkey -in "$RUN/actor.pem" -pubout -outform DER | base64 -w0)"

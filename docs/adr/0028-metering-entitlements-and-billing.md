@@ -1,6 +1,6 @@
 # ADR-0028 — Metering, entitlements and billing: our own usage ledger, Redis hot counters, a billing adapter (Stripe in cloud, none or Lago self-hosted)
 
-- **Status:** Proposed (awaits product-owner approval; the billing provider is a commercial choice)
+- **Status:** Proposed (awaits product-owner approval; the billing provider is a commercial choice); §1–§2 (the `usage_events` ledger and its meters) accepted by ADR-0041 (2026-10-26)
 - **Date:** 2026-10-17
 - **Deciders:** engineering proposal; product owner
 - **Builds on:** ADR-0018 (editions, quotas), ADR-0019 §3–4 (signed entitlements, 413/429 semantics), ADR-0025 (tenant-scoped stores), ADR-0030 (outbox, decision events)

@@ -55,10 +55,11 @@ umai-decision-engine/
 │   │       ├── jev.py             # planned
 │   │       ├── gpt_oss_safeguard.py # planned
 │   │       └── fake.py            # deterministic fake for tests, golden cases, offline evals
-│   ├── events/
-│   │   ├── base.py                # EventSink, ReviewQueue protocols
-│   │   ├── memory.py              # tests
-│   │   └── sqlite.py              # R&D default: durable, lease/ack, idempotent by event_id
+│   ├── events/                    # records (ADR-0041, ADR-0042)
+│   │   ├── build.py               # decision events, L1b outcomes, usage records from an evaluation
+│   │   ├── recorder.py            # Recorder: no-op, in memory, bounded queue + background writer
+│   │   ├── database.py            # writer for the tenant store (append-only tables, RLS)
+│   │   └── review.py              # planned: ReviewQueue for L2 (lease/ack, idempotent by event_id)
 │   ├── l2/                        # asynchronous review worker — not imported by pipeline/api
 │   │   ├── worker.py              # lease → history → analyse → validate → store → ack
 │   │   ├── analyst.py             # prompt build, call, parse, validate
@@ -133,6 +134,7 @@ umai-decision-engine/
 | `l1` | `contracts`, `session` (summary only) | `l0` internals, `l2`, `api` |
 | `l2` | `contracts`, `session`, `events` | `l0`, `l1`, `pipeline`, `api` |
 | `pipeline` | `l0`, `l1`, `events` (emit only), `contracts`, `telemetry` | `l2`, `api` |
+| `events` | `contracts`, `db` (the writer only, imported where records are enabled) | `l0`, `l1`, `pipeline`, `api`; L1b hands its outcomes to the pipeline through a callback |
 | `api` | `pipeline`, `contracts`, `settings` | layer internals |
 | `golden` | `pipeline`, `policy`, `l0` (detector construction), `contracts`, `settings` | `api`, `l2`; nothing on the request path imports `golden` |
 | `control_plane` | `golden`, `policy`, `contracts`, `l0` (detector for tests), `settings` | `api`; the engine never imports it |
