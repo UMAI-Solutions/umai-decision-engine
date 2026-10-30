@@ -1,0 +1,33 @@
+# Secret scanning (gitleaks, workflow supply-chain.yml, ADR-0049): the default rules over the
+# whole history, plus allowlists for the synthetic test vectors this repository documents.
+# An entry allows one exact value, never a path, so a real secret in the same file is still
+# found. Every entry says where the value is documented as synthetic (AGENTS.md rule 2).
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "jwt.io's published example token: L0 secret eval vector (evals/datasets/generate_l0_pii_tr.py SECRETS, dataset l0-pii-tr v2)"
+targetRules = ["jwt"]
+regexes = ['''^eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ\.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c$''']
+
+[[allowlists]]
+description = "Placeholder PEM blocks whose body is the word 'example': L0 secret eval vectors (evals/datasets/generate_l0_pii_tr.py SECRETS, dataset l0-pii-tr v2)"
+targetRules = ["private-key"]
+regexes = [
+  '''-----BEGIN RSA PRIVATE KEY-----\\nMIIEowIBAAKCAQEAexampleexampleexampleexample\\n''',
+  '''-----BEGIN PRIVATE KEY-----\\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHexample\\n''',
+]
+
+[[allowlists]]
+description = "Synthetic OpenAI-shaped key in the VM script tests (tests/unit/test_vm_script.py KEY, marked synthetic there)"
+targetRules = ["generic-api-key"]
+regexes = ['''^sk-proj-synthetic_Key-0123$''']
+
+[[allowlists]]
+description = "Azure built-in role definition ids (Key Vault Secrets User, Key Vault Secrets Officer), public constants in deploy/azure/main.bicep"
+targetRules = ["generic-api-key"]
+regexes = [
+  '''^4633458b-17de-408a-b874-0445c86b69e6$''',
+  '''^b86a8fe4-44ce-4948-aee5-eccb2c155cd7$''',
+]

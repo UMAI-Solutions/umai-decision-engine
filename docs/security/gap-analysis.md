@@ -31,7 +31,7 @@ roles (8.x). Not deployed on `umai-beta` yet: Caddy basic auth stays in front of
 | Limits | Regex timeout per pattern (`l0/recognizers/base.py:21`, default 1 s); per-credential rate limit at admission (`tenancy/limits.py`, ADR-0023 §7); prompt-size limit with 413 before any scan (`api/routes.py`, evaluation API 0.9, readiness T2 green since 2026-10-19); request bodies capped only at the ingress (Caddy `request_body` on the VM); the console caps playground text at 32 000 characters (`src/lib/engine-request.ts:14`) but the engine does not |
 | Integrity | SHA-256 + Ed25519 manifests, required outside development (`policy/manifest.py:40-70`, `settings.py:27`) |
 | Console | No authentication, no session, no roles (`src/app/(console)/layout.tsx`); engine and control tokens server-side only (`src/lib/upstream.ts:27-37`); `poweredByHeader: false`, no other security headers (`next.config.mjs`) |
-| Supply chain | CI: ruff, pytest, golden tests (`.github/workflows/ci.yml`); no dependency audit, SBOM, image build or signing; no Dockerfile in either repository |
+| Supply chain | CI: ruff, pytest, golden tests (`.github/workflows/ci.yml`). Since 2026-10-30 (ADR-0049) both repositories also run `.github/workflows/supply-chain.yml` (dependency audit, gitleaks, image build + Trivy scan, CycloneDX SBOM artifact) and Dependabot; no image signing or registry yet |
 
 ## 2. OWASP ASVS 5.0, Levels 1 and 2
 
@@ -113,8 +113,8 @@ roles (8.x). Not deployed on `umai-beta` yet: Caddy basic auth stays in front of
 | 13.4.2 | 2 | Debug modes off in production | holds | `expose_detect_endpoint` and inline bundles default off outside development (`settings.py`) | — |
 | 13.4.5 | 2 | Documentation/monitoring endpoints not exposed unintentionally | partial | FastAPI serves `/docs` and `/openapi.json` by default on both services | launch plan S0 (disable outside development) |
 | 13.2.4 / 13.2.5 | 2 | Egress allowlists | n/a | no outbound calls yet | ADR-0026 §4 |
-| 15.1.2 | 2 | Dependency inventory (SBOM) | **missing** | — | launch plan S0 |
-| 15.2.1 | 1 | Components updated within documented timeframes | **missing** | no Dependabot, no audit | launch plan S0 |
+| 15.1.2 | 2 | Dependency inventory (SBOM) | **holds** (2026-10-30) | CycloneDX SBOM of each image from Trivy, uploaded per CI run (`supply-chain.yml` job `image`, both repositories); not yet attached to released images in a registry | ADR-0049; ADR-0031 §6 for the registry |
+| 15.2.1 | 1 | Components updated within documented timeframes | **holds** (2026-10-30) | Dependabot weekly for Python / npm, actions, base images and the VM's Compose images (`.github/dependabot.yml`); audits fail CI on high/critical advisories; an accepted advisory expires within 90 days (ADR-0049 §4). Console: Next.js 14 advisories accepted until 2026-11-30, upgrade next | ADR-0049 |
 | 15.2.3 | 2 | No test/dev features in production | holds | development gates above | — |
 | 4.1.1 | 1 | Correct `Content-Type` | holds | FastAPI JSON responses | — |
 | 2.2.2 | 1 | Server-side input validation | holds | Pydantic contracts, bundle validation | — |
@@ -133,8 +133,8 @@ ASVS tally over the rows above (2026-10-18, after ADR-0023/0025 code): **holds 1
 | CC6.4 / CC6.5 physical access, disposal | Cloud provider's reports; data erasure procedure | n/a (company) | provider SOC reports to collect; erasure design exists | ADR-0025 §9, launch plan |
 | CC6.6 protection against external threats | TLS, ingress, rate limiting, WAF | **missing** | none deployed | launch plan S0 |
 | CC6.7 restrict transmission/removal of information | Content never leaves L0; exports controlled; encryption in transit | partial | ADR-0005 holds in code; no TLS, no export controls yet | ADR-0030, S0 |
-| CC6.8 malicious software prevention/detection | Dependency scanning, image scanning, signed images | **missing** | — | launch plan S0 |
-| CC7.1 detect configuration changes and vulnerabilities | Audit events, IaC drift detection, vulnerability scanning | partial | the change log names the actor of every publish and activation (readiness A1 green, 2026-10-19); audit events, drift detection and scanning are missing | ADR-0030, S0 |
+| CC6.8 malicious software prevention/detection | Dependency scanning, image scanning, signed images | partial (2026-10-30) | dependency audit, secret scan and image scan gate every change and run weekly; actions pinned by SHA, scanners and base images by digest, 7-day Dependabot cooldown (ADR-0049); images not signed yet | ADR-0049; Notation with ACR (ADR-0031 §6) |
+| CC7.1 detect configuration changes and vulnerabilities | Audit events, IaC drift detection, vulnerability scanning | partial | the change log names the actor of every publish and activation (readiness A1 green, 2026-10-19); vulnerability scanning of dependencies and images in CI, weekly (ADR-0049, 2026-10-30); audit events and drift detection are missing | ADR-0030, S0 |
 | CC7.2 monitor for anomalies | Metrics, alerts, usage anomalies | **missing** | no metrics pipeline | ADR-0028 §7, S0 |
 | CC7.3 / CC7.4 evaluate events; incident response program | IR plan, on-call, runbooks, status page | **missing** | — | launch plan S0 (company + ops) |
 | CC7.5 recovery | Backups, restore drill | **missing** | nothing to back up yet; drill defined | ADR-0025, verification plan |
@@ -162,7 +162,7 @@ ASVS tally over the rows above (2026-10-18, after ADR-0023/0025 code): **holds 1
 | LLM02 Sensitive information disclosure | The product's purpose; also our own logs/telemetry | holds in code (ADR-0005, leak suite, 422 without input since 2026-10-19) |
 | LLM06 Unbounded consumption | Our engine must not be the unbounded component | partial (size, rate and monthly quota hold; spend alerts open, ADR-0028 §7) |
 | LLM08 Hidden context exposure | Policy bundles and exceptions are "hidden context" for a customer's agents | **missing** (bundles readable by any token holder) |
-| LLM04 Supply chain | Models (future L1b/L2), Presidio, dependencies | **missing** (no SBOM/audit) |
+| LLM04 Supply chain | Models (future L1b/L2), Presidio, dependencies | partial (2026-10-30): dependencies audited and in the image SBOM, pinned CI tooling (ADR-0049); models are hosted (OpenAI Decisions API), no model artefacts to verify yet |
 | LLM01 Prompt injection | Content is data to L0; no model on the request path today | holds by design until L1b arrives |
 
 ## 6. Documentation versus code
