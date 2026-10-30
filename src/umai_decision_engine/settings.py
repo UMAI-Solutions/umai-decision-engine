@@ -70,6 +70,19 @@ class Settings(BaseSettings):
     # Engine and gateway: how often a tenant's month count is re-read from the usage ledger
     # (D4). The overshoot is at most processes × interval × request rate.
     quota_refresh_interval_s: float = Field(10.0, ge=1, le=600)
+    # Billing (ADR-0044, contract billing): the policy service sells plans with a `billing` block
+    # through iyzico subscriptions. none: nothing is sold. Keys never logged.
+    billing_provider: Literal["none", "iyzico"] = "none"
+    iyzico_base_url: str = "https://sandbox-api.iyzipay.com"  # live: https://api.iyzipay.com
+    iyzico_api_key: SecretStr | None = None
+    iyzico_secret_key: SecretStr | None = None
+    iyzico_merchant_id: str | None = None  # signs webhooks (X-IYZ-SIGNATURE-V3)
+    iyzico_timeout_s: float = Field(10.0, ge=1, le=60)
+    billing_plan_refs: dict[str, str] = Field(default_factory=dict)  # edition → pricing plan
+    billing_return_url: str | None = None  # the console's public /billing/return (absolute)
+    billing_reconcile_interval_s: float = Field(900.0, ge=0)  # 0: no reconciliation loop
+    billing_grace_days: int = Field(14, ge=1, le=60)  # past due → Community after this (D6)
+    billing_retry_days: list[int] = Field(default_factory=lambda: [1, 3, 7])
 
     # Policy service (control plane, ADR-0022): drafts, publish, activate. Separate process.
     control_api_token: SecretStr | None = None  # required outside development

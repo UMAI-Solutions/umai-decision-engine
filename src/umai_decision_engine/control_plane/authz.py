@@ -64,6 +64,10 @@ class Action(StrEnum):
     # records (ADR-0041): decision events for investigation, the usage ledger for billing too
     DECISIONS_READ = "records.decisions.read"
     USAGE_READ = "records.usage.read"
+    # billing (ADR-0044): see the plan; buy, change, cancel, billing details; complete a checkout
+    BILLING_READ = "billing.read"
+    BILLING_MANAGE = "billing.manage"
+    BILLING_COMPLETE = "billing.complete"  # the console's public return route: operator only
 
 
 @dataclass(frozen=True)
@@ -123,6 +127,9 @@ MATRIX: dict[Action, Rule] = {
     Action.GATEWAY_WRITE: _r(_O, _A, operator=True),
     Action.DECISIONS_READ: _r(_O, _A, _E, _P, _V, operator=True),
     Action.USAGE_READ: _r(_O, _A, _E, _P, _V, _B, operator=True),
+    Action.BILLING_READ: _r(_O, _A, _B, operator=True),
+    Action.BILLING_MANAGE: _r(_O, _B),  # a purchase names a person (ADR-0023 §1)
+    Action.BILLING_COMPLETE: _r(operator=True),
 }
 
 _ADMIN_WITHOUT_RBAC = frozenset({_A, _E, _P, _V, _B})

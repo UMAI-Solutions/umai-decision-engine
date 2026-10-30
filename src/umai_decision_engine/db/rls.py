@@ -19,13 +19,23 @@ TENANT_TABLES: tuple[str, ...] = (
     "decision_events",
     "l1b_outcomes",
     "usage_events",
+    "billing_accounts",
+    "subscriptions",
+    "billing_checkouts",
+    "billing_events",
 )
 
 # Records (ADR-0041): append-only, the application role may INSERT and SELECT only (ADR-0030 §3).
-APPEND_ONLY_TABLES: tuple[str, ...] = ("decision_events", "l1b_outcomes", "usage_events")
+APPEND_ONLY_TABLES: tuple[str, ...] = (
+    "decision_events",
+    "l1b_outcomes",
+    "usage_events",
+    "billing_events",  # ADR-0044: the billing history
+)
 
 # Global tables: the explicit allowlist (ADR-0025 §2; users: ADR-0033 §2).
-GLOBAL_TABLES: tuple[str, ...] = ("tenants", "users", "alembic_version")
+# billing_links: provider subscription reference → tenant, references only (ADR-0044 D4).
+GLOBAL_TABLES: tuple[str, ...] = ("tenants", "users", "billing_links", "alembic_version")
 
 # Tables with a second, read-only policy for the person's own rows (ADR-0033 §2). The only one.
 SELF_READ_TABLES: tuple[str, ...] = ("memberships",)

@@ -189,6 +189,15 @@ def test_credentials_examples() -> None:
     ActorAssertion.model_validate_json(assertion)
 
 
+def test_billing_examples() -> None:
+    from umai_decision_engine.contracts.billing import BillingView
+
+    (view,) = _blocks("contracts/billing.md", "json")
+    parsed = BillingView.model_validate_json(view)
+    assert parsed.subscription is not None and parsed.subscription.status == "active"
+    assert parsed.plans[0].edition == parsed.edition == "pro"
+
+
 def test_entitlements_examples() -> None:
     (plans,) = _blocks("contracts/entitlements.md", "yaml")
     block, view, update = _blocks("contracts/entitlements.md", "json")
@@ -199,5 +208,5 @@ def test_entitlements_examples() -> None:
     assert PlansFile.model_validate(shipped) == parsed
     assert TenantEntitlements.model_validate_json(block).edition == "community"
     shown = EntitlementsView.model_validate_json(view)
-    assert shown.limits == parsed.plans["community"]
+    assert shown.limits == parsed.plans["community"].limits()
     assert PlanUpdate.model_validate_json(update).override_values() == {"monthly_requests": 50_000}

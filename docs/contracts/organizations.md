@@ -1,6 +1,6 @@
 # Contract: organizations
 
-**Version:** 0.3 · **Producer → consumer:** policy service ↔ console (organizations, memberships,
+**Version:** 0.4 · **Producer → consumer:** policy service ↔ console (organizations, memberships,
 invitations, verified domains) · **Decisions:** [ADR-0033](../adr/0033-organizations-and-onboarding.md),
 [ADR-0029](../adr/0029-authorization-roles-and-four-eyes.md) · **Design:**
 [`architecture/sign-in-and-onboarding.md`](../architecture/sign-in-and-onboarding.md)
@@ -44,7 +44,7 @@ the organization's memberships after they are locked, so a concurrent grant cann
 | `id` | The tenant slug (`tenant_id` of the evaluation API and the key registry). 3–40 characters `a-z 0-9 -`, starting and ending with a letter or digit; also the identity organization's `name` |
 | `name` | Display name, 2–100 characters |
 | `region` | `eu`, `us` or `sh` (self-hosted); chosen at creation, never changed (ADR-0026 §7) |
-| `edition` | `community` or `enterprise`; entitlements are data (ADR-0019), this field only names the plan |
+| `edition` | `community`, `pro` (paid monthly, 0.4) or `enterprise`; entitlements are data (ADR-0019), this field only names the plan; it changes through billing ([billing](billing.md)) or the operator |
 | `status` | `provisioning` (identity mirror pending), `active`, `suspended` (no active owner, or by UMAI), `deleting` |
 
 ## My organizations — `MyOrganization`
@@ -195,6 +195,7 @@ wrapper, like every policy-service refusal).
 
 ## Changelog
 
+- 0.4 (2026-10-30, ADR-0044): edition `pro`.
 - 0.3 (2026-10-20, review fixes): error bodies documented as they are sent (`{"detail": {…}}`);
   `email_invalid`; creation is one transaction (limit, owner membership, terms) and records the
   accepted `terms_version` with the person and the time; ownership rules checked on the locked

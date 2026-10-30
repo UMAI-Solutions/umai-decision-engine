@@ -8,7 +8,7 @@ from pathlib import Path
 
 import yaml
 
-from umai_decision_engine.contracts.entitlements import Limits, PlansFile, TenantEntitlements
+from umai_decision_engine.contracts.entitlements import Limits, Plan, PlansFile, TenantEntitlements
 from umai_decision_engine.db.repositories import TenantInfo
 
 log = logging.getLogger("umai.control_plane.plans")
@@ -36,8 +36,19 @@ class Plans:
 
         if self.file is None:
             return Limits()
-        base = self.file.plans.get(tenant.edition) or Limits()  # type: ignore[call-overload]
+        plan = self.file.plans.get(tenant.edition)  # type: ignore[call-overload]
+        base = plan.limits() if plan is not None else Limits()
         return base.overridden(tenant.entitlement_overrides or {})
+
+    def plan(self, edition: str) -> Plan | None:
+        return self.file.plans.get(edition) if self.file is not None else None  # type: ignore[call-overload]
+
+    def paid(self) -> dict[str, Plan]:
+        """Editions with a price: what the billing page offers (ADR-0044 D3)."""
+
+        if self.file is None:
+            return {}
+        return {e: p for e, p in self.file.plans.items() if p.billing is not None}
 
     def entitlements(self, tenant: TenantInfo) -> TenantEntitlements | None:
         """The snapshot block, or ``None`` without a plans file."""

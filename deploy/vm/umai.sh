@@ -38,6 +38,11 @@ if [[ "$UMAI_PLANS" != "true" && "$UMAI_PLANS" != "false" ]]; then
   echo "umai: UMAI_PLANS in $CONFIG must be true or false" >&2
   exit 1
 fi
+UMAI_BILLING="${UMAI_BILLING:-none}"  # iyzico: sell plans through iyzico (ADR-0044)
+if [[ "$UMAI_BILLING" != "none" && "$UMAI_BILLING" != "iyzico" ]]; then
+  echo "umai: UMAI_BILLING in $CONFIG must be none or iyzico" >&2
+  exit 1
+fi
 
 compose() {
   local profiles=()
@@ -118,6 +123,27 @@ decision_env() {  # stdout: the engine.env lines, or nothing without a key
   fi
   printf 'UMAI_DE_DECISION_PROVIDERS=%s\n' "${UMAI_DECISION_PROVIDERS:-$DEFAULT_DECISION_PROVIDERS}"
   printf 'UMAI_DE_DECISION_PROVIDER_KEYS={"openai":"%s"}\n' "$key"
+}
+
+# Billing (ADR-0044): iyzico subscriptions, sold by the policy service. UMAI_BILLING=iyzico in
+# config.env with UMAI_IYZICO_MERCHANT_ID, UMAI_IYZICO_BASE_URL (sandbox by default) and
+# UMAI_BILLING_PLAN_REFS (edition → pricing plan, from `billing.cli sync`); the keys via
+# `umai.sh set-secret UMAI_IYZICO_API_KEY` and `… UMAI_IYZICO_SECRET_KEY`.
+billing_env() {  # stdout: the policy.env lines, or nothing while billing is off
+  [[ "$UMAI_BILLING" == "iyzico" ]] || return 0
+  local api secret_key
+  api="$(optional_secret umai-iyzico-api-key)"
+  secret_key="$(optional_secret umai-iyzico-secret-key)"
+  if [[ -z "$api" || -z "$secret_key" || -z "${UMAI_IYZICO_MERCHANT_ID:-}" ]]; then
+    echo "umai: UMAI_BILLING=iyzico needs UMAI_IYZICO_API_KEY, UMAI_IYZICO_SECRET_KEY (set-secret) and UMAI_IYZICO_MERCHANT_ID" >&2
+    exit 1
+  fi
+  printf 'UMAI_DE_BILLING_PROVIDER=iyzico\n'
+  printf 'UMAI_DE_IYZICO_BASE_URL=%s\n' "${UMAI_IYZICO_BASE_URL:-https://sandbox-api.iyzipay.com}"
+  printf 'UMAI_DE_IYZICO_API_KEY=%s\nUMAI_DE_IYZICO_SECRET_KEY=%s\n' "$api" "$secret_key"
+  printf 'UMAI_DE_IYZICO_MERCHANT_ID=%s\n' "$UMAI_IYZICO_MERCHANT_ID"
+  printf 'UMAI_DE_BILLING_PLAN_REFS=%s\n' "${UMAI_BILLING_PLAN_REFS:-"{}"}"
+  printf 'UMAI_DE_BILLING_RETURN_URL=https://%s/billing/return\n' "$UMAI_HOSTNAME"
 }
 
 new_hex() { openssl rand -hex 24; }
@@ -216,6 +242,7 @@ secrets() {
     printf 'UMAI_DE_ACTOR_PUBLIC_KEYS={"%s":"%s"}\n' "$UMAI_ACTOR_KEY_ID" "$actor_public"
     # Plans: the policy service writes each tenant's limits into its snapshot (ADR-0043).
     if [[ "$UMAI_PLANS" == "true" ]]; then printf 'UMAI_DE_PLANS_FILE=/app/plans.yaml\n'; fi
+    billing_env
   } >>"$RUN/policy.env"
   printf 'POSTGRES_PASSWORD=%s\nUMAI_DB_APP_PASSWORD=%s\n' "$db_owner" "$db_app" |
     put "$RUN/postgres.env" 0

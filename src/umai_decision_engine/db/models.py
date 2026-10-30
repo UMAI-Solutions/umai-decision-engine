@@ -284,3 +284,122 @@ class UsageEventRow(Base):
     degraded: Mapped[bool] = mapped_column(Boolean, nullable=False)
     provider: Mapped[str | None] = mapped_column(String(64), nullable=True)  # gateway meters (0007)
     model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
+
+# ------------------------------------------------------------------ billing (ADR-0044)
+
+
+class BillingAccountRow(Base):
+    """Tenant table (ADR-0044 D4): the organization's billing details, one row per tenant. No
+    national identity number and no card data are ever stored."""
+
+    __tablename__ = "billing_accounts"
+    __table_args__ = (UniqueConstraint("tenant_id", name="uq_billing_accounts_tenant"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = _tenant_fk()
+    company_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    tax_number: Mapped[str] = mapped_column(String(11), nullable=False)
+    tax_office: Mapped[str] = mapped_column(String(100), nullable=False)
+    contact_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    contact_surname: Mapped[str] = mapped_column(String(100), nullable=False)
+    email: Mapped[str] = mapped_column(String(254), nullable=False)
+    phone: Mapped[str] = mapped_column(String(16), nullable=False)
+    address: Mapped[str] = mapped_column(String(300), nullable=False)
+    city: Mapped[str] = mapped_column(String(100), nullable=False)
+    country: Mapped[str] = mapped_column(String(100), nullable=False)
+    zip_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime(), default=_now)
+    updated_by: Mapped[str] = mapped_column(String(255), nullable=False)
+
+
+class SubscriptionRow(Base):
+    """Tenant table (ADR-0044 D4): the tenant's subscription and its state machine (contract
+    billing 0.1). ``parent_reference`` is the provider's stable key; ``reference`` changes with
+    every plan change."""
+
+    __tablename__ = "subscriptions"
+    __table_args__ = (UniqueConstraint("tenant_id", name="uq_subscriptions_tenant"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = _tenant_fk()
+    provider: Mapped[str] = mapped_column(String(16), nullable=False)
+    parent_reference: Mapped[str] = mapped_column(String(64), nullable=False)
+    reference: Mapped[str] = mapped_column(String(64), nullable=False)
+    customer_reference: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    pricing_plan_reference: Mapped[str] = mapped_column(String(64), nullable=False)
+    edition: Mapped[str] = mapped_column(String(16), nullable=False)
+    pending_edition: Mapped[str | None] = mapped_column(String(16), nullable=True)  # downgrade
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    provider_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(UtcDateTime(), nullable=True)
+    current_period_end: Mapped[datetime | None] = mapped_column(UtcDateTime(), nullable=True)
+    cancel_at: Mapped[datetime | None] = mapped_column(UtcDateTime(), nullable=True)
+    grace_until: Mapped[datetime | None] = mapped_column(UtcDateTime(), nullable=True)
+    next_retry_at: Mapped[datetime | None] = mapped_column(UtcDateTime(), nullable=True)
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failed_order_reference: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_payment_error: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime(), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime(), default=_now)
+
+
+class BillingCheckoutRow(Base):
+    """Tenant table (ADR-0044 D2): a hosted form we opened, found again by its id when the
+    buyer returns; the provider's token proves nothing until the form result is read."""
+
+    __tablename__ = "billing_checkouts"
+    __table_args__ = (UniqueConstraint("tenant_id", "checkout_id", name="uq_billing_checkouts"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = _tenant_fk()
+    checkout_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    token: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    edition: Mapped[str] = mapped_column(String(16), nullable=False)
+    pricing_plan_reference: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False
+    )  # open | active | pending | failed
+    created_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime(), default=_now)
+    expires_at: Mapped[datetime] = mapped_column(UtcDateTime(), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(UtcDateTime(), nullable=True)
+
+
+class BillingEventRow(Base):
+    """Tenant table, append-only (ADR-0044 D4, D9): what happened to the subscription, payments
+    with amount and currency for invoicing later. ``provider_event_id`` (iyzico's
+    ``iyziReferenceCode``) is unique per tenant: a repeated webhook is applied once."""
+
+    __tablename__ = "billing_events"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "provider_event_id", name="uq_billing_events_provider_event"),
+        Index("ix_billing_events_tenant_occurred", "tenant_id", "occurred_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = _tenant_fk()
+    occurred_at: Mapped[datetime] = mapped_column(UtcDateTime(), default=_now)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    provider_event_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    subscription_reference: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    order_reference: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    amount: Mapped[str | None] = mapped_column(String(16), nullable=True)  # decimal as text
+    currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    actor: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    detail: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
+class BillingLinkRow(Base):
+    """Global table (allowlisted, ADR-0044 D4): which tenant a provider subscription reference
+    belongs to, so a webhook (which names no tenant) is routed without crossing RLS. References
+    only, no personal data."""
+
+    __tablename__ = "billing_links"
+
+    provider: Mapped[str] = mapped_column(String(16), primary_key=True)
+    reference: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime(), default=_now)
