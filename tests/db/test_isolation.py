@@ -319,6 +319,37 @@ async def test_retention_runs_as_owner_under_forced_rls_and_keeps_recent_rows(
         assert rows == expected
 
 
+@postgres
+@pytest.mark.asyncio
+async def test_summary_and_daily_usage_group_by_utc_day_on_postgres(pg, two_tenants) -> None:
+    from umai_decision_engine.control_plane.records import RecordsReader
+    from umai_decision_engine.db.models import DecisionEventRow, UsageEventRow
+
+    a, b = two_tenants
+    late = datetime(2026, 10, 30, 23, 30, tzinfo=UTC)  # still the 30th in UTC
+    async with tenant_session(pg, a.id) as session:
+        for at in (late, late + timedelta(hours=1)):  # the second is the 31st
+            await session.execute(
+                insert(DecisionEventRow).values(
+                    **{**_row("decision_events", a.id), "occurred_at": at}
+                )
+            )
+            await session.execute(
+                insert(UsageEventRow).values(**{**_row("usage_events", a.id), "occurred_at": at})
+            )
+    reader = RecordsReader(pg)
+    summary = await reader.summary(
+        a, since=datetime(2026, 10, 1, tzinfo=UTC), until=datetime(2026, 11, 2, tzinfo=UTC)
+    )
+    assert [d.date for d in summary.by_day] == ["2026-10-30", "2026-10-31"]
+    usage = await reader.usage(a, "2026-10")
+    assert [d.date for d in usage.daily] == ["2026-10-30", "2026-10-31"]
+    other = await reader.summary(
+        b, since=datetime(2026, 10, 1, tzinfo=UTC), until=datetime(2026, 11, 2, tzinfo=UTC)
+    )
+    assert other.total == 0
+
+
 # ------------------------------------------------------------ member_self (ADR-0033 §2)
 
 

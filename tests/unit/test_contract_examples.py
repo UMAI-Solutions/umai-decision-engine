@@ -28,6 +28,7 @@ from umai_decision_engine.contracts.evaluation import (
 from umai_decision_engine.contracts.events import (
     DecisionEvent,
     DecisionEventPage,
+    DecisionEventSummary,
     L1bOutcomeRecord,
     UsageRecord,
     UsageSummary,
@@ -91,10 +92,15 @@ def test_policy_bundle_contract_version_is_current() -> None:
 
 
 def test_tagged_action_examples() -> None:
-    event, outcome, page = (json.loads(b) for b in _blocks("contracts/tagged-action.md", "json"))
-    assert DecisionEvent.model_validate(event).contract_version == "0.4"
+    event, outcome, page, summary = (
+        json.loads(b) for b in _blocks("contracts/tagged-action.md", "json")
+    )
+    assert DecisionEvent.model_validate(event).contract_version == "0.5"
     assert L1bOutcomeRecord.model_validate(outcome).outcome == "decided"
     assert DecisionEventPage.model_validate(page).events[0].source == "gateway"
+    parsed = DecisionEventSummary.model_validate(summary)
+    assert parsed.total == sum(parsed.by_action.values()) == sum(parsed.by_source.values())
+    assert parsed.total == sum(sum(d.actions.values()) for d in parsed.by_day)
 
 
 def test_usage_examples() -> None:
@@ -104,6 +110,7 @@ def test_usage_examples() -> None:
     assert parsed.totals["evaluations"] == sum(
         g.quantity for g in parsed.groups if g.meter == "evaluations"
     )
+    assert parsed.totals["evaluations"] == sum(d.meters["evaluations"] for d in parsed.daily)
 
 
 def test_l1_doc_examples() -> None:

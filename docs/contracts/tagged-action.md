@@ -1,6 +1,6 @@
 # Contract: tagged action (decision event)
 
-**Version:** 0.4
+**Version:** 0.5
 
 **Implementation status (2026-10-30):** emitted and stored by the engine API and the gateway
 ([ADR-0041](../adr/0041-records-decision-events-and-usage-ledger.md), write path
@@ -20,7 +20,7 @@ tenant-scoped (ADR-0025).
 
 ```json
 {
-  "contract_version": "0.4",
+  "contract_version": "0.5",
   "event_id": "ta-3f2b9c41d6e84a1b9c0d7e5f6a1b2c3d",
   "request_id": "req-01J9X7Z8QK",
   "tenant_id": "tenant-demo",
@@ -98,7 +98,7 @@ updated. Stored in `l1b_outcomes`.
 
 ```json
 {
-  "contract_version": "0.4",
+  "contract_version": "0.5",
   "event_id": "ta-3f2b9c41d6e84a1b9c0d7e5f6a1b2c3d",
   "tenant_id": "tenant-demo",
   "occurred_at": "2026-10-26T09:30:00Z",
@@ -137,13 +137,14 @@ with `X-Umai-Tenant`). One tenant per request.
 | Route | Returns |
 |---|---|
 | `GET /v1/decision-events` | Newest first. Query: `limit` (1–200, default 50), `cursor` (from the previous page), `since` / `until` (RFC 3339), `action`, `source`, `application_id`, `phase`, `review` (`true` / `false`) |
+| `GET /v1/decision-events/summary` | Counts for charts over the same filters as the list (default window: the last 30 days): per UTC day and decision, per decision, per source, and the entity types and policies found in the newest events (up to 20 000 scanned; `truncated` says the window held more). Day and decision counts are exact |
 | `GET /v1/decision-events/{event_id}` | `{event, l1b_outcomes}`; 404 when the tenant has no such event (or it is past retention) |
 
 ```json
 {
   "events": [
     {
-      "contract_version": "0.4",
+      "contract_version": "0.5",
       "event_id": "ta-5d1c0b9a8e7f4a3b2c1d0e9f8a7b6c5d",
       "request_id": "gw-2c4e6a8b0d1f3a5c7e9b1d3f5a7c9e1b",
       "tenant_id": "tenant-demo",
@@ -164,12 +165,31 @@ with `X-Umai-Tenant`). One tenant per request.
 }
 ```
 
+```json
+{
+  "since": "2026-10-01T00:00:00Z",
+  "until": "2026-10-31T00:00:00Z",
+  "total": 42,
+  "by_action": { "ALLOW": 30, "ALLOW_WITH_MODIFICATIONS": 7, "BLOCK": 5 },
+  "by_source": { "api": 12, "gateway": 30 },
+  "by_day": [
+    { "date": "2026-10-29", "actions": { "ALLOW": 12, "BLOCK": 2 } },
+    { "date": "2026-10-30", "actions": { "ALLOW": 18, "ALLOW_WITH_MODIFICATIONS": 7, "BLOCK": 3 } }
+  ],
+  "top_entities": [ { "type": "EMAIL_ADDRESS", "decisions": 7 }, { "type": "TR_TCKN", "decisions": 3 } ],
+  "top_policies": [ { "kind": "l0_policy", "id": "contact-data", "decisions": 7 }, { "kind": "l1b_policy", "id": "prompt-attack", "decisions": 2 } ],
+  "scanned": 42,
+  "truncated": false
+}
+```
+
 Records past their retention period are deleted by the policy service's retention job (ADR-0041
 §5): decision events and L1b outcomes after `UMAI_DE_RECORDS_DECISION_RETENTION_DAYS` (default
 30).
 
 ## Changelog
 
+- 0.5 (2026-10-30): `GET /v1/decision-events/summary` (counts for charts).
 - 0.4 (2026-10-30): the gateway writes records (`source: gateway`, `gateway_call_id`, stream
   window re-checks not recorded); read API in the policy service; retention job.
 - 0.3 (2026-10-26): breaking — emitted and stored (ADR-0041). Added `engine_version`,

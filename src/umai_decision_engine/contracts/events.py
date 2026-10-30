@@ -21,8 +21,8 @@ from umai_decision_engine.contracts.common import (
 from umai_decision_engine.contracts.entities import EntitySummary
 from umai_decision_engine.contracts.evaluation import Destination, Tag
 
-CONTRACT_VERSION = "0.4"  # tagged-action
-USAGE_CONTRACT_VERSION = "0.2"  # usage
+CONTRACT_VERSION = "0.5"  # tagged-action
+USAGE_CONTRACT_VERSION = "0.3"  # usage
 
 Source = Literal["api", "gateway"]
 Environment = Literal["live", "test"]
@@ -104,7 +104,7 @@ class EventLatency(ContractModel):
 
 
 class DecisionEvent(ContractModel):
-    contract_version: Literal["0.3", "0.4"] = CONTRACT_VERSION
+    contract_version: Literal["0.3", "0.4", "0.5"] = CONTRACT_VERSION
     event_id: str = Field(min_length=1, max_length=64)
     request_id: str = Field(max_length=128)
     tenant_id: str
@@ -135,7 +135,7 @@ class L1bOutcomeRecord(ContractModel):
     """One L1b policy's outcome for one evaluation. A shadow outcome is written when its
     background call finishes, after the decision event (ADR-0041 §1)."""
 
-    contract_version: Literal["0.3", "0.4"] = CONTRACT_VERSION
+    contract_version: Literal["0.3", "0.4", "0.5"] = CONTRACT_VERSION
     event_id: str = Field(min_length=1, max_length=64)
     tenant_id: str
     occurred_at: datetime
@@ -169,7 +169,7 @@ Meter = Literal[
 
 
 class UsageRecord(ContractModel):
-    contract_version: Literal["0.1", "0.2"] = USAGE_CONTRACT_VERSION
+    contract_version: Literal["0.1", "0.2", "0.3"] = USAGE_CONTRACT_VERSION
     event_id: str = Field(min_length=1, max_length=64)
     tenant_id: str
     occurred_at: datetime
@@ -215,13 +215,55 @@ class UsageGroup(ContractModel):
     quantity: int = Field(ge=0)
 
 
+_DATE = r"^\d{4}-\d{2}-\d{2}$"
+
+
+class UsageDay(ContractModel):
+    date: str = Field(pattern=_DATE)  # UTC calendar day
+    meters: dict[str, int] = Field(default_factory=dict)  # meter → quantity, every source
+
+
 class UsageSummary(ContractModel):
     """``GET /v1/usage``: one calendar month (UTC) of the ledger."""
 
-    contract_version: Literal["0.2"] = USAGE_CONTRACT_VERSION
+    contract_version: Literal["0.2", "0.3"] = USAGE_CONTRACT_VERSION
     tenant_id: str
     month: str = Field(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
     from_: datetime = Field(alias="from")
     to: datetime
     totals: dict[str, int] = Field(default_factory=dict)  # meter → quantity, every source
     groups: list[UsageGroup] = Field(default_factory=list)
+    daily: list[UsageDay] = Field(default_factory=list)  # days with usage, oldest first (0.3)
+
+
+class DecisionDay(ContractModel):
+    date: str = Field(pattern=_DATE)  # UTC calendar day
+    actions: dict[str, int] = Field(default_factory=dict)  # decision → events
+
+
+class EntityCount(ContractModel):
+    type: str
+    decisions: int = Field(ge=0)  # events in which the type was found
+
+
+class PolicyCount(ContractModel):
+    kind: str
+    id: str
+    decisions: int = Field(ge=0)  # events the policy took part in deciding
+
+
+class DecisionEventSummary(ContractModel):
+    """``GET /v1/decision-events/summary`` (0.5): counts for charts over the same filters as the
+    list. ``top_entities`` and ``top_policies`` come from the newest ``scanned`` events;
+    ``truncated`` says the window held more than the scan limit."""
+
+    since: datetime
+    until: datetime
+    total: int = Field(ge=0)
+    by_action: dict[str, int] = Field(default_factory=dict)
+    by_source: dict[str, int] = Field(default_factory=dict)
+    by_day: list[DecisionDay] = Field(default_factory=list)  # days with events, oldest first
+    top_entities: list[EntityCount] = Field(default_factory=list)
+    top_policies: list[PolicyCount] = Field(default_factory=list)
+    scanned: int = Field(0, ge=0)
+    truncated: bool = False

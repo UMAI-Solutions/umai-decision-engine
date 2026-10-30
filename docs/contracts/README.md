@@ -11,8 +11,8 @@ in the same commit (skill `change-contract`).
 | [policy-bundle](policy-bundle.md) | 0.9 | policy author / loader → engine |
 | [entity-detection](entity-detection.md) | 0.2 | L0 → L1, pipeline |
 | [decision-questions](decision-questions.md) | 0.4 | bundle → L1b → provider adapters |
-| [tagged-action](tagged-action.md) | 0.4 | pipeline → records store (decision events, L1b outcomes; ADR-0041), later session history and the L2 worker |
-| [usage](usage.md) | 0.2 | pipeline → usage ledger → usage pages, quotas, invoices (ADR-0041, ADR-0028) |
+| [tagged-action](tagged-action.md) | 0.5 | pipeline → records store (decision events, L1b outcomes; ADR-0041), later session history and the L2 worker |
+| [usage](usage.md) | 0.3 | pipeline → usage ledger → usage pages, quotas, invoices (ADR-0041, ADR-0028) |
 | [l2-analysis](l2-analysis.md) | 0.1 | L2 model → worker → findings |
 | [tag-taxonomy](tag-taxonomy.md) | 0.3 | all layers |
 | [policy-tests](policy-tests.md) | 0.3 | policy author → golden-test runner, CI (ADR-0015) |
