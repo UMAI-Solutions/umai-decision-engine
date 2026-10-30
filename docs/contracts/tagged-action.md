@@ -81,7 +81,7 @@ tenant-scoped (ADR-0025).
 | `tags[]` | Codes from [tag-taxonomy](tag-taxonomy.md) with the producing layer, score or probability |
 | `matched[]` | The rules that produced the decision: kind, id, version, action |
 | `decision` | The final runtime decision as returned; `floor` is the L0 gate's outcome when L1 ran on top of it (ADR-0036); `would_have` is the ENFORCE outcome in MONITOR mode |
-| `l1b` | Absent when no L1b policy applied: provider, whether enforcing or shadow policies applied, the failed call's error kind, latency. Per-policy outcomes are L1b outcome records |
+| `l1b` | Absent when no L1b policy applied: provider, whether enforcing or shadow policies applied, the enforcing call's error kind and latency (shadow policies have their own call after the decision). Per-policy outcomes are L1b outcome records |
 | `review`, `review_reasons` | Selected for L2 review, with the L1b reasons: `action` (the outcome is in the policy's `review_when.actions`), `low_confidence` (below `or_confidence_below`), `refusal` (the model refused) |
 | `errors[]` | Layer, type and retryable; never the message |
 | `latency_ms` | Total, L0 and L1b |
@@ -93,8 +93,9 @@ The excerpt may return, encrypted per tenant and opt-in, once ADR-0025 §4 is bu
 ## L1b outcome record
 
 One per L1b policy and evaluation, for enforcing and shadow policies alike. A shadow outcome
-is written when its background call finishes, after the decision event; records are never
-updated. Stored in `l1b_outcomes`.
+is written when its background call finishes, after the decision event (for a stream's re-check
+that stopped the stream, also after the commit); records are never updated. Stored in
+`l1b_outcomes`.
 
 ```json
 {

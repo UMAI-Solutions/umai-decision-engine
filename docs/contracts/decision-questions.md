@@ -14,7 +14,7 @@ leak provider concepts back into this contract.
 |---|---|---|
 | `id`, `version` | string, int | |
 | `name`, `description`, `source` | string? | Display data and provenance (0.4); never sent to a provider |
-| `enforcement` | `enforce` \| `shadow` | default `enforce`. `shadow`: evaluated and logged, never changes the decision; with no enforcing policy the call runs after the decision is returned (0.4, ADR-0040) |
+| `enforcement` | `enforce` \| `shadow` | default `enforce`. `shadow`: evaluated and logged, never changes the decision; always asked in its own call after the decision is returned (0.4, ADR-0040; own call since the 2026-10-30 amendment) |
 | `phases` | Phase[] | Policy runs only in these phases |
 | `policy_text` | string | Natural-language policy, ≤ 4 000 chars. Written for the model |
 | `questions` | map `qid → Question` | `qid` is `snake_case`, unique within the policy |

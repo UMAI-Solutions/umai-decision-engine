@@ -6,13 +6,13 @@
   redacted text (ADR-0036): ``final = max(floor, L1)``.
 - L1b (ADR-0040): the bundle's decision policies, answered by a decision model. A provider
   failure applies the bundle's failure policy to the L1b part. Shadow policies are recorded,
-  never decide.
+  never decide, and run in their own call after the decision.
 - L1a rules are not implemented yet: a bundle with L1a rules is answered with its
   ``on_evaluation_failure`` and an explicit ``L1_NOT_IMPLEMENTED`` error — never a silent allow
   (AGENTS.md rule 4).
 - Records (ADR-0041): every exit hands a decision event and an ``evaluations`` usage record to
-  the recorder, and every L1b call its outcome and usage records. The recorder never blocks and
-  a failing record never changes the decision (ADR-0042).
+  the recorder, every L1b call its outcome records, and an evaluation's last L1b call its usage
+  records. The recorder never blocks and a failing record never changes the decision (ADR-0042).
 """
 
 from __future__ import annotations
@@ -133,6 +133,18 @@ class Evaluated:
     records: list[Record] = field(default_factory=list)
 
 
+@dataclass
+class _Hold:
+    """The records of an evaluation run with ``context.record`` false. Kept past the evaluation
+    while its background shadow call runs: that call's records join the held ones until
+    :meth:`Evaluator.commit`, and are written directly after it."""
+
+    records: list[Record] = field(default_factory=list)
+    returned: bool = False
+    committed: bool = False
+    background: asyncio.Task | None = None
+
+
 class Evaluator:
     def __init__(
         self,
@@ -146,7 +158,7 @@ class Evaluator:
         self._detector = detector
         self._settings = settings
         self.recorder: Recorder = recorder or NullRecorder()
-        self._held: dict[str, list[Record]] = {}  # event id → records of a held evaluation
+        self._held: dict[str, _Hold] = {}  # event id → a held evaluation's records
         self.l1b = L1bStage(decision_models or DecisionModels({}), report=self._record_l1b)
 
     def record_call(
@@ -179,8 +191,12 @@ class Evaluator:
             logger.exception("records.build_failed gateway_call_id=%s", context.gateway_call_id)
 
     def commit(self, evaluated: Evaluated) -> None:
-        """Write the records held on an evaluation that ran with ``context.record`` false."""
+        """Write the records held on an evaluation that ran with ``context.record`` false, and
+        those its shadow call still reports."""
 
+        hold = self._held.get(evaluated.response.event_id)
+        if hold is not None:
+            hold.committed = True
         for record in evaluated.records:
             self.recorder.record(record)
         evaluated.records.clear()
@@ -228,13 +244,27 @@ class Evaluator:
 
         started = time.perf_counter()
         event_id = new_event_id()
-        if context is not None and not context.record:
-            self._held[event_id] = []
+        hold = _Hold() if context is not None and not context.record else None
+        if hold is not None:
+            self._held[event_id] = hold
         try:
             evaluated = await self._evaluate(request, target, context, started, event_id)
         finally:
-            held = self._held.pop(event_id, None)
-        return replace(evaluated, records=held) if held else evaluated
+            if hold is not None:
+                hold.returned = True
+                self._release(event_id)
+        return replace(evaluated, records=hold.records) if hold is not None else evaluated
+
+    def _release(self, event_id: str) -> None:
+        """Forget a hold once its evaluation returned and its shadow call, if any, reported."""
+
+        hold = self._held.get(event_id)
+        if (
+            hold is not None
+            and hold.returned
+            and (hold.background is None or hold.background.done())
+        ):
+            del self._held[event_id]
 
     async def _evaluate(
         self,
@@ -387,6 +417,10 @@ class Evaluator:
                 event_id=event_id,
                 context=context,
             )
+            hold = self._held.get(event_id)
+            if hold is not None and l1b.background is not None:
+                hold.background = l1b.background
+                l1b.background.add_done_callback(lambda _: self._release(event_id))
             l1b_ms = l1b.latency_ms
             trace.extend(l1b.trace)
             errors.extend(l1b.errors)
@@ -545,13 +579,13 @@ class Evaluator:
             logger.exception("records.build_failed event_id=%s", response.event_id)
 
     def _emit(self, event_id: str, context: RecordContext | None, records: list[Record]) -> None:
-        held = self._held.get(event_id)
-        if held is not None:
-            held.extend(records)
-        elif context is None or context.record:
+        hold = self._held.get(event_id)
+        if hold is not None and not hold.committed:
+            hold.records.extend(records)
+        elif hold is not None or context is None or context.record:
             for record in records:
                 self.recorder.record(record)
-        # else: a held evaluation that already returned (its shadow call finished late): dropped
+        # else: a held evaluation already released; its calls have all reported, so not reached
 
     def _record_l1b(self, report: L1bReport) -> None:
         try:
@@ -576,7 +610,7 @@ class Evaluator:
                         error=report.failed,
                     )
                 )
-            if report.stats.calls:
+            if report.usage is not None and report.usage.calls:
                 for usage in l1b_usage(
                     event_id=report.event_id,
                     tenant_id=tenant,
@@ -584,9 +618,9 @@ class Evaluator:
                     bundle_version=bundle.version,
                     context=report.context,
                     occurred_at=now,
-                    calls=report.stats.calls,
-                    input_tokens=report.stats.input_tokens,
-                    output_tokens=report.stats.output_tokens,
+                    calls=report.usage.calls,
+                    input_tokens=report.usage.input_tokens,
+                    output_tokens=report.usage.output_tokens,
                 ):
                     records.append(usage)
             self._emit(report.event_id, report.context, records)

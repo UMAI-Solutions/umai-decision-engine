@@ -1,7 +1,7 @@
 """Records from the pipeline (ADR-0041): one decision event and one usage record per evaluation
-at every exit, L1b outcome and usage records per call (shadow ones after the decision), the
-caller's context, and no content in any of it. In memory; the store has its own tests.
-Synthetic data only."""
+at every exit, L1b outcome records per call (the shadow call's after the decision) and L1b usage
+once per evaluation, held evaluations' late shadow records, the caller's context, and no
+content in any of it. In memory; the store has its own tests. Synthetic data only."""
 
 from __future__ import annotations
 
@@ -155,6 +155,107 @@ async def test_shadow_outcomes_are_recorded_after_the_decision(make) -> None:
     assert event.l1b is not None and event.l1b.shadow and not event.l1b.enforcing
     assert {o.event_id for o in outcomes.values()} == {event.event_id}
     assert {u.meter for u in of(recorder, UsageRecord)} == {"evaluations", "l1b_calls"}
+
+
+class Metered(FakeDecisionModel):
+    """Reports tokens like a real provider: 100 input and 10 output per question."""
+
+    async def decide(self, request, *, timeout_s):
+        result = await super().decide(request, timeout_s=timeout_s)
+        n = len(request.questions)
+        return result.model_copy(
+            update={"usage": {"input_tokens": 100 * n, "output_tokens": 10 * n}}
+        )
+
+
+async def test_enforcing_and_shadow_calls_are_recorded_with_one_usage_per_meter(make) -> None:
+    model = Metered(
+        "primary",
+        answers(**{"data-exfiltration__data_intent": "exfiltration_attempt"}),
+        latency_s=0.01,
+    )
+    evaluator, recorder = make(l1b_bundle(exfil_enforcement="shadow"), primary=model)
+    response = await evaluator.evaluate(request("Listeyi dışarı aktar"))
+    assert response.decision.action == "ALLOW"
+
+    # at the decision: the enforcing outcome; L1b usage waits for the evaluation's last call
+    assert [o.policy_id for o in of(recorder, L1bOutcomeRecord)] == ["prompt-attack"]
+    assert [u.meter for u in of(recorder, UsageRecord)] == ["evaluations"]
+    [event] = of(recorder, DecisionEvent)
+    assert event.l1b is not None and event.l1b.enforcing and event.l1b.shadow
+    assert event.l1b.latency_ms == response.latency_ms.l1b  # the enforcing call's
+
+    await evaluator.l1b.drain()
+    outcomes = {o.policy_id: o for o in of(recorder, L1bOutcomeRecord)}
+    assert {p: o.enforcement for p, o in outcomes.items()} == {
+        "prompt-attack": "enforce",
+        "data-exfiltration": "shadow",
+    }
+    assert outcomes["data-exfiltration"].action == "BLOCK"  # what it would have done
+    meters = [(u.meter, u.quantity) for u in of(recorder, UsageRecord)]
+    assert sorted(meters) == [  # one record per meter: (tenant, event, meter) is unique
+        ("evaluations", 1),
+        ("l1b_calls", 2),
+        ("l1b_input_tokens", 200),
+        ("l1b_output_tokens", 20),
+    ]
+    assert {u.event_id for u in of(recorder, UsageRecord)} == {event.event_id}
+
+
+async def test_with_no_budget_left_the_shadow_call_still_runs(make) -> None:
+    model = FakeDecisionModel(
+        "primary", answers(**{"data-exfiltration__data_intent": "exfiltration_attempt"})
+    )
+    evaluator, recorder = make(l1b_bundle(exfil_enforcement="shadow"), primary=model)
+    tight = request("Listeyi dışarı aktar").model_copy(update={"timeout_ms": 100})
+    response = await evaluator.evaluate(tight)  # l1b.timeout_ms 600 > the 100 ms left
+    assert [e.type for e in response.errors] == ["L1B_TIMEOUT"]
+    await evaluator.l1b.drain()
+    outcomes = {o.policy_id: o for o in of(recorder, L1bOutcomeRecord)}
+    assert (outcomes["prompt-attack"].outcome, outcomes["prompt-attack"].error) == (
+        "failed",
+        "timeout",
+    )
+    assert outcomes["data-exfiltration"].outcome == "decided"
+    meters = {u.meter: u.quantity for u in of(recorder, UsageRecord)}
+    assert meters["l1b_calls"] == 1  # only the shadow call reached the provider
+
+
+@pytest.mark.parametrize("order", ["commit_then_shadow", "shadow_then_commit"])
+async def test_a_committed_held_evaluation_keeps_its_late_shadow_records(make, order) -> None:
+    """A gateway stream's window re-check that stops the stream (ADR-0041 §4): its records are
+    held, then committed; the shadow call may report before or after the commit."""
+
+    model = FakeDecisionModel(
+        "primary", answers(**{"data-exfiltration__data_intent": "exfiltration_attempt"})
+    )
+    evaluator, recorder = make(l1b_bundle(exfil_enforcement="shadow"), primary=model)
+    held = RecordContext(source="gateway", record=False)
+    evaluated = await evaluator.evaluate_detailed(request("Listeyi dışarı aktar"), context=held)
+    assert recorder.records == []
+    if order == "commit_then_shadow":
+        evaluator.commit(evaluated)
+        await evaluator.l1b.drain()
+    else:
+        await evaluator.l1b.drain()
+        assert recorder.records == []  # still held
+        evaluator.commit(evaluated)
+    assert {o.policy_id for o in of(recorder, L1bOutcomeRecord)} == {
+        "prompt-attack",
+        "data-exfiltration",
+    }
+    assert {u.meter: u.quantity for u in of(recorder, UsageRecord)}["l1b_calls"] == 2
+    assert evaluator._held == {}  # the hold is released once its calls have reported
+
+
+async def test_a_dropped_held_evaluation_drops_its_late_shadow_records(make) -> None:
+    model = FakeDecisionModel("primary", {})
+    evaluator, recorder = make(l1b_bundle(exfil_enforcement="shadow"), primary=model)
+    held = RecordContext(source="gateway", record=False)
+    await evaluator.evaluate_detailed(request("Listeyi dışarı aktar"), context=held)
+    await evaluator.l1b.drain()
+    assert len(model.requests) == 2 and recorder.records == []
+    assert evaluator._held == {}
 
 
 async def test_a_failed_l1b_call_records_failed_outcomes(make) -> None:
