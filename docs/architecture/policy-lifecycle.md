@@ -62,6 +62,9 @@ pages are built on these answers; field additions are backwards compatible.
 | `GET/POST /v1/tenants/{id}/keys` | API keys (ADR-0023): create `{name, scopes?, env?, expires_at?}` → `{key, secret, published}` (secret shown once); list records |
 | `DELETE /v1/tenants/{id}/keys/{key_id}` | Revoke; effective at engines within one poll interval |
 | `POST /v1/tenants/{id}/keys/publish` | Rewrite the tenant's signed registry snapshot |
+| `GET /v1/decision-events` | Records (ADR-0041): the tenant's decision events, newest first; `limit`, `cursor`, `since`, `until`, `action`, `source`, `application_id`, `phase`, `review` ([tagged-action](../contracts/tagged-action.md) 0.4); roles owner, admin, editor, approver, viewer |
+| `GET /v1/decision-events/{event_id}` | The event with its L1b outcome records; 404 when not the tenant's or past retention |
+| `GET /v1/usage` | `?month=YYYY-MM` (UTC, default current): ledger totals per meter and split by source, environment, application ([usage](../contracts/usage.md) 0.2); roles as above plus billing |
 
 Drafts are tenant-scoped (Postgres with row-level security in SaaS, SQLite otherwise, ADR-0025);
 the tenant a request acts for is the `X-Umai-Tenant` header, else `UMAI_DE_DEFAULT_TENANT_ID`.

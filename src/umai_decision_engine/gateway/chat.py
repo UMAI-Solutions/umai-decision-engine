@@ -16,6 +16,7 @@ import re
 import time
 import uuid
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -24,6 +25,7 @@ from fastapi.responses import JSONResponse, Response
 from umai_decision_engine.contracts.common import Action, Phase
 from umai_decision_engine.contracts.credentials import Scope
 from umai_decision_engine.contracts.evaluation import Subject
+from umai_decision_engine.contracts.events import RecordContext
 from umai_decision_engine.contracts.gateway import (
     APPLICATION_ID,
     MODEL_REF,
@@ -45,7 +47,7 @@ from umai_decision_engine.gateway.fields import (
     clean_chat_answer,
     clean_chat_upstream,
 )
-from umai_decision_engine.gateway.guard import CallContext, Check, Guard, strictest
+from umai_decision_engine.gateway.guard import BLOCKING, CallContext, Check, Guard, strictest
 from umai_decision_engine.gateway.masking import MaskSession
 from umai_decision_engine.gateway.tools import (
     chat_tool_action,
@@ -82,6 +84,8 @@ class Call:
     output_action: Action | None = None
     fallback: Route | None = None  # resolved when the call starts
     used_fallback: str | None = None
+    finished: bool = False  # its gateway.call line and usage record are written
+    streaming: bool = False  # a stream records itself when it closes
 
     @property
     def route(self) -> Route:
@@ -102,10 +106,26 @@ class Call:
 
 @dataclass(frozen=True)
 class Caller:
-    """Who is calling: the tenant, and the application the key belongs to (ADR-0039)."""
+    """Who is calling: the tenant, the application the key belongs to (ADR-0039), and the key
+    itself for the records (ADR-0041)."""
 
     tenant: str
     application_id: str | None = None
+    key_id: str | None = None
+    environment: str | None = None
+
+
+def record_context(caller: Caller, route: Route) -> RecordContext:
+    """The records' view of a call: a server-made call id (a caller's request id may repeat),
+    the key, and the application the call runs as."""
+
+    return RecordContext(
+        source="gateway",
+        key_id=caller.key_id,
+        environment=caller.environment if caller.environment in ("live", "test") else None,
+        application_id=route.route_id,
+        gateway_call_id=f"gc-{uuid.uuid4().hex}",
+    )
 
 
 def _admit(request: Request) -> Caller:
@@ -121,7 +141,7 @@ def _admit(request: Request) -> Caller:
         raise GatewayHTTPError(403, "insufficient_scope", "scope gateway is required")
     # The shared operator token and the open development mode act as the default tenant.
     tenant = principal.tenant_id or state.settings.default_tenant_id
-    return Caller(tenant, principal.application_id)
+    return Caller(tenant, principal.application_id, principal.key_id, principal.env)
 
 
 async def _read_body(request: Request) -> dict[str, Any]:
@@ -410,7 +430,9 @@ async def chat_completions(request: Request) -> Response:
         )
 
     call = Call(
-        ctx=CallContext(request_id, tenant, route, _subject(request, body)),
+        ctx=CallContext(
+            request_id, tenant, route, _subject(request, body), record_context(caller, route)
+        ),
         provider_key=provider_key,
         session=MaskSession.for_call(s.text for s in segments),
         guard=state.guard,
@@ -420,6 +442,7 @@ async def chat_completions(request: Request) -> Response:
         headers=call_headers(request_id, route),
         fallback=fallback,
     )
+    request.state.call = call  # recorded at its end, whatever the exit (app middleware)
     if unscanned:
         call.headers["X-Umai-Unscanned-Parts"] = str(unscanned)
     stream = body.get("stream") is True
@@ -581,7 +604,13 @@ def _log(
     upstream_error: bool = False,
     stream: bool = False,
 ) -> None:
+    """The end of a call: one ``gateway.call`` line and one usage record, once."""
+
+    if call.finished:
+        return
+    call.finished = True
     usage = usage if isinstance(usage, dict) else {}
+    _record_call(call, usage)
     log.info(
         "gateway.call request_id=%s tenant=%s application=%s upstream=%s/%s stream=%s status=%s "
         "input=%s output=%s refused=%s upstream_error=%s fallback=%s prompt_tokens=%s "
@@ -602,3 +631,41 @@ def _log(
         usage.get("completion_tokens"),
         call.elapsed_ms(),
     )
+
+
+def _tokens(usage: dict[str, Any], *names: str) -> int | None:
+    for name in names:
+        value = usage.get(name)
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            return value
+    return None
+
+
+def _record_call(call: Call, usage: dict[str, Any]) -> None:
+    """The call's usage records (usage 0.2): never raises, never changes the answer."""
+
+    try:
+        route = call.route
+        call.guard.record_call(
+            call.ctx.record,
+            tenant_id=call.ctx.tenant_id,
+            occurred_at=datetime.now(UTC),
+            bundle_id=route.guardrail,
+            provider=route.provider_id or route.upstream.kind,
+            model=route.upstream.model,
+            input_tokens=_tokens(usage, "prompt_tokens", "input_tokens"),
+            output_tokens=_tokens(usage, "completion_tokens", "output_tokens"),
+        )
+    except Exception:
+        log.exception("records.build_failed gateway_call_id=%s", call.ctx.record.gateway_call_id)
+
+
+def finish_unrecorded(request: Request, status: int) -> None:
+    """Close a call its handler did not close (a refusal raised as an error, a timeout, an
+    unexpected failure); streams close themselves."""
+
+    call = getattr(request.state, "call", None)
+    if not isinstance(call, Call) or call.finished or call.streaming:
+        return
+    refused = "output" if call.output_action in BLOCKING else None
+    _log(call, status=status, refused=refused, upstream_error=status in (502, 504))

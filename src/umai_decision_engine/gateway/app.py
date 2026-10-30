@@ -13,7 +13,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from umai_decision_engine import __version__
-from umai_decision_engine.gateway.chat import router
+from umai_decision_engine.events.recorder import Recorder
+from umai_decision_engine.gateway.chat import finish_unrecorded, router
 from umai_decision_engine.gateway.embeddings import router as embeddings_router
 from umai_decision_engine.gateway.errors import GatewayHTTPError, gateway_error_handler
 from umai_decision_engine.gateway.guard import Guard
@@ -33,6 +34,7 @@ def create_gateway_app(
     detector: EntityDetector | None = None,
     upstream_transport: httpx.AsyncBaseTransport | None = None,
     decision_models: DecisionModels | None = None,
+    recorder: Recorder | None = None,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -43,7 +45,7 @@ def create_gateway_app(
             store=store,
             detector=detector,
             decision_models=decision_models,
-            records=False,  # the gateway's records land with ADR-0041 §4 (one per call)
+            recorder=recorder,
         )
         cfg = runtime.settings
         state.settings = cfg
@@ -62,6 +64,20 @@ def create_gateway_app(
 
     app = FastAPI(title="umai-gateway", version=__version__, lifespan=lifespan)
     app.add_exception_handler(GatewayHTTPError, gateway_error_handler)
+
+    @app.middleware("http")
+    async def every_call_is_recorded(request: Request, call_next):
+        """A call that passed admission ends in exactly one ``gateway.call`` line and one usage
+        record (ADR-0041 §4), whatever exit it took: handlers record their own ends, this
+        catches refusals raised as errors, timeouts and crashes. Streams record when they close."""
+
+        try:
+            response = await call_next(request)
+        except Exception:
+            finish_unrecorded(request, 500)
+            raise
+        finish_unrecorded(request, response.status_code)
+        return response
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:

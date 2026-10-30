@@ -130,8 +130,10 @@ services:
     command: ["uvicorn", "umai_decision_engine.gateway.app:app", "--host", "0.0.0.0", "--port", "9300", "--no-server-header"]
     environment:
       <<: *engine-env
+      # Records (ADR-0041 §4): a usage record per call, a decision event per check.
+      UMAI_DE_RECORDS_SINK: ${UMAI_RECORDS_SINK:-database}
     env_file:
-      - "${UMAI_RUN_DIR:-/run/umai}/engine.env"   # operator token, tenant HMAC keys
+      - "${UMAI_RUN_DIR:-/run/umai}/engine.env"   # operator token, tenant HMAC keys, records DB
       - "${UMAI_RUN_DIR:-/run/umai}/gateway.env"  # provider keys (gateway only)
       - "${UMAI_RUN_DIR:-/run/umai}/routes.env"   # upstream allow-list (also the policy service)
     volumes:
@@ -139,6 +141,7 @@ services:
       - "${UMAI_APPLICATIONS:-/opt/umai/applications}:/data/applications:ro"
     depends_on:
       seed: { condition: service_completed_successfully }
+      policy: { condition: service_healthy }  # migrations first (record tables)
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:9300/readyz',timeout=3)"]
       interval: 15s

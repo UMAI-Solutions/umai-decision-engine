@@ -130,6 +130,11 @@ class Settings(BaseSettings):
     records_write_timeout_ms: int = Field(5_000, ge=100, le=60_000)
     records_drain_timeout_ms: int = Field(5_000, ge=0, le=60_000)
     records_stats_interval_s: float = Field(60.0, ge=1, le=3600)
+    # Retention (ADR-0041 §5), applied by the policy service with the owner role: decision events
+    # and L1b outcomes, and the usage ledger. Per-tenant ranges come with entitlements.
+    records_decision_retention_days: int = Field(30, ge=1, le=400)
+    records_usage_retention_days: int = Field(400, ge=30, le=3650)
+    records_retention_interval_s: float = Field(3600.0, ge=0)  # 0: the job does not run
     gateway_max_request_bytes: int = Field(16_000_000, ge=10_000, le=200_000_000)
     # Characters the gateway scans per call: the whole history, resent every turn (gateway-api
     # 0.8). Larger than max_input_chars because a conversation grows; the L0 cache keeps a

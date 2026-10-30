@@ -144,3 +144,62 @@ class DatabaseRecordWriter:
 
     async def aclose(self) -> None:
         await self._engine.dispose()
+
+
+# ------------------------------------------------------------------ rows → records (read API)
+
+
+def event_from_row(row: DecisionEventRow, tenant_slug: str) -> DecisionEvent:
+    """The stored row as the contract record; ``tenant_id`` is the tenant's external id."""
+
+    return DecisionEvent.model_validate(
+        {
+            "event_id": row.event_id,
+            "request_id": row.request_id,
+            "tenant_id": tenant_slug,
+            "occurred_at": row.occurred_at,
+            "source": row.source,
+            "engine_version": row.engine_version,
+            "key_id": row.key_id,
+            "environment": row.environment,
+            "application_id": row.application_id,
+            "gateway_call_id": row.gateway_call_id,
+            "bundle": {
+                "id": row.bundle_id,
+                "version": row.bundle_version,
+                "sha256": row.bundle_sha256,
+                "mode": row.bundle_mode,
+            },
+            "phase": row.phase,
+            "subject": row.subject,
+            "destination": row.destination,
+            "agent_action": row.agent_action,
+            "entities": row.entities,
+            "tags": row.tags,
+            "matched": row.matched,
+            "decision": {
+                "action": row.action,
+                "severity": row.severity,
+                "decided_by": row.decided_by,
+                "degraded": row.degraded,
+                "floor": row.floor_action,
+                "would_have": row.would_have,
+            },
+            "l1b": row.l1b,
+            "review": row.review,
+            "review_reasons": row.review_reasons,
+            "errors": row.errors,
+            "latency_ms": {
+                "total": row.latency_total_ms,
+                "l0": row.latency_l0_ms,
+                "l1b": row.latency_l1b_ms,
+            },
+        }
+    )
+
+
+def outcome_from_row(row: L1bOutcomeRow, tenant_slug: str) -> L1bOutcomeRecord:
+    fields = set(L1bOutcomeRecord.model_fields) - {"contract_version", "tenant_id"}
+    return L1bOutcomeRecord.model_validate(
+        {**{name: getattr(row, name) for name in fields}, "tenant_id": tenant_slug}
+    )

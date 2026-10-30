@@ -21,7 +21,7 @@ import asyncio
 import logging
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 
 from umai_decision_engine.contracts.bundle import PolicyBundle, TargetScope
@@ -45,10 +45,11 @@ from umai_decision_engine.contracts.evaluation import (
     Tag,
     TraceEntry,
 )
-from umai_decision_engine.contracts.events import EventL1b, RecordContext
+from umai_decision_engine.contracts.events import EventL1b, Record, RecordContext
 from umai_decision_engine.events.build import (
     decision_event,
     evaluation_usage,
+    gateway_usage,
     l1b_outcome,
     l1b_usage,
 )
@@ -127,6 +128,9 @@ class Evaluated:
     scanned_text: str = ""
     entities: list[DetectedEntity] = field(default_factory=list)
     masked_types: frozenset[str] = frozenset()
+    # Records held for the caller (``context.record`` false): :meth:`Evaluator.commit` writes
+    # them; otherwise they are dropped (a gateway stream's window re-checks, ADR-0041 §4).
+    records: list[Record] = field(default_factory=list)
 
 
 class Evaluator:
@@ -142,7 +146,44 @@ class Evaluator:
         self._detector = detector
         self._settings = settings
         self.recorder: Recorder = recorder or NullRecorder()
+        self._held: dict[str, list[Record]] = {}  # event id → records of a held evaluation
         self.l1b = L1bStage(decision_models or DecisionModels({}), report=self._record_l1b)
+
+    def record_call(
+        self,
+        context: RecordContext,
+        *,
+        tenant_id: str,
+        occurred_at: datetime,
+        bundle_id: str | None,
+        provider: str | None,
+        model: str | None,
+        input_tokens: int | None,
+        output_tokens: int | None,
+    ) -> None:
+        """A gateway call's usage records (usage 0.2); the gateway does not import ``events``."""
+
+        try:
+            for record in gateway_usage(
+                context,
+                tenant_id=tenant_id,
+                occurred_at=occurred_at,
+                bundle_id=bundle_id,
+                provider=provider,
+                model=model,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+            ):
+                self.recorder.record(record)
+        except Exception:  # a record never changes the answer (ADR-0042)
+            logger.exception("records.build_failed gateway_call_id=%s", context.gateway_call_id)
+
+    def commit(self, evaluated: Evaluated) -> None:
+        """Write the records held on an evaluation that ran with ``context.record`` false."""
+
+        for record in evaluated.records:
+            self.recorder.record(record)
+        evaluated.records.clear()
 
     def resolve_bundle(
         self, request: EvaluationRequest
@@ -187,6 +228,22 @@ class Evaluator:
 
         started = time.perf_counter()
         event_id = new_event_id()
+        if context is not None and not context.record:
+            self._held[event_id] = []
+        try:
+            evaluated = await self._evaluate(request, target, context, started, event_id)
+        finally:
+            held = self._held.pop(event_id, None)
+        return replace(evaluated, records=held) if held else evaluated
+
+    async def _evaluate(
+        self,
+        request: EvaluationRequest,
+        target: TargetScope | None,
+        context: RecordContext | None,
+        started: float,
+        event_id: str,
+    ) -> Evaluated:
         budget_s = (
             min(
                 request.timeout_ms or self._settings.default_timeout_ms,
@@ -476,10 +533,25 @@ class Evaluator:
     ) -> None:
         try:
             now = datetime.now(UTC)
-            self.recorder.record(decision_event(request, response, context, now, **event))
-            self.recorder.record(evaluation_usage(response, context, now))
+            self._emit(
+                response.event_id,
+                context,
+                [
+                    decision_event(request, response, context, now, **event),
+                    evaluation_usage(response, context, now),
+                ],
+            )
         except Exception:  # a record never changes the decision (ADR-0042)
             logger.exception("records.build_failed event_id=%s", response.event_id)
+
+    def _emit(self, event_id: str, context: RecordContext | None, records: list[Record]) -> None:
+        held = self._held.get(event_id)
+        if held is not None:
+            held.extend(records)
+        elif context is None or context.record:
+            for record in records:
+                self.recorder.record(record)
+        # else: a held evaluation that already returned (its shadow call finished late): dropped
 
     def _record_l1b(self, report: L1bReport) -> None:
         try:
@@ -487,8 +559,9 @@ class Evaluator:
             bundle, request = report.bundle, report.request
             tenant = request.tenant_id or self._store.default_tenant
             outcomes = {o.policy.id: o for o in report.outcomes}
+            records: list[Record] = []
             for policy in report.policies:
-                self.recorder.record(
+                records.append(
                     l1b_outcome(
                         event_id=report.event_id,
                         tenant_id=tenant,
@@ -515,7 +588,8 @@ class Evaluator:
                     input_tokens=report.stats.input_tokens,
                     output_tokens=report.stats.output_tokens,
                 ):
-                    self.recorder.record(usage)
+                    records.append(usage)
+            self._emit(report.event_id, report.context, records)
         except Exception:  # a record never changes the decision (ADR-0042)
             logger.exception("records.build_failed event_id=%s", report.event_id)
 

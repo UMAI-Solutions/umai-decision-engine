@@ -167,11 +167,14 @@ streaming modes `window` / `buffer` / `after`; Compose profile `gateway` on the 
 (`docs/workflow/gateway.md`). Prompt-attack detection (gateway WP4) is paused until L1: groundwork
 in `l1/attacks/` (not wired in) and the `pi-tr` eval suite. `umai-beta` runs the gateway since
 2026-10-20 (enforcing; OpenAI with the caller's provider key).
-Records (2026-10-26, ADR-0041, ADR-0042, contracts tagged-action 0.3 and usage 0.1): the engine
-API stores a decision event and an `evaluations` usage record per evaluation and an L1b outcome
-record per policy (shadow included) in append-only tenant tables (migration 0006), through a
+Records (2026-10-26/30, ADR-0041, ADR-0042, contracts tagged-action 0.4 and usage 0.2): the
+engine API and the gateway store a decision event and an `evaluations` usage record per
+evaluation (per check on the gateway; a stream's window re-checks collapse into its final check),
+an L1b outcome record per policy (shadow included), and one usage record per gateway call
+(`gateway_calls`, provider tokens) in append-only tenant tables (migrations 0006–0007), through a
 bounded in-memory queue and a batched writer (`events/`; `UMAI_DE_RECORDS_SINK=database`); no
-content, not even redacted. Gateway records, read routes and the retention job follow.
+content, not even redacted. The policy service reads them (`GET /v1/decision-events`,
+`GET /v1/usage`) and deletes them after retention (`control_plane/records.py`).
 Tenants are organizations created in the console; API keys, bundles and HMAC keys are per tenant.
 The console signs people in with OIDC (Auth0 development tenant, `umai-control-center`, locally
 since 2026-10-18 and on `umai-beta` since 2026-10-19).

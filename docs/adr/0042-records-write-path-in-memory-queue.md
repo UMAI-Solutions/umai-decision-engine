@@ -84,5 +84,21 @@ local outbox without adding a volume.
   median and +2 ms at p95 per evaluation, against an L1b call of 280–570 ms (ADR-0040) and a
   1 500 ms budget. With a fresh multi-row statement per batch it was +24 ms (sequential p99) and
   p95 261 ms under concurrency 16; hence the compiled statement. No record was dropped.
+- Gateway (2026-10-30, suite `gateway-latency`, zero-latency fake upstream, same laptop; two runs
+  each, [reports](../../evals/reports/)): a gateway call writes about seven records (an event and
+  an `evaluations` record per check, the call's usage records).
+
+  | Scenario | `main`, no records: p50 / p95 ms | Records to PostgreSQL: p50 / p95 ms |
+  |---|---|---|
+  | 500 chars, non-streaming | 7.5 / 10.1 · 6.0 / 8.7 | 7.2 / 12.8 · 10.5 / 17.0 |
+  | 16-message history, masked | 7.4 / 10.1 · 6.9 / 9.5 | 11.8 / 17.4 · 8.9 / 13.1 |
+  | streaming `window`, 2 000 chars | 123 / 174 · 104 / 158 | 121 / 159 · 134 / 208 |
+  | streaming `after` | 13.9 / 20.2 · 13.4 / 18.7 | 18.3 / 29.4 · 26.7 / 37.2 |
+
+  The same build moves by several milliseconds between runs; with records a call costs from
+  about nothing to about +5 ms at p50 and up to +8 ms at p95 non-streaming, more in `after`
+  streaming (two full answer checks), against upstream calls of hundreds of milliseconds. Every
+  call was stored (4 920 events for 2 460 calls). With records off, PR 2's middleware alone was
+  within the noise.
 - Revisit if a production profile shows the writer competing with L0 for the event loop: the
   writer can move to its own thread and loop without changing the recorder's interface.

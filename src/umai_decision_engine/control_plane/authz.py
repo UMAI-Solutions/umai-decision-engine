@@ -60,6 +60,9 @@ class Action(StrEnum):
     APPLICATION_WRITE = "application.write"
     GATEWAY_READ = "gateway.read"
     GATEWAY_WRITE = "gateway.write"
+    # records (ADR-0041): decision events for investigation, the usage ledger for billing too
+    DECISIONS_READ = "records.decisions.read"
+    USAGE_READ = "records.usage.read"
 
 
 @dataclass(frozen=True)
@@ -116,6 +119,8 @@ MATRIX: dict[Action, Rule] = {
     Action.APPLICATION_WRITE: _r(_O, _A, operator=True),
     Action.GATEWAY_READ: _r(_O, _A, _E, _P, _V, operator=True),
     Action.GATEWAY_WRITE: _r(_O, _A, operator=True),
+    Action.DECISIONS_READ: _r(_O, _A, _E, _P, _V, operator=True),
+    Action.USAGE_READ: _r(_O, _A, _E, _P, _V, _B, operator=True),
 }
 
 _ADMIN_WITHOUT_RBAC = frozenset({_A, _E, _P, _V, _B})

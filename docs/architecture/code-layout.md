@@ -77,6 +77,7 @@ umai-decision-engine/
 │   │   ├── validate.py            # semantic validation beyond the schema
 │   │   └── cli.py                 # keygen / validate / test / sign / verify
 │   ├── control_plane/             # ADR-0022 policy service: drafts, tests, publish, activate
+│   │   ├── records.py             # ADR-0041: read API over records, retention job (owner role)
 │   │   ├── app.py                 # FastAPI app (port 9200), bearer token; every route authorized
 │   │   ├── authz.py               # ADR-0029 permission matrix, actor, tenant binding
 │   │   ├── actors.py              # ADR-0023 §1 on-behalf-of assertion (ES256) verification
@@ -137,7 +138,7 @@ umai-decision-engine/
 | `events` | `contracts`, `db` (the writer only, imported where records are enabled) | `l0`, `l1`, `pipeline`, `api`; L1b hands its outcomes to the pipeline through a callback |
 | `api` | `pipeline`, `contracts`, `settings` | layer internals |
 | `golden` | `pipeline`, `policy`, `l0` (detector construction), `contracts`, `settings` | `api`, `l2`; nothing on the request path imports `golden` |
-| `control_plane` | `golden`, `policy`, `contracts`, `l0` (detector for tests), `settings` | `api`; the engine never imports it |
+| `control_plane` | `golden`, `policy`, `contracts`, `l0` (detector for tests), `settings`, `db`, `events` (stored rows → records, for the read API) | `api`; the engine never imports it |
 | `tenancy` (planned) | `contracts`, `policy` (signature verification), `settings` | `l0`, `l1`, `l2`, `pipeline`; it receives a content size, never content (the size is measured in `l0/size.py`) |
 | `export` (planned) | `contracts`, `events` | `l0`, `l1`, `pipeline`, `api` |
 | `gateway` (ADR-0034) | `pipeline`, `contracts`, `tenancy`, `settings`, `runtime` (its `ApplicationTable`) | `l1`, `l2`, `api`, `control_plane`; nothing imports `gateway` |

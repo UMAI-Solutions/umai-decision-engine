@@ -1,12 +1,12 @@
 # Contract: tagged action (decision event)
 
-**Version:** 0.3
+**Version:** 0.4
 
-**Implementation status (2026-10-26):** emitted and stored by the engine API
+**Implementation status (2026-10-30):** emitted and stored by the engine API and the gateway
 ([ADR-0041](../adr/0041-records-decision-events-and-usage-ledger.md), write path
-[ADR-0042](../adr/0042-records-write-path-in-memory-queue.md)); the gateway's records follow.
-Not yet delivered to L2 (`review_queued` stays `false` until the review queue exists). Model:
-`contracts/events.py`.
+[ADR-0042](../adr/0042-records-write-path-in-memory-queue.md)), read through the policy service
+(below), deleted after the retention period. Not yet delivered to L2 (`review_queued` stays
+`false` until the review queue exists). Models: `contracts/events.py`.
 
 One record per evaluation, built after the final decision is known and handed to the records
 queue after the response is computed; it never delays or changes the decision. It is:
@@ -20,7 +20,7 @@ tenant-scoped (ADR-0025).
 
 ```json
 {
-  "contract_version": "0.3",
+  "contract_version": "0.4",
   "event_id": "ta-3f2b9c41d6e84a1b9c0d7e5f6a1b2c3d",
   "request_id": "req-01J9X7Z8QK",
   "tenant_id": "tenant-demo",
@@ -72,7 +72,7 @@ tenant-scoped (ADR-0025).
 | `source` | `api` (`POST /v1/evaluate`) or `gateway`; other sources (`browser_extension`, `agent_sdk`, …) when they exist |
 | `engine_version` | The engine release that decided |
 | `key_id`, `environment`, `application_id` | The caller's API key, its `live`/`test` environment and its application (ADR-0039); `null` for the shared operator token |
-| `gateway_call_id` | The gateway call the check belongs to; `null` on the evaluation API |
+| `gateway_call_id` | The gateway call the check belongs to (`gc-<uuid4 hex>`, also the call's usage record); `null` on the evaluation API. A gateway call has one event per check: input, each tool result, the answer. A stream's window re-checks are not recorded; only the stream's final check is, or the re-check that stopped it |
 | `bundle` | Id, version, SHA-256 and mode of the guardrail version that decided (AGENTS.md rule 8); version and hash are `null` when the bundle could not be resolved |
 | `subject` | Role and department only; user and session ids are not recorded |
 | `destination` | As in the request |
@@ -98,7 +98,7 @@ updated. Stored in `l1b_outcomes`.
 
 ```json
 {
-  "contract_version": "0.3",
+  "contract_version": "0.4",
   "event_id": "ta-3f2b9c41d6e84a1b9c0d7e5f6a1b2c3d",
   "tenant_id": "tenant-demo",
   "occurred_at": "2026-10-26T09:30:00Z",
@@ -128,8 +128,50 @@ updated. Stored in `l1b_outcomes`.
 | `probability` | The deciding answer's probability when the rule has one |
 | `rule` | Index of the matching `decide` rule; `null` when the policy's default applied |
 
+## Read API (policy service)
+
+Reads go through the policy service (`docs/architecture/policy-lifecycle.md`), which holds the
+store and the roles (ADR-0029: owner, admin, policy editor, approver, viewer; the operator token
+with `X-Umai-Tenant`). One tenant per request.
+
+| Route | Returns |
+|---|---|
+| `GET /v1/decision-events` | Newest first. Query: `limit` (1–200, default 50), `cursor` (from the previous page), `since` / `until` (RFC 3339), `action`, `source`, `application_id`, `phase`, `review` (`true` / `false`) |
+| `GET /v1/decision-events/{event_id}` | `{event, l1b_outcomes}`; 404 when the tenant has no such event (or it is past retention) |
+
+```json
+{
+  "events": [
+    {
+      "contract_version": "0.4",
+      "event_id": "ta-5d1c0b9a8e7f4a3b2c1d0e9f8a7b6c5d",
+      "request_id": "gw-2c4e6a8b0d1f3a5c7e9b1d3f5a7c9e1b",
+      "tenant_id": "tenant-demo",
+      "occurred_at": "2026-10-30T08:15:00Z",
+      "source": "gateway",
+      "engine_version": "0.1.0",
+      "key_id": "AbCd1234",
+      "environment": "live",
+      "application_id": "main",
+      "gateway_call_id": "gc-8f7e6d5c4b3a29180716253443526170",
+      "bundle": { "id": "gr-demo-data-protection", "version": 3, "mode": "ENFORCE" },
+      "phase": "PRE_LLM",
+      "decision": { "action": "ALLOW", "severity": "LOW", "decided_by": "L1b" },
+      "latency_ms": { "total": 301.2, "l0": 1.1, "l1b": 299.8 }
+    }
+  ],
+  "next_cursor": "MjAyNi0xMC0zMFQwODoxNTowMCswMDowMHw1ZDFj"
+}
+```
+
+Records past their retention period are deleted by the policy service's retention job (ADR-0041
+§5): decision events and L1b outcomes after `UMAI_DE_RECORDS_DECISION_RETENTION_DAYS` (default
+30).
+
 ## Changelog
 
+- 0.4 (2026-10-30): the gateway writes records (`source: gateway`, `gateway_call_id`, stream
+  window re-checks not recorded); read API in the policy service; retention job.
 - 0.3 (2026-10-26): breaking — emitted and stored (ADR-0041). Added `engine_version`,
   `key_id`, `environment`, `application_id`, `gateway_call_id`, `bundle.sha256`, `bundle.mode`,
   `matched`, `decision.would_have`, `errors`, `latency_ms`; `source` is `api` or `gateway`;

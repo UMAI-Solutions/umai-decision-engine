@@ -218,10 +218,11 @@ and the gateway. Redacted content then goes to OpenAI, in the US unless EU proce
 
 ## 8. What this deployment does not have
 
-Records (ADR-0041): the engine writes decision events and usage to the same Postgres with the
-application role (`UMAI_DE_DATABASE_URL` in `engine.env`, `UMAI_RECORDS_SINK` in `config.env`,
-default `database`; `none` turns it off). It starts after the policy service, which runs the
-migrations. A database outage never blocks a decision: records queue in memory and are dropped
+Records (ADR-0041): the engine and the gateway write decision events and usage to the same
+Postgres with the application role (`UMAI_DE_DATABASE_URL` in `engine.env`, `UMAI_RECORDS_SINK`
+in `config.env`, default `database`; `none` turns it off). They start after the policy service,
+which runs the migrations, serves the records (`GET /v1/decision-events`, `GET /v1/usage`) and
+deletes them after retention every hour (30 days of decisions, 400 days of usage). A database outage never blocks a decision: records queue in memory and are dropped
 and counted when the queue is full (`records.stats` in the engine log, ADR-0042).
 
 No WAF, no HA, no DR region, one shared API token (body `tenant_id` not bound to the credential,
