@@ -178,7 +178,8 @@ class BillingService:
 
     def offers(self) -> list[PlanOffer]:
         result = []
-        for edition, plan in sorted(self.keys.plans.paid().items()):
+        paid = self.keys.plans.paid().items()
+        for edition, plan in sorted(paid, key=lambda item: (item[1].billing.price, item[0])):
             offer = self._offers.get(edition)
             result.append(
                 PlanOffer(

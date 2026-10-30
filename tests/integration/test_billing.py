@@ -163,8 +163,8 @@ def test_plans_on_offer_and_billing_details_come_first(billing) -> None:
     view = _billing(client)
     assert (view["provider"], view["edition"], view["can_manage"]) == ("iyzico", "community", True)
     assert [(p["edition"], p["price"], p["available"]) for p in view["plans"]] == [
+        ("pro", "1499.00", True),  # cheapest first
         ("enterprise", "4999.00", True),
-        ("pro", "1499.00", True),
     ]
     refused = client.post("/v1/billing/checkout", json={"edition": "pro"}, headers=_owner())
     assert refused.status_code == 409
