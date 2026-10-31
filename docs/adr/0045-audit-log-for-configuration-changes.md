@@ -1,7 +1,7 @@
 # ADR-0045 — Audit log: one event per policy-service change and per refused attempt, append-only per tenant, exportable as CSV
 
-- **Status:** Proposed (awaits product-owner approval; on acceptance it accepts ADR-0030 §1 for
-  audit events, §2 as narrowed below, §4 for audit retention and §5's audit-log page and API)
+- **Status:** Accepted (2026-10-31); it accepts ADR-0030 §1 for audit events, §2 as narrowed
+  below, §4 for audit retention and §5's audit-log page and API
 - **Date:** 2026-10-30
 - **Deciders:** engineering proposal; product owner (retention default, what the console shows)
 - **Builds on:** ADR-0005 (no content beyond L0), ADR-0023 §1 (on-behalf-of assertions name the

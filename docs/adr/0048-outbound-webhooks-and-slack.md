@@ -1,6 +1,6 @@
 # ADR-0048 — Outbound webhooks and Slack: events from stored records, derived signing secrets, a guarded sender in the policy service
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-10-31)
 - **Date:** 2026-10-30
 - **Deciders:** engineering (Cloud SaaS checklist items "webhooks" and "ready-made integrations
   (Slack…)"); product owner to accept

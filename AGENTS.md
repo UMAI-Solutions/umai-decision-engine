@@ -200,7 +200,7 @@ async client with `IYZWSv2` signing, the state machine, reconciliation, `billing
 billing details, hosted checkout confirmed by token, plan change, cancel at period end, 14-day
 grace with retries (`/v1/billing…`), signed webhooks on the public `/hooks/iyzico`; migration 0009.
 Tested against a fake iyzico; the sandbox run waits for keys.
-Key network restrictions (2026-10-30, ADR-0046 Proposed, credentials 0.9): a key may carry
+Key network restrictions (2026-10-30, ADR-0046, credentials 0.9): a key may carry
 `allowed_ips` (1–50 CIDRs, IPv4 and IPv6; set at creation, replaced with
 `PATCH /v1/tenants/{id}/keys/{key_id}`, permission `key.update`, migration 0013, snapshot payload
 0.5); the engine API and the gateway answer 403 `ip_not_allowed` from other addresses and 429
@@ -208,7 +208,7 @@ Key network restrictions (2026-10-30, ADR-0046 Proposed, credentials 0.9): a key
 before any lookup (`tenancy/network.py`, `FailedAuthThrottle`; evaluation API 0.14, gateway API
 0.14). The client address is the socket peer or, behind `UMAI_DE_TRUSTED_PROXIES` only (default
 none; the VM trusts Caddy at a fixed address), `X-Forwarded-For` read from the right.
-Webhooks (2026-10-30, ADR-0048 Proposed, contract webhooks 0.1): organizations register HTTPS or
+Webhooks (2026-10-30, ADR-0048, contract webhooks 0.1): organizations register HTTPS or
 Slack endpoints (`/v1/webhooks…`, `webhook.read` / `webhook.manage`); a worker in the policy service
 (`control_plane/webhooks.py`) reads the tenant's records and sends `decision.blocked` (one event per
 5-minute window), `quota.threshold` (80 %, 100 %) and `billing.*`, signed with `X-Umai-Signature`
@@ -222,7 +222,7 @@ session on every call made for the person (401 `session_ended`; `UMAI_DE_CONSOLE
 `required` in production), the console middleware checks it with `POST /v1/sessions/check` (30 s
 cache, also answers membership of the active organization), and `/v1/me/sessions…` lists and ends
 a person's sessions (`control_plane/sessions.py`, `db/sessions.py`).
-Audit log (2026-10-30, ADR-0045 Proposed, contract audit 0.1): every changing policy-service route
+Audit log (2026-10-30, ADR-0045, contract audit 0.1): every changing policy-service route
 declares an audit action (`audit: Audit = _AUDIT[...]`) and the router's `AuditRoute`
 (`control_plane/audit.py`) writes one event per call to the append-only tenant table
 `audit_events` (migration 0010): `success`, or `denied` for a 403; actor as subject and user id,
