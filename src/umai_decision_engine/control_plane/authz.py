@@ -28,6 +28,8 @@ from umai_decision_engine.control_plane.actors import (
 
 log = logging.getLogger("umai.control_plane.authz")
 
+TENANT_HEADER = "X-Umai-Tenant"  # the tenant the operator acts in (ADR-0023 §1)
+
 
 class Action(StrEnum):
     CATALOG_READ = "catalog.read"
@@ -71,6 +73,12 @@ class Action(StrEnum):
     # webhooks (ADR-0048): see endpoints and the delivery log; add, change, test, delete
     WEBHOOK_READ = "webhook.read"
     WEBHOOK_MANAGE = "webhook.manage"
+    # console sessions (ADR-0024 §2 amendment): the person's own sign-ins; the middleware's check
+    ME_SESSIONS = "me.sessions"
+    SESSION_START = "me.sessions.start"  # the one person call made before its session exists
+    SESSION_CHECK = "session.check"  # the console's service credential, never a person
+    # the audit log (ADR-0045): read and export
+    AUDIT_READ = "audit.read"
 
 
 @dataclass(frozen=True)
@@ -78,6 +86,8 @@ class Rule:
     roles: frozenset[Role]
     operator: bool  # may the control token alone run it when assertions are required?
     self_service: bool = False  # any person, acting for themselves; never the operator
+    # Does a person's assertion have to name a live console session? (ADR-0024 §2 amendment)
+    live_session: bool = True
 
 
 def _r(*roles: Role, operator: bool = False) -> Rule:
@@ -85,6 +95,7 @@ def _r(*roles: Role, operator: bool = False) -> Rule:
 
 
 _SELF = Rule(frozenset(), operator=False, self_service=True)
+_SESSION_START = Rule(frozenset(), operator=False, self_service=True, live_session=False)
 
 
 _O, _A, _E, _P, _V, _B = (
@@ -135,6 +146,10 @@ MATRIX: dict[Action, Rule] = {
     Action.BILLING_COMPLETE: _r(operator=True),
     Action.WEBHOOK_READ: _r(_O, _A, operator=True),
     Action.WEBHOOK_MANAGE: _r(_O, _A),  # sends organization data outward: a person is named
+    Action.ME_SESSIONS: _SELF,
+    Action.SESSION_START: _SESSION_START,
+    Action.SESSION_CHECK: _r(operator=True),
+    Action.AUDIT_READ: _r(_O, _A, operator=True),
 }
 
 _ADMIN_WITHOUT_RBAC = frozenset({_A, _E, _P, _V, _B})
@@ -244,6 +259,8 @@ def authorize(action: Action) -> Callable[[Request], Coroutine[Any, Any, Actor]]
                 return actor
             log.warning("authz.denied action=%s actor=operator reason=actor_required", action)
             raise _error(403, "actor_required", f"{action} needs an on-behalf-of assertion")
+        if rule.live_session:
+            await live_session(request, actor)
         if rule.self_service:
             return actor
         # Roles come from the tenant store, for the assertion's tenant (ADR-0033 §1).
@@ -259,6 +276,15 @@ def authorize(action: Action) -> Callable[[Request], Coroutine[Any, Any, Actor]]
 
     dependency.umai_action = action  # type: ignore[attr-defined]  # read by the route test
     return dependency
+
+
+async def live_session(request: Request, actor: Actor) -> None:
+    """The assertion's console session must be live (``SessionService.verify``; 401
+    ``session_ended`` otherwise), checked once per request. The record, or None in ``optional``
+    mode without one, is kept on ``request.state.console_session`` for the session routes."""
+
+    if not hasattr(request.state, "console_session"):
+        request.state.console_session = await request.app.state.sessions.verify(actor)
 
 
 async def with_roles(request: Request, actor: Actor) -> Actor:

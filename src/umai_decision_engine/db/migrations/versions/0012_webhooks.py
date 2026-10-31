@@ -2,7 +2,7 @@
 webhook_deliveries (contract webhooks 0.1, ADR-0048)
 
 Revision ID: 0012
-Revises: 0009
+Revises: 0011
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from alembic import op
 from umai_decision_engine.db.rls import enable_rls_sql, grant_app_role_sql, grant_append_only_sql
 
 revision = "0012"
-down_revision = "0009"
+down_revision = "0011"
 branch_labels = None
 depends_on = None
 

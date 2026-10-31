@@ -30,6 +30,19 @@
 `ubuntu-latest` and `windows-latest`: `ruff check`, `ruff format --check`, `pytest -q`, then
 the policy golden tests. Live tests and evals never run in default CI.
 
+`.github/workflows/supply-chain.yml` (ADR-0049) runs on pull requests, on `main`, weekly and on
+demand: `pip-audit` over the installed dependencies, gitleaks over the history
+(`.gitleaks.toml` allows exact synthetic values only), and the image built, scanned with Trivy
+(fixable HIGH/CRITICAL and secrets fail; accepted findings in `.trivyignore.yaml` with a
+statement and an expiry) and described in a CycloneDX SBOM, uploaded as the run's artifact
+`sbom-umai-decision-engine`. Dependabot (`.github/dependabot.yml`) proposes updates weekly.
+To run the image scan locally:
+
+```powershell
+docker build -t umai-decision-engine:local .
+docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "${PWD}:/src:ro" ghcr.io/aquasecurity/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c image --scanners vuln,secret --severity HIGH,CRITICAL --ignore-unfixed --ignorefile /src/.trivyignore.yaml umai-decision-engine:local
+```
+
 ## Conventions
 
 - `pytest-asyncio` in auto mode; no `time.sleep` in tests, use fake clocks or short timeouts.

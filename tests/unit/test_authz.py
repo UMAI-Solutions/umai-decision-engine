@@ -68,6 +68,14 @@ def test_no_roles_no_access() -> None:
     assert not any(allowed(action, frozenset(), rbac=False) for action in Action)
 
 
+def test_only_starting_a_session_skips_the_live_session_check() -> None:
+    # ADR-0024 §2 amendment: every person call names a live console session, except the start.
+    assert [a for a, rule in MATRIX.items() if not rule.live_session] == [Action.SESSION_START]
+    assert MATRIX[Action.SESSION_START].self_service and MATRIX[Action.ME_SESSIONS].self_service
+    check = MATRIX[Action.SESSION_CHECK]
+    assert check.operator and not check.roles and not check.self_service  # the console only
+
+
 def test_changing_policy_needs_a_person() -> None:
     for action in (
         Action.DRAFT_WRITE,

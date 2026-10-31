@@ -147,7 +147,11 @@ with `X-Umai-Tenant: <tenant id>`, or by copying a signed version into
 `tenant_id` must name the tenant). Organizations created in the console get the default
 tenant's starter guardrail there automatically, signed with the deployment key. The policy
 service requires the console's on-behalf-of assertion (`UMAI_ACTOR_ASSERTION=required`); the
-control token alone runs operator actions only.
+control token alone runs operator actions only. Each assertion must name a live console session
+(`UMAI_CONSOLE_SESSIONS=required`, ADR-0024 §2 amendment): ship the console together with an
+engine image that has session records (migration 0011), or set `UMAI_CONSOLE_SESSIONS=optional`
+in `config.env` until the console is updated. Cookies from before the update count as signed out,
+so everyone signs in once.
 
 ## 7. The UMAI gateway (optional, ADR-0034)
 

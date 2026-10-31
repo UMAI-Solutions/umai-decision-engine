@@ -124,6 +124,15 @@ class Settings(BaseSettings):
     actor_public_keys: dict[str, str] = Field(default_factory=dict)  # kid → base64 P-256 SPKI
     actor_issuer: str = "umai-console"
     actor_audience: str = "umai-policy-service"
+    # Console sessions (ADR-0024 §2 amendment, contract console-sessions 0.1). required: every
+    # assertion's session_id must name a live session record; optional: only a recorded, ended
+    # session is refused (development, tests, the transition). None → required in production.
+    console_sessions: Literal["required", "optional"] | None = None
+    console_session_hours: int = Field(12, ge=1, le=24)  # absolute lifetime, as the console's
+    # Idle end: the console's 60 min plus the last-seen interval (5 min) and its cache, so the
+    # record never ends a session the console's cookie still holds.
+    console_session_idle_minutes: int = Field(70, ge=10)
+    console_session_limit: int = Field(10, ge=1)  # live sessions per person; beyond: oldest ends
     # Organizations (ADR-0033). Limits are settings until entitlements reach the control plane.
     max_owned_community_organizations: int = Field(1, ge=0)  # §4, Q40 answered (A15)
     max_pending_invitations: int = Field(20, ge=1)  # per tenant, §5
@@ -174,6 +183,7 @@ class Settings(BaseSettings):
     # and L1b outcomes, and the usage ledger. Per-tenant ranges come with entitlements.
     records_decision_retention_days: int = Field(30, ge=1, le=400)
     records_usage_retention_days: int = Field(400, ge=30, le=3650)
+    audit_retention_days: int = Field(400, ge=30, le=3650)  # ADR-0045, ADR-0030 §4
     records_retention_interval_s: float = Field(3600.0, ge=0)  # 0: the job does not run
     gateway_max_request_bytes: int = Field(16_000_000, ge=10_000, le=200_000_000)
     # Characters the gateway scans per call: the whole history, resent every turn (gateway-api
@@ -199,6 +209,8 @@ class Settings(BaseSettings):
             self.expose_detect_endpoint = dev
         if self.actor_assertion is None:
             self.actor_assertion = "required" if self.env == "production" else "optional"
+        if self.console_sessions is None:
+            self.console_sessions = "required" if self.env == "production" else "optional"
         if self.tenant_hmac_master_key is not None and len(self._master_key()) < 32:
             raise ValueError("tenant_hmac_master_key must decode to at least 32 bytes")
         webhook_key = self.webhook_master_key

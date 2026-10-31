@@ -405,6 +405,57 @@ class BillingLinkRow(Base):
     created_at: Mapped[datetime] = mapped_column(UtcDateTime(), default=_now)
 
 
+class ConsoleSessionRow(Base):
+    """Global table (allowlisted, ADR-0024 §2 amendment): one console sign-in of a person. The
+    session id lives in the console's encrypted cookie; this row keeps only its SHA-256, a coarse
+    device label and times. No IP address, no user agent, no content."""
+
+    __tablename__ = "console_sessions"
+    __table_args__ = (Index("ix_console_sessions_expires_at", "expires_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    sid_sha256: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    device: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime(), default=_now)
+    last_seen_at: Mapped[datetime] = mapped_column(UtcDateTime(), default=_now)
+    expires_at: Mapped[datetime] = mapped_column(UtcDateTime(), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(UtcDateTime(), nullable=True)
+    # signed_out | revoked | signed_out_elsewhere | limit (contract console-sessions 0.1)
+    revoke_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+
+# ------------------------------------------------------------------ audit (ADR-0045)
+
+
+class AuditEventRow(Base):
+    """Tenant table, append-only (ADR-0045, ADR-0030 §3): one configuration change or refused
+    attempt, contract audit 0.1. The actor is a subject and a user id, never an e-mail; details
+    are ids and non-secret before/after values, never content or secrets."""
+
+    __tablename__ = "audit_events"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "event_id", name="uq_audit_events_tenant_event"),
+        Index("ix_audit_events_tenant_occurred", "tenant_id", "occurred_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = _tenant_fk()
+    event_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(UtcDateTime(), nullable=False)
+    actor_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    actor_sub: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    actor_user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    target_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    target_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    outcome: Mapped[str] = mapped_column(String(16), nullable=False)
+    request_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    details: Mapped[dict] = mapped_column(JSON, nullable=False)
+
+
 # ------------------------------------------------------------------ webhooks (ADR-0048)
 
 

@@ -26,6 +26,7 @@ TENANT_TABLES: tuple[str, ...] = (
     "webhook_endpoints",  # ADR-0048
     "webhook_messages",
     "webhook_deliveries",
+    "audit_events",
 )
 
 # Records (ADR-0041): append-only, the application role may INSERT and SELECT only (ADR-0030 §3).
@@ -35,11 +36,19 @@ APPEND_ONLY_TABLES: tuple[str, ...] = (
     "usage_events",
     "billing_events",  # ADR-0044: the billing history
     "webhook_deliveries",  # ADR-0048: the delivery log
+    "audit_events",  # ADR-0045: the audit log
 )
 
 # Global tables: the explicit allowlist (ADR-0025 §2; users: ADR-0033 §2).
 # billing_links: provider subscription reference → tenant, references only (ADR-0044 D4).
-GLOBAL_TABLES: tuple[str, ...] = ("tenants", "users", "billing_links", "alembic_version")
+# console_sessions: a person's console sign-ins, across tenants (ADR-0024 §2 amendment).
+GLOBAL_TABLES: tuple[str, ...] = (
+    "tenants",
+    "users",
+    "billing_links",
+    "console_sessions",
+    "alembic_version",
+)
 
 # Tables with a second, read-only policy for the person's own rows (ADR-0033 §2). The only one.
 SELF_READ_TABLES: tuple[str, ...] = ("memberships",)
