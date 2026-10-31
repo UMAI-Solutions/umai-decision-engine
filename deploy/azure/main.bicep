@@ -1,7 +1,8 @@
 // Single-VM starter deployment of UMAI on Azure (ADR-0032).
 // One Linux VM (Docker Compose stack from deploy/vm), optionally a Key Vault for secrets
 // (useKeyVault), a storage account for nightly backups. No secrets in parameters.
-// Runbook: deploy/vm/README.md.
+// Instances: umai-beta (main.bicepparam) and umai-prod (prod.bicepparam, ADR-0050).
+// Runbooks: deploy/vm/README.md (one VM), deploy/azure/README.md (environments, monitoring).
 
 targetScope = 'resourceGroup'
 
@@ -36,6 +37,14 @@ param backupRetentionDays int = 30
 @description('Secrets in Key Vault read by the VM identity (ADR-0032 §5). Needs the Microsoft.KeyVault provider and the right to create role assignments (Owner or User Access Administrator). false: secrets stay in a root-only file on the VM and backups use a SAS token.')
 param useKeyVault bool = false
 
+@description('Days a deleted or overwritten backup blob stays recoverable (blob soft delete); 0 = off. The VM\'s SAS may write, so an overwrite is recoverable only with this on (ADR-0050).')
+@minValue(0)
+@maxValue(365)
+param backupSoftDeleteDays int = 0
+
+@description('Tags on every resource, e.g. {"umai-environment": "prod"}: cost per environment in Cost Management.')
+param tags object = {}
+
 var suffix = uniqueString(resourceGroup().id)
 var kvName = take('${prefix}-kv-${suffix}', 24)
 var saName = take('${prefix}${suffix}', 24)
@@ -46,6 +55,7 @@ var roleStorageBlobDataContributor = 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
 resource nsg 'Microsoft.Network/networkSecurityGroups@2024-05-01' = {
   name: '${prefix}-nsg'
   location: location
+  tags: tags
   properties: {
     securityRules: [
       {
@@ -94,6 +104,7 @@ resource nsg 'Microsoft.Network/networkSecurityGroups@2024-05-01' = {
 resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' = {
   name: '${prefix}-vnet'
   location: location
+  tags: tags
   properties: {
     addressSpace: { addressPrefixes: ['10.40.0.0/24'] }
     subnets: [
@@ -114,6 +125,7 @@ resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' = {
 resource pip 'Microsoft.Network/publicIPAddresses@2024-05-01' = {
   name: '${prefix}-pip'
   location: location
+  tags: tags
   sku: { name: 'Standard' }
   properties: {
     publicIPAllocationMethod: 'Static'
@@ -124,6 +136,7 @@ resource pip 'Microsoft.Network/publicIPAddresses@2024-05-01' = {
 resource nic 'Microsoft.Network/networkInterfaces@2024-05-01' = {
   name: '${prefix}-nic'
   location: location
+  tags: tags
   properties: {
     ipConfigurations: [
       {
@@ -141,6 +154,7 @@ resource nic 'Microsoft.Network/networkInterfaces@2024-05-01' = {
 resource vm 'Microsoft.Compute/virtualMachines@2024-07-01' = {
   name: '${prefix}-vm'
   location: location
+  tags: tags
   identity: { type: 'SystemAssigned' }
   properties: {
     hardwareProfile: { vmSize: vmSize }
@@ -188,6 +202,7 @@ resource vm 'Microsoft.Compute/virtualMachines@2024-07-01' = {
 resource kv 'Microsoft.KeyVault/vaults@2023-07-01' = if (useKeyVault) {
   name: kvName
   location: location
+  tags: tags
   properties: {
     tenantId: subscription().tenantId
     sku: { family: 'A', name: 'standard' }
@@ -208,6 +223,7 @@ resource kv 'Microsoft.KeyVault/vaults@2023-07-01' = if (useKeyVault) {
 resource sa 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   name: saName
   location: location
+  tags: tags
   sku: { name: 'Standard_LRS' }
   kind: 'StorageV2'
   properties: {
@@ -230,6 +246,9 @@ resource sa 'Microsoft.Storage/storageAccounts@2023-05-01' = {
 resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01' = {
   parent: sa
   name: 'default'
+  properties: backupSoftDeleteDays > 0
+    ? { deleteRetentionPolicy: { enabled: true, days: max(backupSoftDeleteDays, 1) } }
+    : {}
 }
 
 resource backups 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {

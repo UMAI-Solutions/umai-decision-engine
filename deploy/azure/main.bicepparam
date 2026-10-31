@@ -1,5 +1,6 @@
 using './main.bicep'
 
+// umai-beta: demos, pilots and experiments (ADR-0032). Production is prod.bicepparam (ADR-0050).
 // Fill before deploying. Nothing here is secret; secrets go into Key Vault afterwards.
 param dnsLabel = 'umai-beta'
 param adminSshPublicKey = '<ssh-ed25519 AAAA... operator>'
