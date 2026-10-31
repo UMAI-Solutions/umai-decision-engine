@@ -99,6 +99,9 @@ python -m umai_decision_engine.db.migrate <database url>         # tenant store 
 python -m evals.run --suite l0-pii-tr --split dev --tag <label>  # L0 accuracy (also: --suite leak)
 python -m evals.run --suite gateway-latency --tag <label>        # gateway cost per call (also: masking-survival, live)
 python -m evals.run --suite admission --tag <label>              # admission cost per request (ADR-0046)
+python -m evals.run --suite l0-latency --tag <label>             # L0 by input size + admission per step (S0-15)
+python -m evals.run --suite revocation --tag <label>             # local stack: revoked key refused after (S0-2)
+python -m evals.run --suite load --tag <label>                   # local stack: throughput, p50/p95/p99 (S0-3)
 python -m evals.run --suite l1-cold-start --tag <label>          # live: first L1b calls of a new process (also: l1-latency)
 docker build -t umai-decision-engine .                            # one image: engine API, policy service, gateway
 az deployment group create -g <rg> -f deploy/azure/main.bicep -p deploy/azure/main.bicepparam  # starter VM (ADR-0032)
@@ -106,8 +109,9 @@ deploy/vm/ship.sh <user@host>                                    # build locally
 deploy/vm/umai.sh init | up | backup | status                     # on the VM; runbook: deploy/vm/README.md
 ```
 
-Not available yet: `python -m pytest -m live` (no live providers before L1b) and eval suites
-other than `l0-pii-tr` and `leak`. Do not invent replacements; update this section when
+Not available yet: `python -m pytest -m live` (no live providers before L1b) and the eval suites
+`docs/evals/README.md` lists as planned (`l1-decisions`, `l1-providers`, `l1-calibration`,
+`l2-chains`, `pipeline-e2e`, `l2-worker`). Do not invent replacements; update this section when
 commands change.
 
 Implemented so far (2026-10-17): contracts for the evaluation API, policy bundle, L0
@@ -236,6 +240,14 @@ scan and a CycloneDX SBOM artifact, on pull requests, `main` and weekly; Dependa
 updates weekly. Actions are pinned by SHA, scanners and base images by digest
 (`tests/unit/test_supply_chain.py`); an accepted finding goes to `.trivyignore.yaml` with a
 statement and an expiry at most 90 days ahead.
+Stage 0 measurements (2026-10-31, launch plan S0-2, S0-3, S0-4, S0-15): `evals/stack.py` starts
+the policy service, engine API and gateway as real processes with production settings, plus stubs
+for the upstream and the L1b provider (`evals/stubs.py`); suites `revocation` (a revoked key is
+refused within one 5 s registry poll), `load` (throughput and percentiles per endpoint, CPU per
+request, the B2s estimate; the beta plan is `docs/workflow/load-test-beta.md`), `l0-latency` with
+admission step by step, and the `leak` suite's error paths over every refusal of the three
+services (also a CI test). The policy service's 422 no longer repeats the input
+(`control_plane/errors.py`, organizations 0.6).
 Tenants are organizations created in the console; API keys, bundles and HMAC keys are per tenant.
 The console signs people in with OIDC (Auth0 development tenant, `umai-control-center`, locally
 since 2026-10-18 and on `umai-beta` since 2026-10-19).

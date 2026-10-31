@@ -83,6 +83,37 @@ def test_l1_validation_errors_do_not_echo_raw_content(client) -> None:
     assert TCKN not in response.text
 
 
+def test_l1_policy_service_validation_errors_do_not_echo_raw_content(
+    write_bundle, detector, tmp_path
+) -> None:
+    """The policy service answers a malformed request like the engine API: where and how, never
+    what it said, in the body or the query (launch plan S0-4, closed 2026-10-31, organizations
+    0.6). A caller-chosen key is shown as ``<key>``."""
+
+    write_bundle(bundle_yaml(), active=1)
+    settings = Settings(
+        env="development", policy_dir=write_bundle.root, control_db_path=tmp_path / "c.sqlite"
+    )
+    with TestClient(create_control_app(settings, detector=detector)) as control:
+        control.post("/v1/tenants", json={"id": "tenant-a"})
+        body = {"name": PII_TEXT, "scopes": TCKN, PII_TEXT: TCKN}
+        refused = [
+            control.post("/v1/tenants/tenant-a/keys", json=body),
+            control.post(
+                "/v1/tenants/tenant-a/keys",
+                content=f'{{"name": "{PII_TEXT}'.encode(),
+                headers={"content-type": "application/json"},
+            ),
+            control.get("/v1/usage", params={"month": TCKN}),
+        ]
+    for response in refused:
+        assert response.status_code == 422
+        assert TCKN not in response.text and "TR33" not in response.text
+        assert response.json()["detail"]["error"] == "invalid_request"
+    problems = refused[0].json()["detail"]["problems"]
+    assert {"loc": ["body", "scopes"], "type": "list_type"} in problems
+
+
 def test_c1_raw_content_never_reaches_logs_or_response_metadata(client, caplog) -> None:
     """ADR-0005: logs and every response field except the masked text carry no raw value."""
 

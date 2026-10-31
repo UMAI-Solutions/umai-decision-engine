@@ -1,6 +1,6 @@
 # Contract: organizations
 
-**Version:** 0.5 · **Producer → consumer:** policy service ↔ console (organizations, memberships,
+**Version:** 0.6 · **Producer → consumer:** policy service ↔ console (organizations, memberships,
 invitations, verified domains) · **Decisions:** [ADR-0033](../adr/0033-organizations-and-onboarding.md),
 [ADR-0029](../adr/0029-authorization-roles-and-four-eyes.md) · **Design:**
 [`architecture/sign-in-and-onboarding.md`](../architecture/sign-in-and-onboarding.md)
@@ -174,6 +174,19 @@ Implemented 2026-10-19 except the domain routes (stage 1).
 Bodies are `{ "detail": { "error": "<code>", "detail": "<sentence>" } }` (FastAPI's `detail`
 wrapper, like every policy-service refusal).
 
+A malformed request on **any** policy-service route (invalid JSON, a missing or unknown field, a
+wrong type, an invalid query or path parameter) gets **422** `invalid_request` with `problems`:
+where (`loc`) and how (`type`, Pydantic's error type), at most 50 entries, as the evaluation API
+answers since its 0.8. The body never contains the caller's input: no `input`, `ctx`, `msg` or
+`url`; a location keeps only the service's own field and parameter names and list positions, any
+other key is `<key>` (0.6, launch plan S0-4, ADR-0005):
+
+```json
+{"detail": {"error": "invalid_request",
+            "detail": "the request does not match the policy service's contract",
+            "problems": [{"loc": ["body", "scopes"], "type": "list_type"}]}}
+```
+
 | HTTP | `error` | When |
 |---|---|---|
 | 403 | `actor_required` | a self-service action without a person (the control token alone) |
@@ -196,9 +209,14 @@ wrapper, like every policy-service refusal).
 | 422 | `role_unavailable` | a role the tenant's edition does not offer |
 | 422 | `email_required` | the assertion carries no e-mail |
 | 422 | `email_invalid` | the assertion's e-mail is not an address the contract can show (0.3) |
+| 422 | `invalid_request` | a malformed request on any route; `problems` without the input (0.6) |
 
 ## Changelog
 
+- 0.6 (2026-10-31, launch plan S0-4): 422 `invalid_request` with `problems` (location and type,
+  never the input) for malformed requests on every policy-service route, replacing FastAPI's
+  default body, which repeated the input. Breaking for a client that read the default body's
+  list; the console reads `detail.detail`.
 - 0.5 (2026-10-30, ADR-0047): `GET /v1/organizations/{id}/export.zip`, owners only; errors
   `export_running`, `export_too_large`.
 - 0.4 (2026-10-30, ADR-0044): edition `pro`.

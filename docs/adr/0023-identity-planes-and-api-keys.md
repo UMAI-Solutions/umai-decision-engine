@@ -99,5 +99,6 @@ plane; conflating the two planes is why "add SAML" is often mistaken for "fix te
   `GET /v1/bundles`; `test` key refused on a production bundle; rate limit → 429 with
   `Retry-After`; secrets never appear in logs or audit events (leak suite over audit payloads).
 - Measured: admission p95 on the reference hardware; revocation latency end to end.
+- Measured 2026-10-31 (laptop, launch plan S0-2 and S0-15): revocation end to end on separate processes, worst 5.45 s idle and 5.86 s under load (`evals/reports/2026-10-31-revocation-s0-2-local-*`); admission p99 37–52 µs per request (`2026-10-31-l0-latency-s0-15-laptop`). The reference hardware and the VM are still to be measured (`docs/workflow/load-test-beta.md`).
 - Revisit if SDK telemetry shows customers need client-credentials flows from day one, or if
   revocation latency through snapshots proves unacceptable for an enterprise customer.

@@ -29,6 +29,8 @@ from evals.common import (
     run_info,
     write_results,
 )
+from evals.suites.leak_errors import report_lines as error_report_lines
+from evals.suites.leak_errors import run_error_paths
 from umai_decision_engine.contracts.evaluation import (
     CONTRACT_VERSION,
     BundleRef,
@@ -47,6 +49,15 @@ from umai_decision_engine.settings import Settings
 
 NAME = "leak"
 DEFAULT_BUNDLE = "gr-demo-data-protection"
+PARTS = ("pipeline", "errors")
+
+
+def add_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--leak-parts", default=",".join(PARTS), help="leak: pipeline and/or errors (S0-4)"
+    )
+
+
 _NON_DIGIT = re.compile(r"\D")
 
 
@@ -158,7 +169,11 @@ def run(args: argparse.Namespace) -> Path:
     bundle_id = args.bundle_id or DEFAULT_BUNDLE
     cases = [c for c in load_cases(L0_DATASET, args.split) if c["expected"]]
     version = getattr(args, "bundle_version", None)
-    rows, actions = asyncio.run(_evaluate_all(cases, bundle_id, version))
+    parts = set(getattr(args, "leak_parts", ",".join(PARTS)).split(","))
+    rows, actions = ([], Counter())
+    if "pipeline" in parts:
+        rows, actions = asyncio.run(_evaluate_all(cases, bundle_id, version))
+    probes = run_error_paths(cases) if "errors" in parts else []
 
     info = run_info(NAME, args.split, args.tag, L0_DATASET)
     directory = report_dir(info)
@@ -168,7 +183,8 @@ def run(args: argparse.Namespace) -> Path:
     log_leaks = [r["case_id"] for r in rows if r["logs"]]
     record_leaks = [r["case_id"] for r in rows if r["records"]]
     reaching = [r for r in rows if r["reaches_destination"]]
-    verdict = "PASS" if not (response_leaks or log_leaks or record_leaks) else "FAIL"
+    error_leaks = [p for p in probes if p.leaked]
+    verdict = "PASS" if not (response_leaks or log_leaks or record_leaks or error_leaks) else "FAIL"
     lines = [
         f"# leak — {info.tag}",
         "",
@@ -176,7 +192,10 @@ def run(args: argparse.Namespace) -> Path:
         f"- **Bundle:** `{bundle_id}` ({f'v{version}' if version else 'active version'}), "
         "phase PRE_LLM, destination external_llm, "
         "trace on, logs captured at DEBUG",
-        f"- **Cases:** {len(rows)} with at least one entity",
+        f"- **Cases:** {len(rows)} with at least one entity"
+        + ("" if "pipeline" in parts else " (pipeline part not run)"),
+        f"- **Error paths:** {len(probes)} probes"
+        + ("" if "errors" in parts else " (error part not run)"),
         "",
         f"## Verdict: {verdict}",
         "",
@@ -185,6 +204,7 @@ def run(args: argparse.Namespace) -> Path:
         f"| Response and trace (outside the masked text) | {len(response_leaks)} | 0 |",
         f"| Logs | {len(log_leaks)} | 0 |",
         f"| Stored records (decision events, L1b outcomes, usage) | {len(record_leaks)} | 0 |",
+        f"| Error answers and their logs (probes) | {len(error_leaks)} | 0 |",
         "",
         "Decisions: " + ", ".join(f"{a} {n}" for a, n in sorted(actions.items())),
         "",
@@ -206,5 +226,7 @@ def run(args: argparse.Namespace) -> Path:
         lines += ["", f"Log leaks: {', '.join(log_leaks)}"]
     if record_leaks:
         lines += ["", f"Record leaks: {', '.join(record_leaks)}"]
+    if probes:
+        lines += ["", *error_report_lines(probes)]
     (directory / "summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     return directory
