@@ -149,7 +149,7 @@ Admission answers 401 `invalid_credential`, 403 `tenant_mismatch` / `insufficien
 and never counted.
 
 **Network restrictions** (0.14, [ADR-0046](../adr/0046-api-key-network-restrictions.md),
-[credentials](credentials.md) 0.8): a key with `allowed_ips` used from another address gets
+[credentials](credentials.md) 0.9): a key with `allowed_ips` used from another address gets
 **403** `ip_not_allowed`; a source address (an IPv4 address or an IPv6 /64) that presented too
 many bad credentials (default 20 in 60 s) gets **429** `too_many_failed_attempts` with
 `Retry-After` for every credential, before any lookup. Both come before the per-key rate

@@ -105,6 +105,9 @@ services:
       # The console signs an on-behalf-of assertion for every person (credentials 0.3); the
       # control token alone may only run operator actions. Public key: policy.env (umai.sh).
       UMAI_DE_ACTOR_ASSERTION: ${UMAI_ACTOR_ASSERTION:-required}
+      # Every person call must name a live console session (console-sessions 0.1); `optional`
+      # only while a console without session records is still running (ADR-0024 §2 amendment).
+      UMAI_DE_CONSOLE_SESSIONS: ${UMAI_CONSOLE_SESSIONS:-required}
     env_file:
       - "${UMAI_RUN_DIR:-/run/umai}/policy.env"  # tokens, database URLs, actor public key
       - "${UMAI_RUN_DIR:-/run/umai}/routes.env"  # provider allow-list for validation

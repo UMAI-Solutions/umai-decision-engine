@@ -192,7 +192,7 @@ async client with `IYZWSv2` signing, the state machine, reconciliation, `billing
 billing details, hosted checkout confirmed by token, plan change, cancel at period end, 14-day
 grace with retries (`/v1/billing…`), signed webhooks on the public `/hooks/iyzico`; migration 0009.
 Tested against a fake iyzico; the sandbox run waits for keys.
-Key network restrictions (2026-10-30, ADR-0046 Proposed, credentials 0.8): a key may carry
+Key network restrictions (2026-10-30, ADR-0046 Proposed, credentials 0.9): a key may carry
 `allowed_ips` (1–50 CIDRs, IPv4 and IPv6; set at creation, replaced with
 `PATCH /v1/tenants/{id}/keys/{key_id}`, permission `key.update`, migration 0013, snapshot payload
 0.5); the engine API and the gateway answer 403 `ip_not_allowed` from other addresses and 429
@@ -200,6 +200,34 @@ Key network restrictions (2026-10-30, ADR-0046 Proposed, credentials 0.8): a key
 before any lookup (`tenancy/network.py`, `FailedAuthThrottle`; evaluation API 0.14, gateway API
 0.14). The client address is the socket peer or, behind `UMAI_DE_TRUSTED_PROXIES` only (default
 none; the VM trusts Caddy at a fixed address), `X-Forwarded-For` read from the right.
+Webhooks (2026-10-30, ADR-0048 Proposed, contract webhooks 0.1): organizations register HTTPS or
+Slack endpoints (`/v1/webhooks…`, `webhook.read` / `webhook.manage`); a worker in the policy service
+(`control_plane/webhooks.py`) reads the tenant's records and sends `decision.blocked` (one event per
+5-minute window), `quota.threshold` (80 %, 100 %) and `billing.*`, signed with `X-Umai-Signature`
+(secrets derived from `UMAI_DE_WEBHOOK_MASTER_KEY`, URLs encrypted at rest), through an SSRF guard
+that connects to the address it checked (`webhooks/`); retries 1 m–6 h, failing endpoints turned
+off; migration 0012 (`webhook_endpoints`, `webhook_messages`, append-only `webhook_deliveries`).
+Console sessions (2026-10-30, ADR-0024 §2 amendment, contract console-sessions 0.1, credentials
+0.8): a record per console sign-in in the global table `console_sessions` (migration 0011; the
+session id only as a hash, a coarse device label, no IP); the policy service refuses an ended
+session on every call made for the person (401 `session_ended`; `UMAI_DE_CONSOLE_SESSIONS`
+`required` in production), the console middleware checks it with `POST /v1/sessions/check` (30 s
+cache, also answers membership of the active organization), and `/v1/me/sessions…` lists and ends
+a person's sessions (`control_plane/sessions.py`, `db/sessions.py`).
+Audit log (2026-10-30, ADR-0045 Proposed, contract audit 0.1): every changing policy-service route
+declares an audit action (`audit: Audit = _AUDIT[...]`) and the router's `AuditRoute`
+(`control_plane/audit.py`) writes one event per call to the append-only tenant table
+`audit_events` (migration 0010): `success`, or `denied` for a 403; actor as subject and user id,
+before/after of non-secret fields, never secrets or billing details. `GET /v1/audit-events`
+(filters, cursor) and `GET /v1/audit-events/export` (CSV) behind `audit.read` (owner, admin);
+400 days (`UMAI_DE_AUDIT_RETENTION_DAYS`). A route-walk test fails for a new changing route
+without an action.
+Supply chain (2026-10-30, ADR-0049): `.github/workflows/supply-chain.yml` runs `pip-audit`, gitleaks
+over the history (`.gitleaks.toml`: exact synthetic values only) and the image build with a Trivy
+scan and a CycloneDX SBOM artifact, on pull requests, `main` and weekly; Dependabot proposes
+updates weekly. Actions are pinned by SHA, scanners and base images by digest
+(`tests/unit/test_supply_chain.py`); an accepted finding goes to `.trivyignore.yaml` with a
+statement and an expiry at most 90 days ahead.
 Tenants are organizations created in the console; API keys, bundles and HMAC keys are per tenant.
 The console signs people in with OIDC (Auth0 development tenant, `umai-control-center`, locally
 since 2026-10-18 and on `umai-beta` since 2026-10-19).
@@ -216,6 +244,7 @@ since 2026-10-18 and on `umai-beta` since 2026-10-19).
 | Console structure, applications, how the AI gateway fits | [`docs/architecture/console-information-architecture.md`](docs/architecture/console-information-architecture.md), ADR-0039 |
 | Sign-in, onboarding, organizations, invitations, login branding | [`docs/architecture/sign-in-and-onboarding.md`](docs/architecture/sign-in-and-onboarding.md), ADR-0033, ADR-0024 |
 | UMAI secure gateway, guardrail hooks in other gateways | [`docs/architecture/ai-gateway.md`](docs/architecture/ai-gateway.md), [`docs/contracts/gateway-api.md`](docs/contracts/gateway-api.md), ADR-0034 to ADR-0036, [`docs/reference/ai-gateways.md`](docs/reference/ai-gateways.md) |
+| Webhooks, Slack, outbound calls to customer URLs (SSRF) | [`docs/contracts/webhooks.md`](docs/contracts/webhooks.md), ADR-0048, [`docs/reference/slack-incoming-webhooks.md`](docs/reference/slack-incoming-webhooks.md) |
 | Billing, paid plans, iyzico | [`docs/contracts/billing.md`](docs/contracts/billing.md), ADR-0044, [`docs/reference/iyzico-subscriptions.md`](docs/reference/iyzico-subscriptions.md) |
 | SaaS vs self-hosted, editions, quotas, tenancy | [`docs/architecture/deployment-and-editions.md`](docs/architecture/deployment-and-editions.md), ADR-0018, ADR-0019 |
 | Policy bundles, loading, hot reload | [`docs/contracts/policy-bundle.md`](docs/contracts/policy-bundle.md), [`docs/architecture/policy-lifecycle.md`](docs/architecture/policy-lifecycle.md) |

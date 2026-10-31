@@ -42,7 +42,7 @@ CUSTOMER_SCOPES: frozenset[Scope] = frozenset(
 )
 DEFAULT_SCOPES: tuple[Scope, ...] = (Scope.EVALUATE,)
 
-# A key's allowed networks (credentials 0.8, ADR-0046): at most this many CIDRs.
+# A key's allowed networks (credentials 0.9, ADR-0046): at most this many CIDRs.
 MAX_ALLOWED_IPS = 50
 
 

@@ -1,7 +1,7 @@
-"""api_keys.allowed_ips: the networks a key may be used from (credentials 0.8, ADR-0046)
+"""api_keys.allowed_ips: the networks a key may be used from (credentials 0.9, ADR-0046)
 
 Revision ID: 0013
-Revises: 0009
+Revises: 0012
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "0013"
-down_revision = "0009"
+down_revision = "0012"
 branch_labels = None
 depends_on = None
 

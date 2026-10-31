@@ -139,15 +139,18 @@ def test_create_organization_makes_the_creator_owner_with_a_starter_guardrail(ap
 
 
 @pytest.mark.parametrize(
-    ("headers", "body", "status", "code"),
+    ("who", "body", "status", "code"),
     [
-        (person("ada", verified=False), _org(), 403, "email_unverified"),
-        (person("ada", "ada@mailinator.com"), _org(), 422, "disposable_email_domain"),
-        (person("ada"), {**_org(), "region": "eu"}, 422, "region_unavailable"),
-        (person("ada"), _org(org_id="console"), 409, "id_taken"),
+        # signed when the test runs: an assertion lives two minutes, collection is earlier
+        ({"sub": "ada", "verified": False}, _org(), 403, "email_unverified"),
+        ({"sub": "ada", "email": "ada@mailinator.com"}, _org(), 422, "disposable_email_domain"),
+        ({"sub": "ada"}, {**_org(), "region": "eu"}, 422, "region_unavailable"),
+        ({"sub": "ada"}, _org(org_id="console"), 409, "id_taken"),
     ],
 )
-def test_creation_guards(api, headers, body, status, code) -> None:
+def test_creation_guards(api, who, body, status, code) -> None:
+    who = dict(who)  # the same parameters run for each store
+    headers = person(who.pop("sub"), who.pop("email", None), **who)
     response = api.post("/v1/organizations", json=body, headers=headers)
     assert response.status_code == status and _error(response) == code
 

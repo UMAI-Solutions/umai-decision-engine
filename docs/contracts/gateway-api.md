@@ -397,7 +397,7 @@ Admission and gateway errors use the OpenAI error shape with `type: "umai_gatewa
 | 400 | `provider_key_required` | The target provider is `pass_through` and `X-Umai-Provider-Key` is missing |
 | 400 | `unsupported_content` | A content part cannot be scanned and the application says `reject` |
 | 401 | `invalid_credential` | Missing or unknown UMAI key |
-| 403 | `ip_not_allowed` | The key has allowed networks and the caller's address is outside them ([credentials](credentials.md) 0.8, ADR-0046); nothing is checked or forwarded |
+| 403 | `ip_not_allowed` | The key has allowed networks and the caller's address is outside them ([credentials](credentials.md) 0.9, ADR-0046); nothing is checked or forwarded |
 | 403 | `insufficient_scope` | The key lacks `gateway` |
 | 403 | `application_mismatch` | `X-Umai-Application` names another application than the key's |
 | 403 | `provider_not_allowed` | The application has a `providers` list without the target provider, or the provider's address (also the built-in `openai` one) is not on the deployment's allow-list |

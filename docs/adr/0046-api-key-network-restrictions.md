@@ -39,7 +39,7 @@ decision; admission must stay cheap (AGENTS rule 6); one release serves cloud an
    entry. They are set when the key is created and can be replaced or cleared at any time on an
    active key (`PATCH /v1/tenants/{id}/keys/{key_id}`, permission `key.update`: owner, admin,
    operator); every change republishes the tenant's signed snapshot, which carries them per entry
-   (credentials 0.8, snapshot payload 0.5). Absent (or an empty list): any address, as before.
+   (credentials 0.9, snapshot payload 0.5). Absent (or an empty list): any address, as before.
    At admission, after the credential is verified and before the per-key rate limit, scope,
    quota or anything else, a key used from an address outside its networks gets **403
    `ip_not_allowed`** — in the engine API and the gateway alike. An IPv4-mapped IPv6 address is

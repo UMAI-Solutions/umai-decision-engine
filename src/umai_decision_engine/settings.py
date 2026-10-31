@@ -93,6 +93,27 @@ class Settings(BaseSettings):
     billing_reconcile_interval_s: float = Field(900.0, ge=0)  # 0: no reconciliation loop
     billing_grace_days: int = Field(14, ge=1, le=60)  # past due → Community after this (D6)
     billing_retry_days: list[int] = Field(default_factory=lambda: [1, 3, 7])
+    # Outbound webhooks (ADR-0048, contract webhooks), sent by the policy service. Signing secrets
+    # and the key that encrypts endpoint URLs are derived from this key (HKDF-SHA256); without it,
+    # outside development, webhooks are unavailable. Never logged.
+    webhook_master_key: SecretStr | None = None  # base64, at least 32 bytes
+    webhooks_interval_s: float = Field(5.0, ge=0)  # delivery loop; 0: the worker does not run
+    webhooks_collect_interval_s: float = Field(60.0, ge=1, le=3600)  # reading the records
+    webhooks_blocked_window_s: int = Field(300, ge=60, le=3600)  # decision.blocked aggregation
+    webhooks_settle_s: int = Field(60, ge=0, le=600)  # a window is read this long after it ends
+    webhooks_lookback_s: int = Field(3600, ge=60, le=86_400)  # read again after a restart
+    webhooks_retry_delays_s: list[int] = Field(
+        default_factory=lambda: [60, 300, 1800, 7200, 21_600]
+    )
+    webhooks_connect_timeout_s: float = Field(3.0, gt=0, le=30)
+    webhooks_timeout_s: float = Field(10.0, gt=0, le=60)  # one attempt, connect included
+    webhooks_disable_after_hours: float = Field(24.0, gt=0, le=720)  # failing that long: off
+    webhooks_disable_min_failures: int = Field(5, ge=1, le=100)
+    webhooks_max_endpoints: int = Field(10, ge=0, le=100)  # per organization
+    webhooks_concurrency: int = Field(8, ge=1, le=64)  # endpoints delivered to at once
+    webhooks_retention_days: int = Field(30, ge=1, le=400)  # delivery log, finished messages
+    # The console's absolute URL (https://console.example.com): links in webhook payloads.
+    console_url: str | None = None
 
     # Policy service (control plane, ADR-0022): drafts, publish, activate. Separate process.
     control_api_token: SecretStr | None = None  # required outside development
@@ -113,6 +134,15 @@ class Settings(BaseSettings):
     actor_public_keys: dict[str, str] = Field(default_factory=dict)  # kid → base64 P-256 SPKI
     actor_issuer: str = "umai-console"
     actor_audience: str = "umai-policy-service"
+    # Console sessions (ADR-0024 §2 amendment, contract console-sessions 0.1). required: every
+    # assertion's session_id must name a live session record; optional: only a recorded, ended
+    # session is refused (development, tests, the transition). None → required in production.
+    console_sessions: Literal["required", "optional"] | None = None
+    console_session_hours: int = Field(12, ge=1, le=24)  # absolute lifetime, as the console's
+    # Idle end: the console's 60 min plus the last-seen interval (5 min) and its cache, so the
+    # record never ends a session the console's cookie still holds.
+    console_session_idle_minutes: int = Field(70, ge=10)
+    console_session_limit: int = Field(10, ge=1)  # live sessions per person; beyond: oldest ends
     # Organizations (ADR-0033). Limits are settings until entitlements reach the control plane.
     max_owned_community_organizations: int = Field(1, ge=0)  # §4, Q40 answered (A15)
     max_pending_invitations: int = Field(20, ge=1)  # per tenant, §5
@@ -163,6 +193,7 @@ class Settings(BaseSettings):
     # and L1b outcomes, and the usage ledger. Per-tenant ranges come with entitlements.
     records_decision_retention_days: int = Field(30, ge=1, le=400)
     records_usage_retention_days: int = Field(400, ge=30, le=3650)
+    audit_retention_days: int = Field(400, ge=30, le=3650)  # ADR-0045, ADR-0030 §4
     records_retention_interval_s: float = Field(3600.0, ge=0)  # 0: the job does not run
     gateway_max_request_bytes: int = Field(16_000_000, ge=10_000, le=200_000_000)
     # Characters the gateway scans per call: the whole history, resent every turn (gateway-api
@@ -196,8 +227,13 @@ class Settings(BaseSettings):
             self.expose_detect_endpoint = dev
         if self.actor_assertion is None:
             self.actor_assertion = "required" if self.env == "production" else "optional"
+        if self.console_sessions is None:
+            self.console_sessions = "required" if self.env == "production" else "optional"
         if self.tenant_hmac_master_key is not None and len(self._master_key()) < 32:
             raise ValueError("tenant_hmac_master_key must decode to at least 32 bytes")
+        webhook_key = self.webhook_master_key
+        if webhook_key is not None and len(base64.b64decode(webhook_key.get_secret_value())) < 32:
+            raise ValueError("webhook_master_key must decode to at least 32 bytes")
         return self
 
     def _master_key(self) -> bytes:
@@ -217,6 +253,16 @@ class Settings(BaseSettings):
             # Deterministic development key; never valid outside development.
             return hashlib.sha256(f"umai-de-dev-key:{tenant_id}".encode()).digest()
         raise TenantKeyError(f"no HMAC key configured for tenant {tenant_id!r}")
+
+    def webhook_key(self) -> bytes | None:
+        """The webhooks' master key (ADR-0048 §6–§7); a fixed key in development; ``None``:
+        webhooks are unavailable."""
+
+        if self.webhook_master_key is not None:
+            return base64.b64decode(self.webhook_master_key.get_secret_value())
+        if self.env == "development":
+            return hashlib.sha256(b"umai-de-dev-webhook-key").digest()  # never valid elsewhere
+        return None
 
 
 @lru_cache(maxsize=1)

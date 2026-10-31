@@ -129,6 +129,17 @@ decision_env() {  # stdout: the engine.env lines, or nothing without a key
 # config.env with UMAI_IYZICO_MERCHANT_ID, UMAI_IYZICO_BASE_URL (sandbox by default) and
 # UMAI_BILLING_PLAN_REFS (edition → pricing plan, from `billing.cli sync`); the keys via
 # `umai.sh set-secret UMAI_IYZICO_API_KEY` and `… UMAI_IYZICO_SECRET_KEY`.
+webhook_env() {  # stdout: the policy.env lines for outbound webhooks (ADR-0048) and console links
+  printf 'UMAI_DE_CONSOLE_URL=https://%s
+' "$UMAI_HOSTNAME"
+  local key
+  key="$(optional_secret umai-webhook-master-key)"
+  # Without the key the policy service answers "webhooks unavailable" (Key Vault without it).
+  [[ -z "$key" ]] || printf 'UMAI_DE_WEBHOOK_MASTER_KEY=%s
+' "$key"
+  unset key
+}
+
 billing_env() {  # stdout: the policy.env lines, or nothing while billing is off
   [[ "$UMAI_BILLING" == "iyzico" ]] || return 0
   local api secret_key
@@ -214,6 +225,7 @@ secrets() {
   ensure_local_secret UMAI_TENANT_HMAC_MASTER_KEY new_key32  # organizations (ADR-0032 amendment)
   ensure_local_secret UMAI_SESSION_SECRET                    # console session cookie key
   ensure_local_secret UMAI_CONSOLE_ACTOR_KEY new_actor_key   # console -> policy service assertions
+  ensure_local_secret UMAI_WEBHOOK_MASTER_KEY new_key32      # webhook secrets, URL encryption (ADR-0048)
   local api control hmac hmac_master db_owner db_app actor_public session oidc_secret decision
   db_owner="$(secret umai-db-owner-password)"
   db_app="$(secret umai-db-app-password)"
@@ -243,6 +255,7 @@ secrets() {
     # Plans: the policy service writes each tenant's limits into its snapshot (ADR-0043).
     if [[ "$UMAI_PLANS" == "true" ]]; then printf 'UMAI_DE_PLANS_FILE=/app/plans.yaml\n'; fi
     billing_env
+    webhook_env
   } >>"$RUN/policy.env"
   printf 'POSTGRES_PASSWORD=%s\nUMAI_DB_APP_PASSWORD=%s\n' "$db_owner" "$db_app" |
     put "$RUN/postgres.env" 0

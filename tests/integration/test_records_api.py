@@ -203,7 +203,12 @@ def test_retention_deletes_only_what_is_past_its_period(tmp_path) -> None:
         return {"deleted": deleted, **kept}
 
     result = asyncio.run(go())
-    assert result["deleted"] == {"decision_events": 1, "l1b_outcomes": 0, "usage_events": 1}
+    assert result["deleted"] == {
+        "decision_events": 1,
+        "l1b_outcomes": 0,
+        "usage_events": 1,
+        "audit_events": 0,
+    }
     assert result["events"] == [f"ta-{2:032x}"]  # 31 days old: gone; 5 days: kept
     assert result["usage"] == [f"ta-{1:032x}"]  # usage keeps 400 days
 

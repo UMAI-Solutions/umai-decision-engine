@@ -2,7 +2,8 @@
 #   engine API      uvicorn umai_decision_engine.api.app:app --host 0.0.0.0 --port 9100
 #   policy service  uvicorn umai_decision_engine.control_plane.app:app --host 0.0.0.0 --port 9200
 # Build: docker build -t umai-decision-engine .
-FROM python:3.12-slim AS build
+# Base images are pinned by digest; Dependabot proposes new digests weekly (ADR-0049).
+FROM python:3.12-slim@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159 AS build
 
 ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 WORKDIR /src
@@ -11,7 +12,7 @@ COPY src ./src
 RUN python -m venv /opt/venv \
     && /opt/venv/bin/pip install .
 
-FROM python:3.12-slim
+FROM python:3.12-slim@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159
 
 ENV PATH=/opt/venv/bin:$PATH \
     PYTHONDONTWRITEBYTECODE=1 \

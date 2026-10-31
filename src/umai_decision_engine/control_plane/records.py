@@ -1,6 +1,7 @@
 """Records in the policy service (ADR-0041 §5, §7): the read API over decision events, L1b outcomes
-and the usage ledger, and the retention job. Reads run in the caller's tenant session (RLS);
-retention runs per tenant with the owner role, the only role allowed to delete records."""
+and the usage ledger, and the retention job (also for the audit log, ADR-0045). Reads run in the
+caller's tenant session (RLS); retention runs per tenant with the owner role, the only role
+allowed to delete records."""
 
 from __future__ import annotations
 
@@ -25,7 +26,9 @@ from umai_decision_engine.contracts.events import (
     UsageGroup,
     UsageSummary,
 )
+from umai_decision_engine.control_plane.webhooks import apply_webhook_retention
 from umai_decision_engine.db.models import (
+    AuditEventRow,
     DecisionEventRow,
     L1bOutcomeRow,
     Tenant,
@@ -291,6 +294,7 @@ async def apply_retention(
     *,
     decision_days: int,
     usage_days: int,
+    audit_days: int = 400,
     now: datetime | None = None,
 ) -> dict[str, int]:
     """Delete records past their retention, tenant by tenant (RLS stays forced for the owner
@@ -301,6 +305,7 @@ async def apply_retention(
         DecisionEventRow: now - timedelta(days=decision_days),
         L1bOutcomeRow: now - timedelta(days=decision_days),
         UsageEventRow: now - timedelta(days=usage_days),
+        AuditEventRow: now - timedelta(days=audit_days),
     }
     async with global_session(engine) as session:
         tenants = list((await session.execute(select(Tenant.id, Tenant.slug))).all())
@@ -323,14 +328,27 @@ async def apply_retention(
 
 
 async def retention_loop(
-    engine: AsyncEngine, *, decision_days: int, usage_days: int, interval_s: float
+    engine: AsyncEngine,
+    *,
+    decision_days: int,
+    usage_days: int,
+    audit_days: int,
+    interval_s: float,
+    webhook_days: int | None = None,
 ) -> None:
     """Run :func:`apply_retention` now and every ``interval_s``; a failed run is logged and
-    retried at the next interval (records are kept longer, never lost early)."""
+    retried at the next interval (records are kept longer, never lost early). ``webhook_days``:
+    also the webhook delivery log and finished messages (ADR-0048 §4)."""
 
     while True:
         try:
-            await apply_retention(engine, decision_days=decision_days, usage_days=usage_days)
+            await apply_retention(
+                engine, decision_days=decision_days, usage_days=usage_days, audit_days=audit_days
+            )
+            if webhook_days:
+                deleted = await apply_webhook_retention(engine, days=webhook_days)
+                if deleted:
+                    log.info("records.retention table=webhooks deleted=%d", deleted)
         except Exception as exc:
             log.warning("records.retention_failed error=%s", type(exc).__name__)
         await asyncio.sleep(interval_s)

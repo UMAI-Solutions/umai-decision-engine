@@ -152,3 +152,19 @@ def test_a_key_that_would_break_the_settings_stops_the_script(tmp_path) -> None:
     result = _run(tmp_path, 'out="$(decision_env)"; echo reached')
     assert result.returncode == 1 and "reached" not in result.stdout
     assert "sk-a" not in result.stderr  # the key is never echoed
+
+
+def test_the_webhook_key_and_the_console_address_reach_the_policy_service(tmp_path) -> None:
+    key = "c3ludGhldGljLXdlYmhvb2stbWFzdGVyLWtleS0wMDAwMDA="  # synthetic
+    (tmp_path / "secrets.env").write_text(
+        f"UMAI_WEBHOOK_MASTER_KEY='{key}'\n", encoding="utf-8", newline="\n"
+    )
+    result = _run(tmp_path, "webhook_env", config="UMAI_HOSTNAME=umai.example.com\n")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == [
+        "UMAI_DE_CONSOLE_URL=https://umai.example.com",
+        f"UMAI_DE_WEBHOOK_MASTER_KEY={key}",
+    ]
+    (tmp_path / "secrets.env").write_text("UMAI_API_TOKEN='x'\n", encoding="utf-8", newline="\n")
+    result = _run(tmp_path, "webhook_env", config="UMAI_HOSTNAME=umai.example.com\n")
+    assert result.stdout == "UMAI_DE_CONSOLE_URL=https://umai.example.com\n"  # webhooks off

@@ -1,0 +1,71 @@
+# Dependency updates (ADR-0049): weekly, minor and patch updates grouped into one pull request
+# per ecosystem, majors one pull request each. A release must be a week old before it is
+# proposed (cooldown), so a compromised release has time to be found and pulled. Security
+# updates come separately, as soon as an advisory exists, once Dependabot security updates are
+# switched on in the repository settings.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Istanbul
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+    groups:
+      python-minor-patch:
+        update-types: [minor, patch]
+    commit-message:
+      prefix: deps
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Istanbul
+    open-pull-requests-limit: 3
+    cooldown:
+      default-days: 7
+    groups:
+      actions-minor-patch:
+        update-types: [minor, patch]
+    commit-message:
+      prefix: ci
+
+  # Base images are pinned by digest in the Dockerfile; Dependabot moves the digest.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Istanbul
+    open-pull-requests-limit: 2
+    ignore:
+      # Python 3.12 is the runtime (ADR-0009); a new Python is a decision, not an update.
+      - dependency-name: python
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+    commit-message:
+      prefix: deps
+
+  # Images of the single-VM stack (ADR-0032).
+  - package-ecosystem: docker-compose
+    directory: /deploy/vm
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Istanbul
+    open-pull-requests-limit: 2
+    ignore:
+      # A new PostgreSQL major cannot open the old data directory: dump and restore by hand
+      # (deploy/vm/README.md, Restore).
+      - dependency-name: postgres
+        update-types: ["version-update:semver-major"]
+    commit-message:
+      prefix: deps

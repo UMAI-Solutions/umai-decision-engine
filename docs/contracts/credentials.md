@@ -1,6 +1,6 @@
 # Contract: credentials
 
-**Version:** 0.8 · **Producer → consumer:** control plane → engines (key-registry snapshot), control plane ↔ console (key records), console → policy service (on-behalf-of assertion) · **Decisions:** [ADR-0023](../adr/0023-identity-planes-and-api-keys.md), [ADR-0029](../adr/0029-authorization-roles-and-four-eyes.md), [ADR-0046](../adr/0046-api-key-network-restrictions.md)
+**Version:** 0.9 · **Producer → consumer:** control plane → engines (key-registry snapshot), control plane ↔ console (key records), console → policy service (on-behalf-of assertion) · **Decisions:** [ADR-0023](../adr/0023-identity-planes-and-api-keys.md), [ADR-0029](../adr/0029-authorization-roles-and-four-eyes.md)
 
 Three shapes: the **API key record** the console manages, the **key-registry snapshot** the
 control plane publishes per tenant and every engine loads like a bundle (verify → validate →
@@ -147,7 +147,7 @@ JWS header (exact): `{"alg": "ES256", "typ": "umai-actor+jwt", "kid": "<key id>"
   "email_verified": true,
   "name": "Ada Example",
   "tenant_id": "tenant-demo",
-  "session_id": "s_8f2c1e",
+  "session_id": "q3Jt0yY3m7xQ2bQe6l1oZp8m0WcH4n5sV9aK2dF7gR1",
   "iat": 1792390000,
   "exp": 1792390120,
   "jti": "a3f1c9e2"
@@ -162,13 +162,15 @@ JWS header (exact): `{"alg": "ES256", "typ": "umai-actor+jwt", "kid": "<key id>"
 | Lifetime | `exp - iat` 1–300 s; 30 s clock skew either way; `jti` unique per assertion (not stored: the lifetime bounds replay) |
 | Tenant, roles | `tenant_id` absent before the person chose an organization. The person's roles are read from the tenant store (ADR-0033 §1); a `roles` claim, if sent, is ignored (0.3) |
 | Person | `email`, `email_verified` and `name` come from the console's ID token; organizations need `email_verified` true, and the store keeps the person's e-mail and name up to date from them |
+| Session (0.8) | `session_id` is the console session's id ([console-sessions](console-sessions.md) 0.1: 256 random bits, base64url). Every route except starting the session refuses an ended session, and in `UMAI_DE_CONSOLE_SESSIONS=required` (default in production) one without a record: 401 `session_ended` |
 | Mode | `UMAI_DE_ACTOR_ASSERTION`: `required` (default in production) — tenant actions need an assertion, the control token alone runs operator actions only (tenants, API keys, reads; drafts, draft tests, publishing, activating and an application's guardrail need a person); `optional` (default elsewhere) — without an assertion the control token acts as the operator for every action |
 
 A key pair for development: `openssl ecparam -name prime256v1 -genkey -noout -out actor.pem`;
 the public value for the setting: `openssl ec -in actor.pem -pubout -outform DER | base64 -w0`.
 
 Errors (`{"detail": {"error": "<code>", "detail": "<text>"}}`): 401 `invalid_actor` (malformed,
-wrong algorithm or type, unknown key, bad signature, expired, wrong issuer or audience); 403
+wrong algorithm or type, unknown key, bad signature, expired, wrong issuer or audience); 401
+`session_ended` (the assertion's console session ended or is unknown, 0.8); 403
 `actor_required` (required mode, tenant action without an assertion); 403 `tenant_required` (the
 assertion names no tenant); 403 `tenant_mismatch` (the target tenant is not the assertion's); 403
 `forbidden` (the roles do not allow the action).
@@ -201,11 +203,14 @@ Checked in this order; a refused request is never evaluated or forwarded.
 
 ## Changelog
 
-- 0.8 (2026-10-30, ADR-0046): `allowed_ips` on key records, key creation and registry entries
+- 0.9 (2026-10-30, ADR-0046): `allowed_ips` on key records, key creation and registry entries
   (snapshot payload `contract_version` 0.5; 0.1 to 0.4 still read); `PATCH
   /v1/tenants/{id}/keys/{key_id}` (permission `key.update`) and 422 `invalid_allowed_ips`, 409
   `key_revoked`; admission errors 403 `ip_not_allowed` and 429 `too_many_failed_attempts`; the
   client address from trusted proxies only. Tenant-store migration 0013.
+- 0.8 (2026-10-30, ADR-0024 amendment): the assertion's `session_id` names a console session
+  ([console-sessions](console-sessions.md) 0.1); the policy service refuses an ended one (401
+  `session_ended`). Claims, key records and snapshots unchanged.
 - 0.7 (2026-10-30, ADR-0043): the snapshot carries the tenant's `entitlements` (contract
   [entitlements](entitlements.md) 0.1); snapshot payload `contract_version` 0.4 (0.1 to 0.3
   still read).
