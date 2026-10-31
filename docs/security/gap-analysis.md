@@ -148,7 +148,7 @@ service and the access log too), API4 (a load test exists; the run on the VM is 
 | 13.4.5 | 2 | Documentation/monitoring endpoints not exposed unintentionally | partial | FastAPI serves `/docs` and `/openapi.json` by default on both services | launch plan S0 (disable outside development) |
 | 13.2.4 / 13.2.5 | 2 | Egress allowlists | n/a | no outbound calls yet | ADR-0026 §4 |
 | 15.1.2 | 2 | Dependency inventory (SBOM) | **holds** (2026-10-30) | CycloneDX SBOM of each image from Trivy, uploaded per CI run (`supply-chain.yml` job `image`, both repositories); not yet attached to released images in a registry | ADR-0049; ADR-0031 §6 for the registry |
-| 15.2.1 | 1 | Components updated within documented timeframes | **holds** (2026-10-30) | Dependabot weekly for Python / npm, actions, base images and the VM's Compose images (`.github/dependabot.yml`); audits fail CI on high/critical advisories; an accepted advisory expires within 90 days (ADR-0049 §4). Console: Next.js 14 advisories accepted until 2026-11-30, upgrade next | ADR-0049 |
+| 15.2.1 | 1 | Components updated within documented timeframes | **holds** (2026-10-30) | Dependabot weekly for Python / npm, actions, base images and the VM's Compose images (`.github/dependabot.yml`); audits fail CI on high/critical advisories; an accepted advisory expires within 90 days (ADR-0049 §4). Console: Next.js 15.5.28 since 2026-10-31, no accepted advisories | ADR-0049 |
 | 15.2.3 | 2 | No test/dev features in production | holds | development gates above | — |
 | 4.1.1 | 1 | Correct `Content-Type` | holds | FastAPI JSON responses | — |
 | 2.2.2 | 1 | Server-side input validation | holds | Pydantic contracts, bundle validation | — |

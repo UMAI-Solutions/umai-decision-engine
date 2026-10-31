@@ -103,9 +103,9 @@
 		}
 	}
 
-	# The console serves no WebSocket. Next.js 14 proxies upgrade requests to any host
-	# (GHSA-c4j6-fc7j-m34r, SSRF, fixed in Next.js 15.5.16), so they stop here until the console
-	# runs a fixed Next.js (umai-control-center .github/npm-audit-allowlist.json, ADR-0049).
+	# The console serves no WebSocket, so upgrade requests stop here. Next.js 14 proxied them to any
+	# host (GHSA-c4j6-fc7j-m34r, SSRF); the console runs Next.js 15.5.28 since 2026-10-31, and this
+	# stays as defence in depth (ADR-0049).
 	@upgrade header Upgrade *
 
 	# Brand kit files (logos, icons, fonts) without basic auth: Auth0's hosted login page and the

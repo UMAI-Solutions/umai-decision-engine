@@ -101,7 +101,7 @@ def test_the_request_version_customers_are_told_to_send_is_accepted():
     accepted = published["components"]["schemas"]["EvaluationRequest"]["properties"][
         "contract_version"
     ]["enum"]
-    assert accepted[-1] == CONTRACT_VERSION
+    assert CONTRACT_VERSION in accepted
     for language in api_docs.LANGUAGES:
         for page in (API_DOCS / language).glob("*.md"):
             for sent in re.findall(r'"contract_version": "([0-9.]+)"', _text(page)):

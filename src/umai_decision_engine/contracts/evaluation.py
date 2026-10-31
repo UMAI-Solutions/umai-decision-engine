@@ -19,9 +19,11 @@ from umai_decision_engine.contracts.common import (
 )
 from umai_decision_engine.contracts.entities import EntitySummary
 
+# The request and response shape last changed in 0.12; 0.13 and 0.14 added refusals only
+# (docs/contracts/evaluation-api.md), so a request may name any of them.
 CONTRACT_VERSION = "0.12"
 _ACCEPTED_REQUEST_VERSIONS = Literal[
-    "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "0.10", "0.11", "0.12"
+    "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "0.10", "0.11", "0.12", "0.13", "0.14"
 ]
 
 # ------------------------------------------------------------------ request
