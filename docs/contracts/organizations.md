@@ -165,6 +165,7 @@ Implemented 2026-10-19 except the domain routes (stage 1).
 | `POST/GET /v1/organizations/{id}/invitations`, `DELETE …/{inv}`, `POST …/{inv}/resend` | `invitation.manage` | Invite, list, revoke, resend |
 | `POST /v1/invitations/accept` | `invitation.accept` (self-service) | Accept |
 | `POST /v1/tenants/{id}/keys` (credentials) | `key.create` | The organization's API keys, including the first |
+| `PATCH /v1/tenants/{id}/keys/{key_id}` (credentials 0.9) | `key.update` | A key's allowed networks |
 | `POST/GET /v1/organizations/{id}/domains`, `POST …/{d}/verify`, `PATCH …/{d}` | `domain.manage` | Verified domains |
 
 ## Errors

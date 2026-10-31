@@ -31,6 +31,7 @@ class AuditAction(StrEnum):
     TENANT_PLAN = "tenant.plan"
     KEY_CREATE = "key.create"
     KEY_REVOKE = "key.revoke"
+    KEY_UPDATE = "key.update"
     KEY_PUBLISH = "key.publish"
     ORGANIZATION_CREATE = "organization.create"
     ORGANIZATION_UPDATE = "organization.update"

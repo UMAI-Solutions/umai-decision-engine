@@ -65,6 +65,24 @@ def test_evaluation_api_examples() -> None:
     InputTooLargeBody.model_validate_json(too_large)
     (over_quota,) = [block for block in blocks if '"quota_exceeded"' in block]
     QuotaExceededBody.model_validate_json(over_quota)
+    (not_allowed,) = [block for block in blocks if '"ip_not_allowed"' in block]
+    assert json.loads(not_allowed) == _admission_refusal_for_another_network()
+
+
+def _admission_refusal_for_another_network() -> dict:
+    """The body the engine answers for a key used outside its networks (ADR-0046)."""
+
+    from fastapi import HTTPException
+
+    from umai_decision_engine.tenancy.admission import Admission
+    from umai_decision_engine.tenancy.network import parse_address, parse_networks
+
+    class Key:
+        tenant_id, key_id, networks = "tenant-demo", "Q7h2kP9c", parse_networks(["203.0.113.0/24"])
+
+    with pytest.raises(HTTPException) as exc:
+        Admission._check_network(Key(), parse_address("198.51.100.7"))  # type: ignore[arg-type]
+    return {"detail": exc.value.detail}
 
 
 def test_entity_detection_example() -> None:
@@ -182,11 +200,14 @@ def test_organizations_examples() -> None:
 
 
 def test_credentials_examples() -> None:
-    from umai_decision_engine.contracts.credentials import ActorAssertion
+    from umai_decision_engine.contracts.credentials import ActorAssertion, canonical_networks
 
     record, snapshot, assertion = _blocks("contracts/credentials.md", "json")
-    json.loads(record)
+    networks = json.loads(record)["allowed_ips"]
+    assert canonical_networks(networks) == networks  # examples are in canonical form
     TenantEntitlements.model_validate(json.loads(snapshot)["entitlements"])
+    assert json.loads(snapshot)["contract_version"] == "0.5"
+    assert json.loads(snapshot)["keys"][0]["allowed_ips"] == networks
     ActorAssertion.model_validate_json(assertion)
 
 

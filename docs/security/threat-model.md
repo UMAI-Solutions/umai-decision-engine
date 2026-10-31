@@ -108,6 +108,8 @@ E elevation of privilege. "Today" is what the code does; "Control" is the ADR or
 | | **I** 422 body echoes raw content | Accepted | GAP-L1: custom validation handler, `loc` and `type` only |
 | | **D** unbounded body, unbounded scan length | Accepted | ADR-0019 §4: 413 above limit; ingress body cap and per-key rate limit (ADR-0023) |
 | | **D** `POST /v1/bundles/reload` by any caller | Accepted | Scope `bundles:reload` for the control plane only (ADR-0023) |
+| | **S** a leaked key used from anywhere | Allowed networks per key (2026-10-30) | ADR-0046: 403 `ip_not_allowed` at admission, engine API and gateway |
+| | **S/D** credential guessing, spoofed `X-Forwarded-For` | Throttled per source; header read from trusted proxies only (2026-10-30) | ADR-0046: 429 `too_many_failed_attempts` before any lookup |
 | | **R** no decision event stored; logs have request id only | Accepted | ADR-0030: decision events and audit events per tenant |
 | L0 (TB2) | **I** raw content in logs/traces/metrics | Prevented (leak suite, C1) | Keep: CI leak test extended to traces and metrics when they exist |
 | | **I** hash brute force if a tenant key leaks | Keys in env JSON | ADR-0027/0031: per-tenant keys wrapped by Key Vault Premium, rotatable |

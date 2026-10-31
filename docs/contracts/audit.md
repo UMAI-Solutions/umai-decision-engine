@@ -92,6 +92,7 @@ action.
 | `tenant.plan` | `PUT /v1/tenants/{id}/plan` | `tenant` | `edition`, `overrides` {before, after} |
 | `key.create` | `POST /v1/tenants/{id}/keys` | `api_key` / key id | `name`, `env`, `scopes`, `application_id`, `expires_at` |
 | `key.revoke` | `DELETE /v1/tenants/{id}/keys/{key_id}` | `api_key` | `name` |
+| `key.update` | `PATCH /v1/tenants/{id}/keys/{key_id}` | `api_key` | `networks` (how many allowed networks; [credentials](credentials.md) 0.9) |
 | `key.publish` | `POST /v1/tenants/{id}/keys/publish` | `tenant` | `published` |
 | `organization.create` | `POST /v1/organizations` | `organization` / slug | `name`, `region`, `starter_guardrail` |
 | `organization.update` | `PATCH /v1/organizations/{id}` | `organization` | `name` {before, after} |

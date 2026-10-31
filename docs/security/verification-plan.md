@@ -21,6 +21,8 @@ without one of these is a claim, not a control.
 | T5 | Scope enforcement (`evaluate`-only key on `GET /v1/bundles` → 403) | `test_api_keys.py::test_scopes_are_enforced_per_route` | **green** |
 | T6 | Per-key rate limit → 429 with `Retry-After`, no decision | `test_api_keys.py::test_rate_limit_answers_429_with_retry_after` | **green** (in-process bucket; Redis in the regional stack) |
 | T7 | Wrong-region key → 403 `wrong_region` before content is read (ADR-0026) | with ADR-0026 | — |
+| T8 | Bad credentials throttled per source: the 21st from one address → 429 `too_many_failed_attempts` with `Retry-After`, also for a valid key; another address unaffected (ADR-0046) | readiness T8; `tests/integration/test_key_networks.py` | **green** (2026-10-30) |
+| T9 | Client address from trusted proxies only; a key with allowed networks used elsewhere → 403 `ip_not_allowed`, also when the caller forges `X-Forwarded-For` (ADR-0046) | readiness T9; `test_key_networks.py` | **green** (2026-10-30) |
 | I1 | Schema: every tenant table has RLS **and** FORCE RLS and the isolation policy, or is allowlisted (ADR-0025) | `tests/db/test_isolation.py::test_every_table_is_tenant_scoped_with_rls_or_allowlisted` (Postgres service container in CI) | **green** (2026-10-18) |
 | I2 | Generated cross-tenant tests: write as A, read as B → 0 rows; no `app.tenant_id` → **error** (never an empty page); `WITH CHECK` blocks foreign inserts | `test_isolation.py`, parametrised over `TENANT_TABLES` | **green** |
 | I3 | App role: no `BYPASSRLS`, not superuser, not a member of `azure_pg_admin`, owns no tenant table | `test_isolation.py::test_application_role_cannot_bypass_rls_or_own_tenant_tables` | **green** |

@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import ipaddress
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-from pydantic import BaseModel, Field, SecretStr, model_validator
+from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from umai_decision_engine.l0.hashing import TenantKeyError
@@ -60,6 +61,15 @@ class Settings(BaseSettings):
     region: Literal["eu", "us", "sh"] = "sh"  # region stamped into new keys; sh = self-hosted
     rate_limit_rps: float | None = Field(20.0, gt=0)  # per credential (ADR-0023 §7); None = off
     rate_limit_burst: int = Field(40, ge=1)
+    # Client address (ADR-0046 D2): proxies (CIDRs) whose X-Forwarded-For is read; empty: none,
+    # the socket peer is the client. The single VM trusts its Caddy only (deploy/vm).
+    trusted_proxies: list[str] = Field(default_factory=list)
+    # Failed credentials per source address, an IPv4 address or an IPv6 /64 (ADR-0046 D3):
+    # this many in the window, then 429 too_many_failed_attempts until the bucket refills.
+    # None = off. The table keeps at most auth_failure_max_sources sources.
+    auth_failure_limit: int | None = Field(20, ge=1, le=100_000)
+    auth_failure_window_s: float = Field(60.0, gt=0, le=86_400)
+    auth_failure_max_sources: int = Field(100_000, ge=100, le=10_000_000)
     # Prompt size in characters over all request content; above it 413, never a partial scan
     # (ADR-0019 §4 and amendment, Q19 answered). The deployment's cap; a tenant's snapshot may
     # name a smaller `max_input_chars` (ADR-0043).
@@ -197,6 +207,14 @@ class Settings(BaseSettings):
 
     # development endpoints
     expose_detect_endpoint: bool | None = None  # None → True only in development
+
+    @field_validator("trusted_proxies")
+    @classmethod
+    def _proxy_networks(cls, value: list[str]) -> list[str]:
+        try:
+            return [str(ipaddress.ip_network(v.strip(), strict=True)) for v in value]
+        except ValueError as exc:
+            raise ValueError(f"trusted_proxies: {exc}") from None
 
     @model_validator(mode="after")
     def _environment_defaults(self) -> Settings:

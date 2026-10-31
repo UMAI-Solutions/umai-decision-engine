@@ -66,7 +66,7 @@ Still open: hash chain, SIEM export, 401s, the engine API's control endpoints.
 | 11.5.1 | 2 | Random values from a CSPRNG, ≥ 128 bits | partial | `event_id` uses `uuid4` (fine as id, not as secret); no secret generation exists | ADR-0023 |
 | 13.2.1–13.2.3 | 2 | Backend-to-backend auth with individual service accounts, least privilege, no default credentials | **missing** | console → services with one shared token each; no acting-user identity | ADR-0023 (service credential + on-behalf-of assertion) |
 | 6.3.2 | 1 | No default accounts | holds | none exist | — |
-| 6.1.1 / 6.3.1 | 1 | Documented and implemented anti-brute-force on authentication | partial | per-credential token bucket (429); no limit per source IP on failed attempts yet | ADR-0023 §7, ingress |
+| 6.1.1 / 6.3.1 | 1 | Documented and implemented anti-brute-force on authentication | **holds** (2026-10-30) | per-credential token bucket (429 `rate_limited`) and bad credentials throttled per source address (IPv4 address, IPv6 /64): 20 in 60 s by default, then 429 `too_many_failed_attempts` before any lookup (`tenancy/limits.py` `FailedAuthThrottle`; readiness T8) | ADR-0023 §7, ADR-0046 |
 | 6.3.3 | 2 | MFA for console access | **missing** | no login | ADR-0024 §3 |
 | 9.1.1–9.1.3, 9.2.1 | 1 | Verify signature, algorithm allowlist, trusted keys, `nbf`/`exp` on self-contained tokens | n/a | no JWTs yet; bundle manifests already verify signature with known keys (`manifest.py`) | ADR-0023 (assertion), ADR-0027 (registry) |
 | 9.2.3 | 2 | Audience allowlist | n/a | — | ADR-0023 |
@@ -97,7 +97,7 @@ Still open: hash chain, SIEM export, 401s, the engine API's control endpoints.
 | 8.4.1 | 2 | Multi-tenant cross-tenant controls | **holds** for keys, the store and bundles | tenant from the credential (T1 green); Postgres RLS with FORCE and `WITH CHECK` (I1–I3 green); tenant-owned bundles with the owner in the signed manifest (2026-10-19) | ADR-0025 §8: bundles move into Postgres with `http_pull` |
 | 15.3.1 | 1 | Return only necessary fields | holds | response models with `exclude_none`; bundle content is policy data only | — |
 | 15.3.3 | 2 | Restrict writable fields (mass assignment) | holds | Pydantic models with `extra="forbid"` on contracts (422 on unknown fields: `tests/integration/test_api.py::test_malformed_request_is_422`) | — |
-| 15.3.4 | 2 | Client IP from trusted headers only | n/a | no IP use yet | ADR-0030 (audit `ip`) |
+| 15.3.4 | 2 | Client IP from trusted headers only | **holds** (2026-10-30) | the socket peer, or `X-Forwarded-For` read from the right behind proxies listed in `UMAI_DE_TRUSTED_PROXIES` only (default none; the VM trusts Caddy's fixed address); uvicorn's proxy headers off (`tenancy/network.py`; readiness T9) | ADR-0046 |
 
 ### Logging and error handling (V16)
 

@@ -35,4 +35,6 @@ WORKDIR /app
 USER umai
 
 EXPOSE 9100 9200 9300
-CMD ["uvicorn", "umai_decision_engine.api.app:app", "--host", "0.0.0.0", "--port", "9100", "--no-server-header"]
+# --no-proxy-headers: uvicorn would rewrite the client address from X-Forwarded-For on its own;
+# admission reads it only from UMAI_DE_TRUSTED_PROXIES (ADR-0046).
+CMD ["uvicorn", "umai_decision_engine.api.app:app", "--host", "0.0.0.0", "--port", "9100", "--no-server-header", "--no-proxy-headers"]

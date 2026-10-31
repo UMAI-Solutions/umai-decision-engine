@@ -146,6 +146,8 @@ class ApiKey(Base):
     scopes: Mapped[list[str]] = mapped_column(JSON, nullable=False)
     # The application the key belongs to (credentials 0.6, ADR-0039); fixed at creation.
     application_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Networks the key may be used from, canonical CIDRs (credentials 0.9, ADR-0046); NULL: any.
+    allowed_ips: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     created_by: Mapped[str] = mapped_column(String(200), nullable=False)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime(), default=_now)

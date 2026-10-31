@@ -78,6 +78,7 @@ TARGET: dict[AuditAction, TargetType] = {
     AuditAction.TENANT_PLAN: "tenant",
     AuditAction.KEY_CREATE: "api_key",
     AuditAction.KEY_REVOKE: "api_key",
+    AuditAction.KEY_UPDATE: "api_key",
     AuditAction.KEY_PUBLISH: "tenant",
     AuditAction.ORGANIZATION_CREATE: "organization",
     AuditAction.ORGANIZATION_UPDATE: "organization",

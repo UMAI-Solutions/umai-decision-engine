@@ -214,7 +214,7 @@ def test_keys_belong_to_an_application_that_then_cannot_be_deleted(control) -> N
     assert listed[0]["application_id"] == "hr-assistant"
     snapshot = (control.settings.key_registry_dir / "default.json").read_text(encoding="utf-8")
     assert (
-        '"application_id": "hr-assistant"' in snapshot and '"contract_version": "0.4"' in snapshot
+        '"application_id": "hr-assistant"' in snapshot and '"contract_version": "0.5"' in snapshot
     )
 
     refused = control.delete("/v1/applications/hr-assistant")

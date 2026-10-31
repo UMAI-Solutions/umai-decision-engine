@@ -26,6 +26,7 @@ EXPECTED = {
     Action.GUARDRAIL_PUBLISH: {OWN, E},
     Action.GUARDRAIL_ACTIVATE: {OWN, P},
     Action.KEY_CREATE: {OWN, A},
+    Action.KEY_UPDATE: {OWN, A},
     Action.TENANT_CREATE: set(),
     Action.MEMBER_UPDATE: {OWN, A},
     Action.ORGANIZATION_READ: {OWN, A, E, P, V, B},

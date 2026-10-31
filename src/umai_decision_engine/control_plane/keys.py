@@ -17,6 +17,7 @@ from umai_decision_engine.contracts.credentials import (
     KeyEnv,
     KeyRegistrySnapshot,
     Scope,
+    canonical_networks,
 )
 from umai_decision_engine.control_plane.plans import Plans
 from umai_decision_engine.db.repositories import ApiKeyRepository, TenantInfo
@@ -84,6 +85,13 @@ class KeyService:
         if illegal:
             raise ValueError(f"customer keys cannot hold scopes: {', '.join(illegal)}")
 
+    @staticmethod
+    def allowed_networks(values: list[str] | None) -> list[str] | None:
+        """Canonical CIDRs for a key (ADR-0046 D1); ``None`` or ``[]``: any address. Raises
+        :class:`NetworkListError` naming the entry that is wrong."""
+
+        return canonical_networks(values) if values else None
+
     async def republish(self, tenant: TenantInfo) -> bool:
         """The tenant's keys and its limits (ADR-0043 D1), as one signed snapshot."""
 
@@ -112,7 +120,9 @@ class KeyService:
         expires_at: datetime | None,
         created_by: str,
         application_id: str | None = None,
+        allowed_ips: list[str] | None = None,
     ) -> tuple[ApiKeyRecord, str, bool]:
+        networks = self.allowed_networks(allowed_ips)
         if application_id is not None:
             # An application's key works on every connection: the evaluation API and the
             # gateway (credentials 0.6, ADR-0039).
@@ -128,18 +138,36 @@ class KeyService:
             created_by=created_by,
             expires_at=expires_at,
             application_id=application_id,
+            allowed_ips=networks,
         )
         log.info(
-            "api key created: tenant=%s key_id=%s env=%s application=%s",
+            "api key created: tenant=%s key_id=%s env=%s application=%s networks=%d",
             tenant.slug,
             record.key_id,
             env,
             application_id,
+            len(networks or ()),
         )
         return record, secret, await self.republish(tenant)
 
     async def list(self, tenant: TenantInfo) -> list[ApiKeyRecord]:
         return await self.keys.list(tenant)
+
+    async def set_allowed_ips(
+        self, tenant: TenantInfo, key_id: str, allowed_ips: list[str] | None
+    ) -> tuple[ApiKeyRecord, bool]:
+        """Replace an active key's networks and republish, so engines enforce them within one
+        poll interval (ADR-0046 D1)."""
+
+        networks = self.allowed_networks(allowed_ips)
+        record = await self.keys.set_allowed_ips(tenant, key_id, networks)
+        log.info(
+            "api key networks set: tenant=%s key_id=%s networks=%d",
+            tenant.slug,
+            key_id,
+            len(networks or ()),
+        )
+        return record, await self.republish(tenant)
 
     async def revoke(self, tenant: TenantInfo, key_id: str) -> tuple[ApiKeyRecord, bool]:
         record = await self.keys.revoke(tenant, key_id)

@@ -4,6 +4,7 @@ python -m evals.run --suite l0-pii-tr [--split dev|test|all] [--tag NAME] [--bun
 python -m evals.run --suite leak      [--split dev|test|all] [--tag NAME] [--bundle-id ID]
                                       [--bundle-version N]
 python -m evals.run --suite gateway-latency [--tag NAME]
+python -m evals.run --suite admission [--tag NAME]  # admission cost per request (ADR-0046)
 python -m evals.run --suite pi-tr [--split dev|test|all] --detector heuristic[,<model>]
                                       [--model-dir DIR] [--threshold T]
 python -m evals.run --suite masking-survival --model gpt-4.1-mini[,other] [--tag NAME]  # live
@@ -21,6 +22,7 @@ import logging
 import sys
 
 from evals.suites import (
+    admission,
     gateway_latency,
     l0_pii_tr,
     l1_cold_start,
@@ -34,6 +36,7 @@ SUITES = {
     l0_pii_tr.NAME: l0_pii_tr.run,
     leak.NAME: leak.run,
     gateway_latency.NAME: gateway_latency.run,
+    admission.NAME: admission.run,
     masking_survival.NAME: masking_survival.run,
     pi_tr.NAME: pi_tr.run,
     l1_latency.NAME: l1_latency.run,
