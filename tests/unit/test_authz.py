@@ -26,6 +26,7 @@ EXPECTED = {
     Action.GUARDRAIL_PUBLISH: {OWN, E},
     Action.GUARDRAIL_ACTIVATE: {OWN, P},
     Action.KEY_CREATE: {OWN, A},
+    Action.KEY_UPDATE: {OWN, A},
     Action.TENANT_CREATE: set(),
     Action.MEMBER_UPDATE: {OWN, A},
     Action.ORGANIZATION_READ: {OWN, A, E, P, V, B},
@@ -36,6 +37,8 @@ EXPECTED = {
     Action.GATEWAY_WRITE: {OWN, A},
     Action.DECISIONS_READ: {OWN, A, E, P, V},
     Action.USAGE_READ: {OWN, A, E, P, V, B},  # billing reads usage, not decisions (ADR-0029)
+    Action.WEBHOOK_READ: {OWN, A},  # ADR-0048
+    Action.WEBHOOK_MANAGE: {OWN, A},
 }
 
 
@@ -66,6 +69,14 @@ def test_billing_and_viewer_cannot_change_policy() -> None:
 
 def test_no_roles_no_access() -> None:
     assert not any(allowed(action, frozenset(), rbac=False) for action in Action)
+
+
+def test_only_starting_a_session_skips_the_live_session_check() -> None:
+    # ADR-0024 §2 amendment: every person call names a live console session, except the start.
+    assert [a for a, rule in MATRIX.items() if not rule.live_session] == [Action.SESSION_START]
+    assert MATRIX[Action.SESSION_START].self_service and MATRIX[Action.ME_SESSIONS].self_service
+    check = MATRIX[Action.SESSION_CHECK]
+    assert check.operator and not check.roles and not check.self_service  # the console only
 
 
 def test_changing_policy_needs_a_person() -> None:

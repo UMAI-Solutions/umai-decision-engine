@@ -54,7 +54,11 @@ def run_engine() -> int:
 
     shared_settings()
     os.environ.setdefault("UMAI_DE_API_TOKEN", engine_token())
-    uvicorn.run("umai_decision_engine.api.app:app", host="127.0.0.1", port=9100)
+    # uvicorn would otherwise believe X-Forwarded-For from 127.0.0.1; the engine reads it
+    # only from UMAI_DE_TRUSTED_PROXIES (ADR-0046).
+    uvicorn.run(
+        "umai_decision_engine.api.app:app", host="127.0.0.1", port=9100, proxy_headers=False
+    )
     return 0
 
 
@@ -63,7 +67,9 @@ def run_gateway() -> int:
 
     shared_settings()
     os.environ.setdefault("UMAI_DE_API_TOKEN", engine_token())
-    uvicorn.run("umai_decision_engine.gateway.app:app", host="127.0.0.1", port=9300)
+    uvicorn.run(
+        "umai_decision_engine.gateway.app:app", host="127.0.0.1", port=9300, proxy_headers=False
+    )
     return 0
 
 

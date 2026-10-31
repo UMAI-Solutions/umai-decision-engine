@@ -1,0 +1,11 @@
+# Accepted image-scan findings (Trivy, workflow supply-chain.yml, ADR-0049). The scan fails on
+# fixable HIGH and CRITICAL vulnerabilities and on secrets; an entry here accepts one of them for
+# a time. Every entry needs `statement` (why it does not apply or why it waits, and what removes
+# it) and `expired_at` (at most 90 days ahead): after that date Trivy reports it again.
+# tests/unit/test_supply_chain.py checks both fields. Example:
+#
+#   - id: CVE-2026-00000
+#     statement: Only reachable through X, which the image does not run; fixed by the next base digest.
+#     expired_at: 2026-12-31
+vulnerabilities: []
+secrets: []

@@ -18,6 +18,25 @@ session cookie; no `Origin` check), CC6.1 (people authenticate; tokens and roles
 Still **missing**: 6.3.3 MFA, 7.4.1/7.4.2 (cookie sessions cannot be revoked server-side),
 roles (8.x). Not deployed on `umai-beta` yet: Caddy basic auth stays in front of the console.
 
+**Update 2026-10-30 (revocable console sessions, ADR-0024 §2 amendment, contract
+console-sessions 0.1):** every sign-in has a record in the policy service (`console_sessions`,
+migration 0011; the session id only as a SHA-256). The policy service refuses an ended session on
+every call made for the person (401 `session_ended`, `control_plane/authz.py` `live_session`);
+the console middleware checks the record every 30 s and signs a revoked browser out. A person
+lists their sessions, ends one or all others; sign-out ends the record; at most 10 live sessions
+per person. Rows this moves: 7.4.1 **holds**, 7.1.x concurrent-session limit and 7.4.3–7.4.5
+**partial** (no admin termination of another person's sessions, no automatic end after a factor
+change, no re-authentication). Still **missing**: 7.4.2 (a person blocked at the identity service
+keeps their console sessions until they end; no account disabling in our store), 7.5.x.
+
+**Update 2026-10-30 (audit log, ADR-0045, contract audit 0.1):** every changing policy-service
+route writes an audit event (actor, action, target, before/after of non-secret fields, outcome,
+request id, UTC) to the append-only tenant table `audit_events`; refused attempts (403) are
+recorded as `denied`; owners and admins list and export them as CSV (console Organization → Audit
+log). Rows this moves: 16.2.1–16.2.4 and 16.3.1–16.3.4 (who/what/when and failed authorization
+for configuration changes; process logs unchanged), CC7.1 (configuration changes detected).
+Still open: hash chain, SIEM export, 401s, the engine API's control endpoints.
+
 ## 1. Where the code stands (facts, not judgements)
 
 | Area | Evidence |
@@ -31,7 +50,7 @@ roles (8.x). Not deployed on `umai-beta` yet: Caddy basic auth stays in front of
 | Limits | Regex timeout per pattern (`l0/recognizers/base.py:21`, default 1 s); per-credential rate limit at admission (`tenancy/limits.py`, ADR-0023 §7); prompt-size limit with 413 before any scan (`api/routes.py`, evaluation API 0.9, readiness T2 green since 2026-10-19); request bodies capped only at the ingress (Caddy `request_body` on the VM); the console caps playground text at 32 000 characters (`src/lib/engine-request.ts:14`) but the engine does not |
 | Integrity | SHA-256 + Ed25519 manifests, required outside development (`policy/manifest.py:40-70`, `settings.py:27`) |
 | Console | No authentication, no session, no roles (`src/app/(console)/layout.tsx`); engine and control tokens server-side only (`src/lib/upstream.ts:27-37`); `poweredByHeader: false`, no other security headers (`next.config.mjs`) |
-| Supply chain | CI: ruff, pytest, golden tests (`.github/workflows/ci.yml`); no dependency audit, SBOM, image build or signing; no Dockerfile in either repository |
+| Supply chain | CI: ruff, pytest, golden tests (`.github/workflows/ci.yml`). Since 2026-10-30 (ADR-0049) both repositories also run `.github/workflows/supply-chain.yml` (dependency audit, gitleaks, image build + Trivy scan, CycloneDX SBOM artifact) and Dependabot; no image signing or registry yet |
 
 ## 2. OWASP ASVS 5.0, Levels 1 and 2
 
@@ -47,7 +66,7 @@ roles (8.x). Not deployed on `umai-beta` yet: Caddy basic auth stays in front of
 | 11.5.1 | 2 | Random values from a CSPRNG, ≥ 128 bits | partial | `event_id` uses `uuid4` (fine as id, not as secret); no secret generation exists | ADR-0023 |
 | 13.2.1–13.2.3 | 2 | Backend-to-backend auth with individual service accounts, least privilege, no default credentials | **missing** | console → services with one shared token each; no acting-user identity | ADR-0023 (service credential + on-behalf-of assertion) |
 | 6.3.2 | 1 | No default accounts | holds | none exist | — |
-| 6.1.1 / 6.3.1 | 1 | Documented and implemented anti-brute-force on authentication | partial | per-credential token bucket (429); no limit per source IP on failed attempts yet | ADR-0023 §7, ingress |
+| 6.1.1 / 6.3.1 | 1 | Documented and implemented anti-brute-force on authentication | **holds** (2026-10-30) | per-credential token bucket (429 `rate_limited`) and bad credentials throttled per source address (IPv4 address, IPv6 /64): 20 in 60 s by default, then 429 `too_many_failed_attempts` before any lookup (`tenancy/limits.py` `FailedAuthThrottle`; readiness T8) | ADR-0023 §7, ADR-0046 |
 | 6.3.3 | 2 | MFA for console access | **missing** | no login | ADR-0024 §3 |
 | 9.1.1–9.1.3, 9.2.1 | 1 | Verify signature, algorithm allowlist, trusted keys, `nbf`/`exp` on self-contained tokens | n/a | no JWTs yet; bundle manifests already verify signature with known keys (`manifest.py`) | ADR-0023 (assertion), ADR-0027 (registry) |
 | 9.2.3 | 2 | Audience allowlist | n/a | — | ADR-0023 |
@@ -57,9 +76,9 @@ roles (8.x). Not deployed on `umai-beta` yet: Caddy basic auth stays in front of
 
 | ID | L | Requirement | Status | Evidence / gap | Closes with |
 |---|---|---|---|---|---|
-| 7.1.1, 7.1.2, 7.3.1, 7.3.2 | 2 | Documented and enforced inactivity timeout, absolute lifetime, concurrent-session limit | **missing** | no sessions | ADR-0024 §2 |
-| 7.4.1, 7.4.2 | 1 | Terminated sessions unusable; all sessions end when an account is disabled | **missing** | — | ADR-0024 §2 |
-| 7.4.3–7.4.5, 7.5.1, 7.5.2 | 2 | End other sessions, visible logout, admin termination, re-auth before sensitive changes | **missing** | — | ADR-0024 §2 |
+| 7.1.1, 7.1.2, 7.3.1, 7.3.2 | 2 | Documented and enforced inactivity timeout, absolute lifetime, concurrent-session limit | **partial** (2026-10-30) | console cookie 60 min / 12 h; session record ends after 70 min idle and 12 h (`db/sessions.py`); at most 10 live sessions per person, the least recently seen ends (`console_session_limit`) | ADR-0024 §2 amendment |
+| 7.4.1, 7.4.2 | 1 | Terminated sessions unusable; all sessions end when an account is disabled | 7.4.1 **holds**, 7.4.2 **missing** (2026-10-30) | an ended record refuses every policy-service call at once and signs the console out within 30 s (`control_plane/sessions.py`, `tests/integration/test_console_sessions.py`); no account disabling, and a block at the identity service does not end console sessions | ADR-0024 §2 amendment; 7.4.2 with the identity mirror |
+| 7.4.3–7.4.5, 7.5.1, 7.5.2 | 2 | End other sessions, visible logout, admin termination, re-auth before sensitive changes | **partial** (2026-10-30) | "Sign out other devices" and ending one session (`/v1/me/sessions…`), sign-out ends the record; no admin ending another person's sessions (member removal drops the organization within 30 s instead), no automatic end after a factor change, no re-authentication | ADR-0024 §2 amendment |
 | 3.3.1–3.3.4 | 1/2 | Cookie `Secure`, `__Host-`, `SameSite`, `HttpOnly` | n/a | no cookies | ADR-0024 §2 |
 | 3.5.1 | 1 | CSRF protection on state-changing requests | **missing** | relay routes accept any origin once sessions exist; today they are simply open | ADR-0024 §2 |
 | 3.4.1 | 1 | HSTS ≥ 1 year | **missing** | no headers configured (`next.config.mjs`) | launch plan S0 |
@@ -78,16 +97,16 @@ roles (8.x). Not deployed on `umai-beta` yet: Caddy basic auth stays in front of
 | 8.4.1 | 2 | Multi-tenant cross-tenant controls | **holds** for keys, the store and bundles | tenant from the credential (T1 green); Postgres RLS with FORCE and `WITH CHECK` (I1–I3 green); tenant-owned bundles with the owner in the signed manifest (2026-10-19) | ADR-0025 §8: bundles move into Postgres with `http_pull` |
 | 15.3.1 | 1 | Return only necessary fields | holds | response models with `exclude_none`; bundle content is policy data only | — |
 | 15.3.3 | 2 | Restrict writable fields (mass assignment) | holds | Pydantic models with `extra="forbid"` on contracts (422 on unknown fields: `tests/integration/test_api.py::test_malformed_request_is_422`) | — |
-| 15.3.4 | 2 | Client IP from trusted headers only | n/a | no IP use yet | ADR-0030 (audit `ip`) |
+| 15.3.4 | 2 | Client IP from trusted headers only | **holds** (2026-10-30) | the socket peer, or `X-Forwarded-For` read from the right behind proxies listed in `UMAI_DE_TRUSTED_PROXIES` only (default none; the VM trusts Caddy's fixed address); uvicorn's proxy headers off (`tenancy/network.py`; readiness T9) | ADR-0046 |
 
 ### Logging and error handling (V16)
 
 | ID | L | Requirement | Status | Evidence / gap | Closes with |
 |---|---|---|---|---|---|
 | 16.1.1 | 2 | Log inventory per layer (events, formats, storage, retention) | partial | `docs/architecture/overview.md` principles; no inventory | ADR-0030 §6 |
-| 16.2.1–16.2.4 | 2 | When/where/who/what, UTC, documented sinks, correlatable format | partial | request id and ids in messages; plain text, no `who` | ADR-0030 §6 |
+| 16.2.1–16.2.4 | 2 | When/where/who/what, UTC, documented sinks, correlatable format | partial | configuration changes: audit events with who/what/when (UTC), target and request id (ADR-0045, 2026-10-30); process logs still plain text | ADR-0030 §6 |
 | 16.2.5 | 2 | Sensitive data never logged; hash or mask | **holds** | leak suite, readiness C1; Presidio logger clamped | keep; extend to traces |
-| 16.3.1–16.3.4 | 2 | Log authentication attempts, failed authorization, control bypasses, unexpected errors | partial | `l0.failed`, `config_failure` logged; 401s not logged; no authorization exists | ADR-0030 §1 |
+| 16.3.1–16.3.4 | 2 | Log authentication attempts, failed authorization, control bypasses, unexpected errors | partial | `l0.failed`, `config_failure` logged; failed authorization in the policy service recorded as `denied` audit events (ADR-0045, 2026-10-30); 401s not logged; sign-in attempts only at the identity service | ADR-0030 §1 |
 | 16.4.1–16.4.3 | 2 | Encode log data, protect logs, ship to a separate system | **missing** | stdout only; no pipeline | launch plan S0 |
 | 16.5.1 | 2 | Generic error messages, no internals | holds | mapped error kinds; 422 without input (`api/errors.py`, readiness L1 green 2026-10-19) | — |
 | 16.5.2, 16.5.3 | 2 | Fail securely, no fail-open | **holds** | failure policy explicit (`pipeline/failure.py`), `L1_NOT_IMPLEMENTED` never allows silently | — |
@@ -113,8 +132,8 @@ roles (8.x). Not deployed on `umai-beta` yet: Caddy basic auth stays in front of
 | 13.4.2 | 2 | Debug modes off in production | holds | `expose_detect_endpoint` and inline bundles default off outside development (`settings.py`) | — |
 | 13.4.5 | 2 | Documentation/monitoring endpoints not exposed unintentionally | partial | FastAPI serves `/docs` and `/openapi.json` by default on both services | launch plan S0 (disable outside development) |
 | 13.2.4 / 13.2.5 | 2 | Egress allowlists | n/a | no outbound calls yet | ADR-0026 §4 |
-| 15.1.2 | 2 | Dependency inventory (SBOM) | **missing** | — | launch plan S0 |
-| 15.2.1 | 1 | Components updated within documented timeframes | **missing** | no Dependabot, no audit | launch plan S0 |
+| 15.1.2 | 2 | Dependency inventory (SBOM) | **holds** (2026-10-30) | CycloneDX SBOM of each image from Trivy, uploaded per CI run (`supply-chain.yml` job `image`, both repositories); not yet attached to released images in a registry | ADR-0049; ADR-0031 §6 for the registry |
+| 15.2.1 | 1 | Components updated within documented timeframes | **holds** (2026-10-30) | Dependabot weekly for Python / npm, actions, base images and the VM's Compose images (`.github/dependabot.yml`); audits fail CI on high/critical advisories; an accepted advisory expires within 90 days (ADR-0049 §4). Console: Next.js 14 advisories accepted until 2026-11-30, upgrade next | ADR-0049 |
 | 15.2.3 | 2 | No test/dev features in production | holds | development gates above | — |
 | 4.1.1 | 1 | Correct `Content-Type` | holds | FastAPI JSON responses | — |
 | 2.2.2 | 1 | Server-side input validation | holds | Pydantic contracts, bundle validation | — |
@@ -133,8 +152,8 @@ ASVS tally over the rows above (2026-10-18, after ADR-0023/0025 code): **holds 1
 | CC6.4 / CC6.5 physical access, disposal | Cloud provider's reports; data erasure procedure | n/a (company) | provider SOC reports to collect; erasure design exists | ADR-0025 §9, launch plan |
 | CC6.6 protection against external threats | TLS, ingress, rate limiting, WAF | **missing** | none deployed | launch plan S0 |
 | CC6.7 restrict transmission/removal of information | Content never leaves L0; exports controlled; encryption in transit | partial | ADR-0005 holds in code; exports are permission-checked, capped and content-free (ADR-0047: CSV with the read permissions, organization archive owners only); no TLS yet | ADR-0030, ADR-0047, S0 |
-| CC6.8 malicious software prevention/detection | Dependency scanning, image scanning, signed images | **missing** | — | launch plan S0 |
-| CC7.1 detect configuration changes and vulnerabilities | Audit events, IaC drift detection, vulnerability scanning | partial | the change log names the actor of every publish and activation (readiness A1 green, 2026-10-19); audit events, drift detection and scanning are missing | ADR-0030, S0 |
+| CC6.8 malicious software prevention/detection | Dependency scanning, image scanning, signed images | partial (2026-10-30) | dependency audit, secret scan and image scan gate every change and run weekly; actions pinned by SHA, scanners and base images by digest, 7-day Dependabot cooldown (ADR-0049); images not signed yet | ADR-0049; Notation with ACR (ADR-0031 §6) |
+| CC7.1 detect configuration changes and vulnerabilities | Audit events, IaC drift detection, vulnerability scanning | partial | the change log names the actor of every publish and activation (readiness A1 green, 2026-10-19); every policy-service change and refused attempt is an audit event, listed and exported in the console (ADR-0045, 2026-10-30); vulnerability scanning of dependencies and images in CI, weekly (ADR-0049, 2026-10-30); drift detection is missing | ADR-0030, S0 |
 | CC7.2 monitor for anomalies | Metrics, alerts, usage anomalies | **missing** | no metrics pipeline | ADR-0028 §7, S0 |
 | CC7.3 / CC7.4 evaluate events; incident response program | IR plan, on-call, runbooks, status page | **missing** | — | launch plan S0 (company + ops) |
 | CC7.5 recovery | Backups, restore drill | **missing** | nothing to back up yet; drill defined | ADR-0025, verification plan |
@@ -162,7 +181,7 @@ ASVS tally over the rows above (2026-10-18, after ADR-0023/0025 code): **holds 1
 | LLM02 Sensitive information disclosure | The product's purpose; also our own logs/telemetry | holds in code (ADR-0005, leak suite, 422 without input since 2026-10-19) |
 | LLM06 Unbounded consumption | Our engine must not be the unbounded component | partial (size, rate and monthly quota hold; spend alerts open, ADR-0028 §7) |
 | LLM08 Hidden context exposure | Policy bundles and exceptions are "hidden context" for a customer's agents | **missing** (bundles readable by any token holder) |
-| LLM04 Supply chain | Models (future L1b/L2), Presidio, dependencies | **missing** (no SBOM/audit) |
+| LLM04 Supply chain | Models (future L1b/L2), Presidio, dependencies | partial (2026-10-30): dependencies audited and in the image SBOM, pinned CI tooling (ADR-0049); models are hosted (OpenAI Decisions API), no model artefacts to verify yet |
 | LLM01 Prompt injection | Content is data to L0; no model on the request path today | holds by design until L1b arrives |
 
 ## 6. Documentation versus code

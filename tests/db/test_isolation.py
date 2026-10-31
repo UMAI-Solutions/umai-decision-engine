@@ -25,6 +25,7 @@ from umai_decision_engine.db.models import Base, Membership, User
 from umai_decision_engine.db.organizations import MembershipRepository, UserRepository
 from umai_decision_engine.db.repositories import (
     ApiKeyRepository,
+    Conflict,
     DraftRepository,
     NotFound,
     TenantRepository,
@@ -210,6 +211,57 @@ def _row(table: str, tenant_id: uuid.UUID, user_id: uuid.UUID | None = None) -> 
         }
     if table == "billing_events":
         return {**base, "kind": "checkout_started", "occurred_at": datetime.now(UTC)}
+    now = datetime.now(UTC)
+    if table == "webhook_endpoints":
+        return {
+            **base,
+            "url_sealed": "v1:AAAA",
+            "kind": "generic",
+            "event_types": ["decision.blocked"],
+            "enabled": True,
+            "enabled_since": now,
+            "secret_version": 1,
+            "consecutive_failures": 0,
+            "created_by": "person:test",
+        }
+    message = {"endpoint_id": uuid.uuid4(), "event_id": f"evt_{uuid.uuid4().hex}"}
+    if table == "webhook_messages":
+        return {
+            **base,
+            **message,
+            "event_type": "decision.blocked",
+            "dedupe_key": f"decision.blocked:{uuid.uuid4().hex}",
+            "occurred_at": now,
+            "data": {},
+            "status": "pending",
+            "attempts": 0,
+        }
+    if table == "webhook_deliveries":
+        return {
+            **base,
+            **message,
+            "message_id": uuid.uuid4(),
+            "event_type": "decision.blocked",
+            "attempt": 1,
+            "attempted_at": now,
+            "outcome": "failed",
+            "status_code": 503,
+            "error": "http_status",
+            "test": False,
+        }
+    if table == "audit_events":
+        return {
+            **record,
+            "event_id": f"au-{uuid.uuid4().hex}",
+            "actor_type": "person",
+            "actor_sub": "auth0|ada",
+            "action": "key.create",
+            "target_type": "api_key",
+            "target_id": "k0000000",
+            "outcome": "success",
+            "request_id": "req-i",
+            "details": {},
+        }
     raise AssertionError(f"no row factory for {table}: add one when adding a tenant table")
 
 
@@ -435,6 +487,37 @@ async def test_quota_counts_requests_of_its_own_tenant_only_on_postgres(pg, two_
 
 @postgres
 @pytest.mark.asyncio
+async def test_key_networks_round_trip_for_their_tenant_only_on_postgres(pg, two_tenants) -> None:
+    """A key's allowed networks (credentials 0.8, migration 0013) are stored, edited and
+    published for its own tenant; another tenant can neither see nor change them."""
+
+    a, b = two_tenants
+    keys = ApiKeyRepository(pg)
+    record, _ = await keys.create(
+        a,
+        name="office",
+        env="live",
+        region="eu",
+        scopes=None,
+        created_by="t",
+        allowed_ips=["203.0.113.0/24", "2001:db8::/32"],
+    )
+    assert record.allowed_ips == ["203.0.113.0/24", "2001:db8::/32"]
+    with pytest.raises(NotFound):
+        await keys.set_allowed_ips(b, record.key_id, ["198.51.100.0/24"])
+    changed = await keys.set_allowed_ips(a, record.key_id, ["198.51.100.0/24"])
+    assert changed.allowed_ips == ["198.51.100.0/24"]
+    (entry,) = (await keys.snapshot(a)).keys
+    assert entry.allowed_ips == ["198.51.100.0/24"]
+    cleared = await keys.set_allowed_ips(a, record.key_id, None)
+    assert cleared.allowed_ips is None
+    await keys.revoke(a, record.key_id)
+    with pytest.raises(Conflict):
+        await keys.set_allowed_ips(a, record.key_id, ["198.51.100.0/24"])
+
+
+@postgres
+@pytest.mark.asyncio
 async def test_member_self_reads_only_the_persons_own_rows_and_never_writes(
     pg, two_tenants
 ) -> None:
@@ -535,3 +618,29 @@ async def test_repositories_filter_by_tenant_on_sqlite(tmp_path) -> None:
         assert await members.roles(b, ada) == frozenset()
     finally:
         await engine.dispose()
+
+
+# ------------------------------------------------------------ console sessions (ADR-0024 §2)
+
+
+@postgres
+@pytest.mark.asyncio
+async def test_console_sessions_are_global_and_the_application_role_manages_them(pg) -> None:
+    """A person's sign-ins span tenants: no tenant context, no RLS; the application role starts,
+    ends and purges them (migration 0011's grant)."""
+
+    from umai_decision_engine.db.models import ConsoleSessionRow
+    from umai_decision_engine.db.sessions import SessionRepository
+
+    user_id = await _user(pg)
+    repo = SessionRepository(pg, lifetime=timedelta(hours=12), idle=timedelta(minutes=70), limit=10)
+    sid = uuid.uuid4().hex + uuid.uuid4().hex
+    started = await repo.start(user_id, sid, "Firefox on Windows")
+    found = await repo.find(sid)
+    assert found is not None and found.id == started.id and repo.is_live(found)
+    assert [s.id for s in await repo.live(user_id)] == [started.id]
+    assert await repo.revoke(user_id, started.id, "signed_out")
+    async with global_session(pg) as session:  # no tenant set: a global table answers
+        rows = (await session.execute(select(ConsoleSessionRow.revoke_reason))).all()
+        assert ("signed_out",) in rows
+        await session.execute(delete(ConsoleSessionRow).where(ConsoleSessionRow.id == started.id))

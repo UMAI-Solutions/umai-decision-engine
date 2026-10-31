@@ -114,7 +114,7 @@ def test_the_plan_reaches_the_snapshot_and_the_quota_refuses_at_the_limit(quota_
     snapshot = json.loads(
         (control.app.state.settings.key_registry_dir / "acme.json").read_text(encoding="utf-8")
     )
-    assert snapshot["contract_version"] == "0.4" and snapshot["signature"]
+    assert snapshot["contract_version"] == "0.5" and snapshot["signature"]
     assert snapshot["entitlements"] == {
         "edition": "community",
         "monthly_requests": 3,

@@ -21,15 +21,17 @@ without one of these is a claim, not a control.
 | T5 | Scope enforcement (`evaluate`-only key on `GET /v1/bundles` → 403) | `test_api_keys.py::test_scopes_are_enforced_per_route` | **green** |
 | T6 | Per-key rate limit → 429 with `Retry-After`, no decision | `test_api_keys.py::test_rate_limit_answers_429_with_retry_after` | **green** (in-process bucket; Redis in the regional stack) |
 | T7 | Wrong-region key → 403 `wrong_region` before content is read (ADR-0026) | with ADR-0026 | — |
+| T8 | Bad credentials throttled per source: the 21st from one address → 429 `too_many_failed_attempts` with `Retry-After`, also for a valid key; another address unaffected (ADR-0046) | readiness T8; `tests/integration/test_key_networks.py` | **green** (2026-10-30) |
+| T9 | Client address from trusted proxies only; a key with allowed networks used elsewhere → 403 `ip_not_allowed`, also when the caller forges `X-Forwarded-For` (ADR-0046) | readiness T9; `test_key_networks.py` | **green** (2026-10-30) |
 | I1 | Schema: every tenant table has RLS **and** FORCE RLS and the isolation policy, or is allowlisted (ADR-0025) | `tests/db/test_isolation.py::test_every_table_is_tenant_scoped_with_rls_or_allowlisted` (Postgres service container in CI) | **green** (2026-10-18) |
 | I2 | Generated cross-tenant tests: write as A, read as B → 0 rows; no `app.tenant_id` → **error** (never an empty page); `WITH CHECK` blocks foreign inserts | `test_isolation.py`, parametrised over `TENANT_TABLES` | **green** |
 | I3 | App role: no `BYPASSRLS`, not superuser, not a member of `azure_pg_admin`, owns no tenant table | `test_isolation.py::test_application_role_cannot_bypass_rls_or_own_tenant_tables` | **green** |
 | Z1 | Permission matrix: each role × each endpoint; undeclared endpoint fails (ADR-0029) | with ADR-0029 | — |
 | Z2 | Four-eyes: publisher cannot activate own production version when required | with ADR-0029 | — |
-| E1 | Every mutating route emits exactly one audit event; event rows are insert-only; hash chain breaks on tampering (ADR-0030) | with ADR-0030 | — |
+| E1 | Every mutating route emits exactly one audit event; event rows are insert-only; hash chain breaks on tampering (ADR-0030) | `tests/unit/test_audit_routes.py` (declaration walk), `tests/integration/test_audit_log.py` (refused-attempt walk, events per change), `test_isolation.py` (insert-only, ADR-0045) | partial (policy service green; hash chain and engine control endpoints open) |
 | E2 | Leak suite over decision events, audit events, JSON logs, span attributes, exports | extend `evals/suites/leak.py` | partial (logs, responses) |
 | M1 | Metering: decision events = usage counter = metered quantity over a test period (ADR-0028) | with ADR-0028 | — |
-| S1 | Dependency audit, SBOM, image scan in CI; no known critical CVE | `pip-audit`, CycloneDX, Trivy in `ci.yml` | **missing** |
+| S1 | Dependency audit, SBOM, image scan in CI; no known critical CVE | `pip-audit` / npm audit gate, gitleaks, Trivy with CycloneDX SBOM in `supply-chain.yml` (both repositories); pins checked by `tests/unit/test_supply_chain.py` | **green** (2026-10-30; the console's Next.js 14 advisories are accepted until 2026-11-30, ADR-0049) |
 
 Rule for the readiness suite: a gap test is `xfail(strict=True)`. When the control lands, the
 test XPASSes, CI fails, and the marker is removed in the same change as the gap-analysis update.

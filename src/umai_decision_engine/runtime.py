@@ -19,7 +19,8 @@ from umai_decision_engine.policy.store import BundleStore
 from umai_decision_engine.settings import Settings
 from umai_decision_engine.telemetry.logging import configure_logging
 from umai_decision_engine.tenancy.admission import Admission
-from umai_decision_engine.tenancy.limits import RateLimiter
+from umai_decision_engine.tenancy.limits import FailedAuthThrottle, RateLimiter
+from umai_decision_engine.tenancy.network import parse_networks
 from umai_decision_engine.tenancy.quota import QuotaCounter
 from umai_decision_engine.tenancy.registry import DirectoryKeyRegistrySource, KeyRegistry
 
@@ -155,6 +156,21 @@ async def start_runtime(
         else None,
         development=cfg.env == "development",
         quota=quota,
+        trusted_proxies=parse_networks(cfg.trusted_proxies),
+        throttle=FailedAuthThrottle(
+            cfg.auth_failure_limit,
+            cfg.auth_failure_window_s,
+            max_sources=cfg.auth_failure_max_sources,
+        )
+        if cfg.auth_failure_limit
+        else None,
+    )
+    log.info(
+        "admission: trusted_proxies=%d failed_credentials=%s",
+        len(admission.trusted_proxies),
+        f"{cfg.auth_failure_limit}/{cfg.auth_failure_window_s:g}s"
+        if cfg.auth_failure_limit
+        else "off",
     )
     applications = ApplicationTable(cfg.applications_dir, AllowList(cfg.gateway_upstream_allowlist))
     await asyncio.to_thread(applications.reload, force=True)

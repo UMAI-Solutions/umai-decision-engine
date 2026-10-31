@@ -106,6 +106,8 @@ CONNECT
 ORGANIZATION
   Members
   Settings       region, data retention and export, audit log, single sign-on
+  Webhooks       endpoints and Slack: blocked requests, quota, billing (ADR-0048)
+  Settings       region, data retention, audit log, single sign-on
 ```
 
 Three ideas carry it:
@@ -141,8 +143,9 @@ Three ideas carry it:
 | Applications, keys | edit | edit | read | read | read | — |
 | AI Gateway (providers, defaults), API & SDKs | edit | edit | read | read | read | — |
 | Members, Settings | edit | edit | — | — | — | billing only |
+| Webhooks | edit | edit | — | — | — | — |
 
-Key secrets are never shown after creation, to anyone; content is never shown, to anyone
+Key and webhook signing secrets are never shown after creation, to anyone; content is never shown, to anyone
 (ADR-0005).
 
 ### 3.4 What has data today

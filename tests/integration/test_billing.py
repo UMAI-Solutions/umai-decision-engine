@@ -341,6 +341,27 @@ def test_a_cancellation_keeps_the_paid_edition_until_the_period_ends(billing) ->
     assert (view["subscription"]["status"], view["edition"]) == ("ended", "community")
 
 
+def test_billing_changes_are_audited_without_billing_details(billing) -> None:
+    client, fake, _ = billing()
+    _subscribe(client, fake)
+    assert client.post("/v1/billing/cancel", headers=_owner()).status_code == 200
+    listed = client.get("/v1/audit-events", params={"action": "billing"}, headers=_owner())
+    events = listed.json()["events"]
+    assert [e["action"] for e in reversed(events)] == [
+        "billing.account.update",
+        "billing.checkout.start",
+        "billing.checkout.complete",
+        "billing.cancel",
+    ]
+    complete = events[1]
+    assert complete["actor"] == {"type": "operator"}  # the console's public return route
+    assert complete["details"] == {"status": "active", "edition": "pro"}
+    assert events[0]["target"] == {"type": "subscription"}
+    stored = json.dumps(events, ensure_ascii=False)
+    assert not [v for v in ACCOUNT.values() if v in stored]  # billing details stay in billing
+    assert next(iter(fake.forms)) not in stored  # nor the checkout token
+
+
 def test_upgrades_apply_now_and_downgrades_from_the_next_paid_period(billing) -> None:
     client, fake, _ = billing()
     _subscribe(client, fake)

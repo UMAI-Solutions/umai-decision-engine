@@ -28,6 +28,9 @@ x-engine-env: &engine-env
   # Applications and the AI gateway's providers, one <tenant>.yaml each (gateway-api 0.10): the
   # policy service writes them; the engine and the gateway read them (ADR-0039).
   UMAI_DE_APPLICATIONS_DIR: /data/applications
+  # Caddy, and only Caddy, may name the client in X-Forwarded-For (ADR-0046): key network
+  # restrictions and the failed-credential throttle see the caller, not the proxy.
+  UMAI_DE_TRUSTED_PROXIES: '["172.30.240.2/32"]'
 
 services:
   seed:
@@ -94,7 +97,7 @@ services:
 
   policy:
     image: umai-decision-engine:current
-    command: ["uvicorn", "umai_decision_engine.control_plane.app:app", "--host", "0.0.0.0", "--port", "9200", "--no-server-header"]
+    command: ["uvicorn", "umai_decision_engine.control_plane.app:app", "--host", "0.0.0.0", "--port", "9200", "--no-server-header", "--no-proxy-headers"]
     environment:
       <<: *engine-env
       UMAI_DE_SIGNING_KEY_FILE: /run/secrets/signing.key
@@ -102,6 +105,9 @@ services:
       # The console signs an on-behalf-of assertion for every person (credentials 0.3); the
       # control token alone may only run operator actions. Public key: policy.env (umai.sh).
       UMAI_DE_ACTOR_ASSERTION: ${UMAI_ACTOR_ASSERTION:-required}
+      # Every person call must name a live console session (console-sessions 0.1); `optional`
+      # only while a console without session records is still running (ADR-0024 §2 amendment).
+      UMAI_DE_CONSOLE_SESSIONS: ${UMAI_CONSOLE_SESSIONS:-required}
     env_file:
       - "${UMAI_RUN_DIR:-/run/umai}/policy.env"  # tokens, database URLs, actor public key
       - "${UMAI_RUN_DIR:-/run/umai}/routes.env"  # provider allow-list for validation
@@ -127,7 +133,7 @@ services:
     # Optional (ADR-0034): umai.sh adds the profile when UMAI_GATEWAY=true in config.env.
     profiles: ["gateway"]
     image: umai-decision-engine:current
-    command: ["uvicorn", "umai_decision_engine.gateway.app:app", "--host", "0.0.0.0", "--port", "9300", "--no-server-header"]
+    command: ["uvicorn", "umai_decision_engine.gateway.app:app", "--host", "0.0.0.0", "--port", "9300", "--no-server-header", "--no-proxy-headers"]
     environment:
       <<: *engine-env
       # Records (ADR-0041 §4): a usage record per call, a decision event per check.
@@ -191,10 +197,24 @@ services:
       - "${UMAI_RUN_DIR:-/run/umai}/console-gate.caddy:/run/umai/console-gate.caddy:ro"
       - caddy_data:/data
       - caddy_config:/config
+    networks:
+      default:
+        ipv4_address: 172.30.240.2  # the trusted proxy (UMAI_DE_TRUSTED_PROXIES above)
     depends_on: [engine, console]
     mem_limit: 256m
     restart: unless-stopped
     logging: *logging
+
+networks:
+  default:
+    # A fixed subnet, so Caddy has a fixed address the engine and the gateway trust (ADR-0046).
+    # Other containers get dynamic addresses from the upper half only. Compose recreates an
+    # existing umai_default network with this configuration on the next `umai.sh up`.
+    ipam:
+      config:
+        - subnet: 172.30.240.0/24
+          ip_range: 172.30.240.128/25
+          gateway: 172.30.240.1
 
 volumes:
   policies:

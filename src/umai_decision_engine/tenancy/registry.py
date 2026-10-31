@@ -22,6 +22,7 @@ from pydantic import ValidationError
 
 from umai_decision_engine.contracts.credentials import KeyRegistryEntry, KeyRegistrySnapshot
 from umai_decision_engine.contracts.entitlements import TenantEntitlements
+from umai_decision_engine.tenancy.network import NetworkSet, parse_networks
 from umai_decision_engine.tenancy.snapshot import SnapshotError, verify_snapshot
 
 log = logging.getLogger("umai.tenancy.registry")
@@ -34,6 +35,13 @@ class RegisteredKey:
     tenant_id: str
     entry: KeyRegistryEntry
     signed: bool
+    # The entry's allowed networks, parsed once per reload (ADR-0046); None: any address.
+    networks: NetworkSet | None = None
+
+    @classmethod
+    def of(cls, tenant_id: str, entry: KeyRegistryEntry, signed: bool) -> RegisteredKey:
+        networks = parse_networks(entry.allowed_ips) if entry.allowed_ips else None
+        return cls(tenant_id, entry, signed, networks)
 
     @property
     def key_id(self) -> str:
@@ -164,7 +172,7 @@ class KeyRegistry:
                     if entry.key_id in keys:
                         errors.append((location, f"duplicate key id {entry.key_id}"))
                         continue
-                    keys[entry.key_id] = RegisteredKey(snapshot.tenant_id, entry, signed)
+                    keys[entry.key_id] = RegisteredKey.of(snapshot.tenant_id, entry, signed)
             self._state = RegistryState(keys, tenants, errors, datetime.now(UTC), entitlements)
             self._fingerprint = fingerprint
             for location, message in errors:

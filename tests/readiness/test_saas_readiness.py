@@ -139,6 +139,72 @@ def test_t1_credential_tenant_must_match_body_tenant(write_bundle, detector, tmp
     assert response.json()["detail"]["error"] == "tenant_mismatch"
 
 
+def test_t8_bad_credentials_are_throttled_per_source(client) -> None:
+    """ASVS 6.1.1 / 6.3.1 (ADR-0046): after 20 bad credentials from one address in a minute,
+    every credential from it gets 429 before any lookup; another address is not affected.
+    Closed 2026-10-30."""
+
+    app = client.app
+    attacker = TestClient(app, client=("198.51.100.7", 50000))
+    neighbour = TestClient(app, client=("203.0.113.10", 50000))
+    wrong = {"Authorization": "Bearer not-the-token"}
+    right = {"Authorization": f"Bearer {API_TOKEN}"}
+    statuses = [
+        attacker.post("/v1/evaluate", json=_request(), headers=wrong).status_code for _ in range(20)
+    ]
+    assert statuses == [401] * 20
+    throttled = attacker.post("/v1/evaluate", json=_request(), headers=right)
+    assert throttled.status_code == 429
+    assert throttled.json()["detail"]["error"] == "too_many_failed_attempts"
+    assert int(throttled.headers["Retry-After"]) >= 1
+    assert neighbour.post("/v1/evaluate", json=_request(), headers=right).status_code == 200
+
+
+def test_t9_client_address_comes_from_trusted_proxies_only(
+    write_bundle, detector, tmp_path
+) -> None:
+    """ASVS 15.3.4 (ADR-0046): a key limited to a network is refused from elsewhere, also when
+    the caller forges X-Forwarded-For; only a trusted proxy's header names the client.
+    Closed 2026-10-30."""
+
+    from umai_decision_engine.control_plane.app import create_app as create_control_app
+
+    write_bundle(bundle_yaml(), active=1)
+    registry_dir = tmp_path / "keys"
+    control = Settings(
+        env="development",
+        policy_dir=write_bundle.root,
+        control_db_path=tmp_path / "c.sqlite",
+        key_registry_dir=registry_dir,
+    )
+    with TestClient(create_control_app(control, detector=detector)) as cp:
+        cp.post("/v1/tenants", json={"id": "tenant-a"})
+        body = {"name": "t9", "allowed_ips": ["203.0.113.0/24"]}
+        secret = cp.post("/v1/tenants/tenant-a/keys", json=body).json()["secret"]
+    engine = Settings(
+        env="test",
+        policy_dir=write_bundle.root,
+        key_registry_dir=registry_dir,
+        require_signed_bundles=False,  # no signing key in this fixture; signature tested elsewhere
+        bundle_poll_interval_s=0,
+        key_registry_poll_interval_s=0,
+        l0_threads=1,
+        trusted_proxies=["192.0.2.10/32"],
+    )
+    auth = {"Authorization": f"Bearer {secret}"}
+    forged = {**auth, "X-Forwarded-For": "203.0.113.10"}
+    with TestClient(create_app(engine, detector=detector)) as c:
+        app = c.app
+        direct = TestClient(app, client=("198.51.100.7", 50000))
+        assert direct.post("/v1/evaluate", json=_request(), headers=forged).status_code == 403
+        proxy = TestClient(app, client=("192.0.2.10", 50000))
+        assert proxy.post("/v1/evaluate", json=_request(), headers=forged).status_code == 200
+        spoofed = {**auth, "X-Forwarded-For": "203.0.113.10, 198.51.100.7"}
+        refused = proxy.post("/v1/evaluate", json=_request(), headers=spoofed)
+    assert refused.status_code == 403
+    assert refused.json()["detail"]["error"] == "ip_not_allowed"
+
+
 def test_a1_activation_is_attributed_to_an_actor(write_bundle, detector, tmp_path) -> None:
     """Every configuration change records the acting principal: the person of the on-behalf-of
     assertion, or the operator (control token alone, development here). Closed 2026-10-19."""

@@ -12,6 +12,7 @@ from typing import get_args
 import pytest
 import yaml
 
+from umai_decision_engine.contracts.audit import AuditEvent, AuditEventPage
 from umai_decision_engine.contracts.bundle import (
     CONTRACT_VERSION,
     ConditionGroup,
@@ -72,6 +73,24 @@ def test_evaluation_api_examples() -> None:
     InputTooLargeBody.model_validate_json(too_large)
     (over_quota,) = [block for block in blocks if '"quota_exceeded"' in block]
     QuotaExceededBody.model_validate_json(over_quota)
+    (not_allowed,) = [block for block in blocks if '"ip_not_allowed"' in block]
+    assert json.loads(not_allowed) == _admission_refusal_for_another_network()
+
+
+def _admission_refusal_for_another_network() -> dict:
+    """The body the engine answers for a key used outside its networks (ADR-0046)."""
+
+    from fastapi import HTTPException
+
+    from umai_decision_engine.tenancy.admission import Admission
+    from umai_decision_engine.tenancy.network import parse_address, parse_networks
+
+    class Key:
+        tenant_id, key_id, networks = "tenant-demo", "Q7h2kP9c", parse_networks(["203.0.113.0/24"])
+
+    with pytest.raises(HTTPException) as exc:
+        Admission._check_network(Key(), parse_address("198.51.100.7"))  # type: ignore[arg-type]
+    return {"detail": exc.value.detail}
 
 
 def test_entity_detection_example() -> None:
@@ -189,12 +208,37 @@ def test_organizations_examples() -> None:
 
 
 def test_credentials_examples() -> None:
-    from umai_decision_engine.contracts.credentials import ActorAssertion
+    from umai_decision_engine.contracts.credentials import ActorAssertion, canonical_networks
 
     record, snapshot, assertion = _blocks("contracts/credentials.md", "json")
-    json.loads(record)
+    networks = json.loads(record)["allowed_ips"]
+    assert canonical_networks(networks) == networks  # examples are in canonical form
     TenantEntitlements.model_validate(json.loads(snapshot)["entitlements"])
+    assert json.loads(snapshot)["contract_version"] == "0.5"
+    assert json.loads(snapshot)["keys"][0]["allowed_ips"] == networks
     ActorAssertion.model_validate_json(assertion)
+
+
+def test_console_sessions_examples() -> None:
+    import re as _re
+
+    from umai_decision_engine.contracts.credentials import ActorAssertion
+    from umai_decision_engine.contracts.sessions import (
+        SESSION_ID_PATTERN,
+        ConsoleSession,
+        SessionCheck,
+        SessionStart,
+        SessionStatus,
+    )
+
+    record, start, check, status = _blocks("contracts/console-sessions.md", "json")
+    assert ConsoleSession.model_validate_json(record).current
+    SessionStart.model_validate_json(start)
+    SessionCheck.model_validate_json(check)
+    assert SessionStatus.model_validate_json(status).state == "active"
+    # The assertion's example session id is one the console would make (credentials 0.8).
+    *_, assertion = _blocks("contracts/credentials.md", "json")
+    assert _re.match(SESSION_ID_PATTERN, ActorAssertion.model_validate_json(assertion).session_id)
 
 
 def test_billing_examples() -> None:
@@ -232,3 +276,26 @@ def test_data_export_examples() -> None:
     assert UsageLine.model_validate(line).meter == "provider_input_tokens"
     assert ArchiveManifest.model_validate(manifest).files[-1].path == "manifest.json"
     assert error["detail"]["error"] == "export_too_large"
+
+
+def test_webhooks_examples() -> None:
+    from umai_decision_engine.contracts.webhooks import (
+        DATA_MODELS,
+        DeliveryPage,
+        WebhookEvent,
+        WebhooksView,
+    )
+
+    blocked, quota, view, deliveries = _blocks("contracts/webhooks.md", "json")
+    for block in (blocked, quota):
+        event = WebhookEvent.model_validate_json(block)
+        DATA_MODELS[event.type].model_validate(event.data)
+    assert WebhooksView.model_validate_json(view).endpoints[0].signed is True
+    assert DeliveryPage.model_validate_json(deliveries).deliveries[0].error == "http_status"
+
+
+def test_audit_examples() -> None:
+    success, denied, page = _blocks("contracts/audit.md", "json")
+    assert AuditEvent.model_validate_json(success).details["roles"]["after"] == ["admin"]
+    assert AuditEvent.model_validate_json(denied).outcome == "denied"
+    assert AuditEventPage.model_validate_json(page).events[0].actor.type == "operator"

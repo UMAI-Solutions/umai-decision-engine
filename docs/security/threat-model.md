@@ -108,6 +108,8 @@ E elevation of privilege. "Today" is what the code does; "Control" is the ADR or
 | | **I** 422 body echoes raw content | Accepted | GAP-L1: custom validation handler, `loc` and `type` only |
 | | **D** unbounded body, unbounded scan length | Accepted | ADR-0019 §4: 413 above limit; ingress body cap and per-key rate limit (ADR-0023) |
 | | **D** `POST /v1/bundles/reload` by any caller | Accepted | Scope `bundles:reload` for the control plane only (ADR-0023) |
+| | **S** a leaked key used from anywhere | Allowed networks per key (2026-10-30) | ADR-0046: 403 `ip_not_allowed` at admission, engine API and gateway |
+| | **S/D** credential guessing, spoofed `X-Forwarded-For` | Throttled per source; header read from trusted proxies only (2026-10-30) | ADR-0046: 429 `too_many_failed_attempts` before any lookup |
 | | **R** no decision event stored; logs have request id only | Accepted | ADR-0030: decision events and audit events per tenant |
 | L0 (TB2) | **I** raw content in logs/traces/metrics | Prevented (leak suite, C1) | Keep: CI leak test extended to traces and metrics when they exist |
 | | **I** hash brute force if a tenant key leaks | Keys in env JSON | ADR-0027/0031: per-tenant keys wrapped by Key Vault Premium, rotatable |
@@ -125,7 +127,7 @@ E elevation of privilege. "Today" is what the code does; "Control" is the ADR or
 | | **T** CSRF on relay routes once cookies exist | Not applicable yet | SameSite cookies + origin check when sessions arrive (ADR-0024) |
 | Storage (future) | **I** cross-tenant read through a missing `WHERE tenant_id` | Not applicable yet (no store) | ADR-0025: Postgres RLS enforced by the database, tested from the schema |
 | Telemetry | **I** content in error messages / stack traces | Only ids logged; exceptions mapped to kinds | Keep; structured JSON logs with an allowlist (ADR-0030) |
-| Supply chain | **T** compromised dependency or action | Pinned ranges, no audit | pip-audit, Dependabot, SBOM, image signing (launch plan stage 0) |
+| Supply chain | **T** compromised dependency or action | Actions pinned by SHA, scanners and base images by digest; dependency audit, gitleaks and image scan in CI and weekly; Dependabot with a 7-day cooldown; image SBOM per run (ADR-0049) | Image signing with Notation in ACR (ADR-0031 §6); a Python lock file with hashes |
 | Gateway (TB7, planned) | **I** SSRF: a route pointing at internal addresses | Not built | Upstream allow-list in settings; HTTPS only; private ranges refused unless a self-hosted operator lists a host (gateway-api 0.1) |
 | | **D/E** a stolen UMAI key spends the customer's provider budget; long streams exhaust connections | Not built | Per-key rate limits and quotas at admission (ADR-0023, ADR-0028); route timeouts; abuse signals per key |
 | | **I** raw content or provider keys in logs, errors or events | Not built | ADR-0035; leak suite over gateway outputs before the first customer |

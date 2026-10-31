@@ -4,7 +4,9 @@ that token valid for self-hosted installs (§8).
 
 Errors follow the evaluation API contract 0.6: 401 ``invalid_credential``, 403
 ``tenant_mismatch`` / ``insufficient_scope``, 429 ``rate_limited`` with ``Retry-After``; since
-0.13 429 ``quota_exceeded`` for a tenant's used monthly requests (ADR-0043).
+0.13 429 ``quota_exceeded`` for a tenant's used monthly requests (ADR-0043); since 0.14 403
+``ip_not_allowed`` for a key used outside its networks and 429 ``too_many_failed_attempts`` for
+a source that presented too many bad credentials (ADR-0046).
 """
 
 from __future__ import annotations
@@ -21,9 +23,21 @@ from umai_decision_engine.contracts.credentials import Scope
 from umai_decision_engine.contracts.entitlements import TenantEntitlements
 from umai_decision_engine.contracts.evaluation import QuotaExceededDetail
 from umai_decision_engine.tenancy.keys import hashes_match, parse_key
-from umai_decision_engine.tenancy.limits import RateLimiter, retry_after_seconds
+from umai_decision_engine.tenancy.limits import (
+    FailedAuthThrottle,
+    RateLimiter,
+    retry_after_seconds,
+)
+from umai_decision_engine.tenancy.network import (
+    FORWARDED_FOR,
+    IPAddress,
+    NetworkSet,
+    client_address,
+    describe_source,
+    source_of,
+)
 from umai_decision_engine.tenancy.quota import QuotaCounter, QuotaRefusal, quota_environment
-from umai_decision_engine.tenancy.registry import KeyRegistry
+from umai_decision_engine.tenancy.registry import KeyRegistry, RegisteredKey
 
 log = logging.getLogger("umai.tenancy.admission")
 
@@ -95,6 +109,10 @@ def _unauthorized() -> HTTPException:
     )
 
 
+class _BadCredential(Exception):
+    """A presented credential that authenticates nobody: counted against its source, then 401."""
+
+
 class Admission:
     def __init__(
         self,
@@ -104,12 +122,23 @@ class Admission:
         limiter: RateLimiter | None,
         development: bool,
         quota: QuotaCounter | None = None,
+        trusted_proxies: NetworkSet | None = None,
+        throttle: FailedAuthThrottle | None = None,
     ) -> None:
         self.shared_token = shared_token
         self.registry = registry
         self.limiter = limiter
         self.development = development
         self.quota = quota
+        self.trusted_proxies = trusted_proxies or NetworkSet()
+        self.throttle = throttle
+
+    def client_of(self, request: Request) -> IPAddress | None:
+        """The caller's address: the socket peer, or behind a trusted proxy the address it
+        forwarded (ADR-0046 D2); ``None`` when it cannot be known."""
+
+        peer = request.client.host if request.client else None
+        return client_address(peer, request.headers.getlist(FORWARDED_FOR), self.trusted_proxies)
 
     def limits(self, tenant_id: str) -> TenantEntitlements | None:
         """The tenant's limits from its signed snapshot (ADR-0043 D1); ``None``: none."""
@@ -147,22 +176,56 @@ class Admission:
         )
         raise quota_exceeded(refusal)
 
-    def authenticate(self, authorization: str | None, *, now: datetime | None = None) -> Principal:
+    def authenticate(
+        self,
+        authorization: str | None,
+        *,
+        client: IPAddress | None = None,
+        now: datetime | None = None,
+    ) -> Principal:
+        """The principal a credential presented from ``client`` stands for. A source with too
+        many recent bad credentials is refused before any lookup (429); a bad credential is
+        counted against its source (401); a key used outside its networks is refused (403)."""
+
         scheme, _, value = (authorization or "").partition(" ")
         value = value.strip()
         if scheme.lower() != "bearer" or not value:
             if self.development and self.shared_token is None and self.registry is None:
                 return Principal("shared_token", None, ALL_SCOPES)  # open development engine
-            raise _unauthorized()
+            raise _unauthorized()  # nothing presented: not a guess, not counted
+        source = source_of(client)
+        if self.throttle is not None:
+            wait = self.throttle.blocked(source)
+            if wait is not None:
+                raise HTTPException(
+                    429,
+                    {
+                        "error": "too_many_failed_attempts",
+                        "detail": "too many invalid credentials from this address; retry later",
+                    },
+                    headers={"Retry-After": str(retry_after_seconds(wait))},
+                )
+        try:
+            return self._resolve(value, client, now or datetime.now(UTC))
+        except _BadCredential:
+            if self.throttle is not None and self.throttle.failed(source):
+                log.warning(
+                    "admission.throttled source=%s failures=%d window_s=%g",
+                    describe_source(source),
+                    self.throttle.limit,
+                    self.throttle.window_s,
+                )
+            raise _unauthorized() from None
+
+    def _resolve(self, value: str, client: IPAddress | None, now: datetime) -> Principal:
         parsed = parse_key(value)
         if parsed is not None:
-            if self.registry is None:
-                raise _unauthorized()
-            key = self.registry.lookup(parsed.key_id)
+            key = self.registry.lookup(parsed.key_id) if self.registry is not None else None
             if key is None or not hashes_match(parsed.secret_sha256, key.entry.secret_sha256):
-                raise _unauthorized()
-            if not key.usable_at(now or datetime.now(UTC)):
-                raise _unauthorized()
+                raise _BadCredential
+            if not key.usable_at(now):
+                raise _BadCredential
+            self._check_network(key, client)
             return Principal(
                 "api_key",
                 key.tenant_id,
@@ -175,7 +238,25 @@ class Admission:
             value.encode(), self.shared_token.encode()
         ):
             return Principal("shared_token", None, ALL_SCOPES)
-        raise _unauthorized()
+        raise _BadCredential
+
+    @staticmethod
+    def _check_network(key: RegisteredKey, client: IPAddress | None) -> None:
+        """403 ``ip_not_allowed`` for a key used outside its allowed networks (ADR-0046 D1),
+        before the key's rate budget is touched. Not a bad credential: not counted."""
+
+        if key.networks is None or client in key.networks:
+            return
+        log.info(
+            "admission.refused reason=ip_not_allowed tenant=%s key_id=%s client=%s",
+            key.tenant_id,
+            key.key_id,
+            client if client is not None else "unknown",
+        )
+        raise HTTPException(
+            403,
+            {"error": "ip_not_allowed", "detail": "this key may not be used from this address"},
+        )
 
     def admit(self, principal: Principal) -> None:
         if self.limiter is None:
@@ -193,7 +274,9 @@ async def authenticate(request: Request) -> Principal:
     """FastAPI dependency: the principal for this request (rate-limited)."""
 
     admission: Admission = request.app.state.admission
-    principal = admission.authenticate(request.headers.get("authorization"))
+    principal = admission.authenticate(
+        request.headers.get("authorization"), client=admission.client_of(request)
+    )
     admission.admit(principal)
     request.state.principal = principal
     return principal

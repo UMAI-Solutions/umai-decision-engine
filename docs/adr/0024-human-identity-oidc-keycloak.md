@@ -1,7 +1,8 @@
 # ADR-0024 — Human identity: standard OIDC in the console, Auth0 for UMAI Cloud, Keycloak for self-hosted, a broker interface
 
 - **Status:** Proposed (§1–§3 and §5–§8 await product-owner approval; §4 decided by the product owner on 2026-10-18)
-- **Date:** 2026-10-17 · **Amended:** 2026-10-18 (§4: Auth0 for UMAI Cloud, Keycloak for self-hosted; answers Q29, opens Q35)
+- **Date:** 2026-10-17 · **Amended:** 2026-10-18 (§4: Auth0 for UMAI Cloud, Keycloak for self-hosted; answers Q29, opens Q35);
+  2026-10-30 (§2: revocable console sessions, a session record per sign-in in the policy service; Proposed)
 - **Amended by:** ADR-0033 (accepted 2026-10-18), which moves the `IdentityBroker` of §5 from the console to the policy service and defines the organization model of §4
 - **Deciders:** engineering proposal; product owner
 - **Builds on:** ADR-0016 (console repository), ADR-0018 (SSO is Enterprise; self-hosted edition), ADR-0023 (two identity planes), ADR-0026 (residency)
@@ -123,3 +124,94 @@ for UMAI Cloud as an open decision (Q29). The product owner chose Auth0 for UMAI
 - Revisit §4 if plan and per-connection fees outgrow the cost of operating Keycloak per region,
   if a customer requires account metadata inside UMAI's own regional stack, or if Q35 rules out
   Auth0's public cloud and Private Cloud on Azure is not affordable.
+
+## Amendment 2026-10-30: revocable console sessions (§2)
+
+**Status of this amendment:** Proposed. Contract: [console-sessions](../contracts/console-sessions.md)
+0.1; credentials 0.8 (the assertion's `session_id`).
+
+**Context.** The console's session lives only in its encrypted cookie (`umai-control-center`
+`docs/sign-in.md`): a stolen cookie works until the 12 h lifetime ends, sign-out deletes the
+cookie in one browser only, and nothing can end a session elsewhere (gap analysis 7.4.1–7.4.5,
+launch plan S0-5). §2 asked for a server-side session store "(Redis or Postgres)".
+
+**Decision.**
+
+1. **A session record per sign-in, kept by the policy service** in the global, allowlisted table
+   `console_sessions` (tenant-store migration 0011; ADR-0025 §2): our id (shown to the person), the
+   SHA-256 of the session id, the person (`user_id`), created, last seen, expires (created + 12 h),
+   a coarse device label, revoked at and why. The session id is 256 random bits made by the
+   console at `/auth/callback` and kept inside the encrypted cookie; the store never holds it,
+   only its hash. Global, not tenant-scoped: a console session belongs to a person, exists before
+   an organization is chosen (onboarding) and moves with the organization switcher.
+2. **No IP address, no user agent.** The console turns the `User-Agent` into a label such as
+   "Firefox on Windows" and sends only that; the user agent stays in the console. A person
+   recognises their devices by the label, the browser and the times; an IP address would be
+   personal data with its own retention and disclosure questions (KVKK, GDPR) for little gain
+   (offices, VPNs and mobile networks share and change addresses).
+3. **The cookie stays the carrier.** It still holds the display fields and the active
+   organization; the record only decides whether the session is alive. No Redis, no new service.
+4. **Two checks.**
+   - **Policy service, on every call that carries an assertion:** the assertion's `session_id`
+     must name a live record of the same person (not revoked, not past `expires_at`, seen within
+     the idle limit); otherwise 401 `session_ended`. Every change the console makes for a person
+     goes through the policy service, so revocation stops changes at once. The one exception is
+     starting the session itself. `UMAI_DE_CONSOLE_SESSIONS`: `required` (default in production)
+     also refuses an id without a record; `optional` (default elsewhere: development, tests, the
+     transition) refuses only a recorded, ended session.
+   - **Console middleware, on every page and API request:** `POST /v1/sessions/check` with the
+     console's service credential (the middleware runs on Next.js's Edge runtime, which cannot
+     read the assertion key file; checking is an operator action that names no actor). The
+     answer is cached per session and organization for **30 s** in the console process. Ended or
+     unknown → signed out (cookie cleared; pages go to sign-in, API routes answer 401 with
+     `x-umai-sign-in: required`).
+   - **Staleness bound:** a revoked session can still load console pages and use the engine
+     relays (Playground) for at most 30 s per console process; its policy-service calls fail at
+     once.
+5. **Policy service unreachable** (connection error, 2 s timeout, 5xx): the console never signs
+   anyone out for an outage. Changing requests (`POST`, `PUT`, `PATCH`, `DELETE`) answer 503;
+   reads (`GET`, `HEAD`) continue for a session confirmed live within the last 5 minutes and
+   answer 503 otherwise. Fail closed for changes, a short grace for reads.
+6. **Last seen** is written at most every 5 minutes per session (by the check and by assertion
+   calls). The policy service ends a session not seen for 70 minutes: the console's 60-minute
+   inactivity plus the write interval and the cache, so it never ends a session the cookie still
+   holds and the console's 60 minutes stay the effective limit. Absolute end: 12 h.
+7. **Self-service:** a person lists their live sessions (the current one marked), ends one, ends
+   all others ("Sign out other devices"), and sign-out ends the current record. At most 10 live
+   sessions per person; starting another ends the oldest (reason `limit`).
+8. **Organizations re-check, they do not end sessions.** The check carries the cookie's active
+   organization and answers whether the person is still an active member of an active
+   organization. A person removed from an organization (`DELETE …/members/{user}`), or whose
+   membership or organization is suspended, loses that organization in the console within 30 s
+   (the middleware drops it from the cookie and `/auth/continue` picks another or onboarding);
+   their policy-service calls in it fail at once (roles come from the store, ADR-0033 §1). They
+   stay signed in to their other organizations.
+9. **Retention:** a record is deleted 30 days after its `expires_at` (one indexed delete when a
+   session starts). Records are account metadata (no content, no IP).
+10. **Transition:** cookies from before the change carry no session id and count as signed out:
+    everyone signs in once after the console update. Ship the policy service and the console
+    together, or set `UMAI_DE_CONSOLE_SESSIONS=optional` until the console is updated.
+
+**Alternatives considered.**
+
+| Option | Why not |
+|---|---|
+| Redis (or a table) holding the whole session, the cookie only an id | A new service on the single VM and in every region for state the cookie already carries well; the only missing property was revocation, which the record gives |
+| A revocation list only (store ended ids) | Unknown sessions would pass, and a person could not see or end their other devices: listing needs a record per session anyway |
+| Check every request without a cache | A policy-service round trip on every page and API call; 30 s bounds the staleness and the policy service's own check is immediate |
+| The console signs an assertion for the check | The Edge middleware cannot read the key file; the operator credential is what the console already holds there |
+| End the person's sessions when they are removed from an organization | Sessions are per person, not per organization: it would sign them out of their other organizations; the check answers membership instead |
+| Store the IP address next to the device label | See 2 |
+
+**Consequences.** Every policy-service call for a person costs one indexed read (and a write at
+most every 5 minutes). The console depends on the policy service for every request (it did for
+almost every page already); an outage blocks changes and, after 5 minutes, reads. Still open
+from §2: an admin ending another person's sessions (organization-wide termination, ASVS 7.4.5),
+re-authentication before sensitive changes (7.5.x), a separate "sign out everywhere" that also
+ends the identity service's sessions.
+
+**Validation.** Engine: `tests/integration/test_console_sessions.py` (start, list, end one, end
+others, sign-out, the limit, idle and absolute expiry, member removal answered by the check,
+`required` / `optional`, the authz matrix) and `tests/db/test_isolation.py` (the global table and
+its grants on Postgres). Console: `tests/session-check.test.mjs` (cache bound, outage rules,
+device labels) in `umai-control-center`.

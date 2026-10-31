@@ -1,6 +1,6 @@
 # Contract: evaluation API
 
-**Version:** 0.13 · **Endpoints:** `POST /v1/evaluate`, `GET /v1/bundles`, `POST /v1/bundles/reload`, `POST /v1/detect` (development) · **Health:** `GET /healthz`, `GET /readyz`
+**Version:** 0.14 · **Endpoints:** `POST /v1/evaluate`, `GET /v1/bundles`, `POST /v1/bundles/reload`, `POST /v1/detect` (development) · **Health:** `GET /healthz`, `GET /readyz`
 
 `/readyz` returns 200 only after Presidio analyzers are loaded and warmed up, the policy
 bundles are loaded, and the configured L1b provider answered a probe.
@@ -148,6 +148,23 @@ Admission answers 401 `invalid_credential`, 403 `tenant_mismatch` / `insufficien
 `{"detail": {"error": "<code>", "detail": "<text>"}}`; a refused request is never evaluated
 and never counted.
 
+**Network restrictions** (0.14, [ADR-0046](../adr/0046-api-key-network-restrictions.md),
+[credentials](credentials.md) 0.9): a key with `allowed_ips` used from another address gets
+**403** `ip_not_allowed`; a source address (an IPv4 address or an IPv6 /64) that presented too
+many bad credentials (default 20 in 60 s) gets **429** `too_many_failed_attempts` with
+`Retry-After` for every credential, before any lookup. Both come before the per-key rate
+limit. The address is the socket peer, or behind a proxy listed in `UMAI_DE_TRUSTED_PROXIES`
+the client it names in `X-Forwarded-For` (default: no proxy is trusted).
+
+```json
+{
+  "detail": {
+    "error": "ip_not_allowed",
+    "detail": "this key may not be used from this address"
+  }
+}
+```
+
 **Monthly quota** ([ADR-0043](../adr/0043-plans-and-monthly-quotas.md), contract
 [entitlements](entitlements.md)): a tenant whose snapshot names `monthly_requests` (live keys,
 the operator token) or `monthly_test_requests` (test keys) gets **429** `quota_exceeded` once
@@ -270,6 +287,9 @@ applies, visibly. The check runs after admission and schema validation.
 
 ## Changelog
 
+- 0.14 (2026-10-30, ADR-0046): admission answers 403 `ip_not_allowed` for a key used outside
+  its allowed networks and 429 `too_many_failed_attempts` (`Retry-After`) for a source with too
+  many bad credentials; the client address comes from trusted proxies only. Requests unchanged.
 - 0.13 (2026-10-30, ADR-0043): monthly quota: 429 `quota_exceeded` with `limit`, `used`,
   `environment`, `resets_at` and `Retry-After`, before anything is evaluated; the prompt-size
   limit is the tenant's `max_input_chars` capped by the deployment's. Requests unchanged.
