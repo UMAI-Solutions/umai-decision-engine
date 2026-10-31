@@ -1,0 +1,114 @@
+# Scratch project for `umai.sh restore-test` (ADR-0052, launch plan S0-14): a backup restored
+# next to the live stack, checked and removed. Never started by hand: umai.sh sets the RESTORE_*
+# values (random per run, never written to disk) and the project name umai-restore-<time>.
+#
+# Own network, internal: nothing in it can reach the internet, so a restored webhook endpoint or
+# billing setting cannot call out. Own volumes, removed with the project. No published ports.
+# Images are the live stack's (docker-compose.yml); a unit test keeps them the same.
+
+x-engine-env: &engine-env
+  UMAI_DE_ENV: production
+  UMAI_DE_LOG_LEVEL: WARNING
+  UMAI_DE_POLICY_DIR: /data/policies
+  UMAI_DE_BUNDLE_PUBLIC_KEYS: ${UMAI_BUNDLE_PUBLIC_KEYS:?set in config.env}
+  UMAI_DE_REQUIRE_SIGNED_BUNDLES: "true"
+  UMAI_DE_KEY_REGISTRY_DIR: /data/policies/.keys
+  UMAI_DE_REGION: ${UMAI_REGION:-sh}
+  UMAI_DE_DEFAULT_TENANT_ID: ${UMAI_CONSOLE_TENANT_ID:-console}
+  UMAI_DE_APPLICATIONS_DIR: /data/applications
+  UMAI_DE_DATABASE_URL: postgresql+asyncpg://umai_app:${RESTORE_APP_PASSWORD:?}@postgres:5432/umai
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: umai
+      POSTGRES_USER: umai_owner
+      POSTGRES_PASSWORD: ${RESTORE_OWNER_PASSWORD:?}
+      UMAI_DB_APP_PASSWORD: ${RESTORE_APP_PASSWORD:?}
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    volumes:
+      - postgres:/var/lib/postgresql/data
+      - ./postgres-init.sh:/docker-entrypoint-initdb.d/10-umai.sh:ro
+      - ../postgres-init.sql:/umai/postgres-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U umai_owner -d umai"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      start_interval: 1s
+    shm_size: 128m
+    networks: [scratch]
+
+  files:
+    # One-shot: the archive's policy volume (p/) and applications (a/) into the scratch volumes.
+    image: alpine
+    command:
+      - sh
+      - -c
+      - >-
+        cp -a /in/p/. /data/policies/ &&
+        if [ -d /in/a ]; then cp -a /in/a/. /data/applications/; fi &&
+        chown -R 10001:10001 /data/policies /data/applications
+    volumes:
+      - ${RESTORE_DIR:?}:/in:ro
+      - policies:/data/policies
+      - applications:/data/applications
+    network_mode: none
+    profiles: ["restore"]
+
+  policy:
+    image: umai-decision-engine:current
+    command: ["uvicorn", "umai_decision_engine.control_plane.app:app", "--host", "0.0.0.0", "--port", "9200", "--no-server-header", "--no-proxy-headers"]
+    environment:
+      <<: *engine-env
+      UMAI_DE_DATABASE_ADMIN_URL: postgresql+asyncpg://umai_owner:${RESTORE_OWNER_PASSWORD:?}@postgres:5432/umai
+      UMAI_DE_CONTROL_API_TOKEN: ${RESTORE_CONTROL_TOKEN:?}
+      # No background work on restored data: no retention deletes; no webhook key, billing or
+      # signing key, so nothing is sent or signed.
+      UMAI_DE_RECORDS_RETENTION_INTERVAL_S: "0"
+    volumes:
+      - policies:/data/policies
+      - applications:/data/applications
+    depends_on:
+      postgres: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:9200/healthz',timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      start_period: 120s
+      start_interval: 2s
+    read_only: true
+    tmpfs: [/tmp]
+    networks: [scratch]
+
+  engine:
+    image: umai-decision-engine:current
+    environment:
+      <<: *engine-env
+      UMAI_DE_API_TOKEN: ${RESTORE_API_TOKEN:?}
+      UMAI_DE_TENANT_HMAC_MASTER_KEY: ${RESTORE_HMAC_KEY:?}
+      UMAI_DE_RECORDS_SINK: none
+    volumes:
+      - policies:/data/policies:ro
+      - applications:/data/applications:ro
+    depends_on:
+      policy: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:9100/readyz',timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      start_period: 120s
+      start_interval: 2s
+    read_only: true
+    tmpfs: [/tmp]
+    networks: [scratch]
+
+networks:
+  scratch:
+    internal: true
+
+volumes:
+  postgres:
+  policies:
+  applications:
