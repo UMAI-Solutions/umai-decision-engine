@@ -164,7 +164,7 @@ Per environment (`monitoring/environment.bicep`) it adds:
 | `availability` | `/readyz` fails from 2 of 3 Azure locations, or the certificate has < 14 days left | SEV1 / 3 |
 | `vm-unavailable` | Azure's VM availability metric drops | SEV1 / 3 |
 | `vm-silent` | no agent heartbeat for 10 min | SEV1 / 3 |
-| `containers` | a container restarted, was not running or unhealthy in 3 of 15 reports, or no report came | SEV2 / 3 |
+| `containers` | a container restarted, was not running or unhealthy in 3 of 15 reports, none is running, or no report came (an exited gateway counts only where `gateway: true`) | SEV2 / 3 |
 | `http-5xx` | > 5 % of ≥ 20 requests, or ≥ 10 requests, answered 5xx by Caddy in 15 min | SEV2 / 3 |
 | `latency` | p95 of decision `total_ms` > 1 500 ms (≥ 20 decisions in 15 min) | SEV2 / 3 |
 | `l1b-timeouts` | ≥ 5 enforcing or ≥ 30 L1b timeouts in 15 min | SEV2 / 3 |

@@ -19,6 +19,9 @@ var logFrequency = prod ? 'PT5M' : 'PT15M'
 var sevOutage = prod ? 1 : 3
 var sevDegraded = prod ? 2 : 3
 var tags = { 'umai-environment': env.name }
+// Containers that may stay exited: the one-shot seed, and the gateway where its profile is off
+// (`compose stop gateway` leaves it exited, deploy/vm/README.md §7).
+var ignoredContainers = bool(env.gateway) ? 'dynamic(["seed"])' : 'dynamic(["seed", "gateway"])'
 
 // Test locations: West Europe (Amsterdam), North Europe (Dublin), France Central (Paris). All are
 // Azure datacenters; the checks from outside Azure are the status page's (ADR-0051).
@@ -204,14 +207,19 @@ print LastHeartbeat = lastBeat
 let reports = Syslog | where Computer == '{computer}' and ProcessName == 'umai-health';
 let silent = reports | summarize n = count() | where n == 0
   | project Container = '-', Problem = 'no health report in 15 minutes';
+let empty = reports
+  | where SyslogMessage startswith 'report containers='
+  | summarize Running = max(toint(extract(@'containers=(\d+)', 1, SyslogMessage)))
+  | where Running == 0
+  | project Container = '-', Problem = 'no container running';
 let bad = reports
   | where SyslogMessage startswith 'container='
   | parse SyslogMessage with 'container=' Container ' state=' State ' health=' Health ' restarts=' Restarts:int
-  | where Container !contains 'seed'
+  | where not(Container has_any ({ignoredContainers}))
   | summarize NotOk = countif(State != 'running' or Health == 'unhealthy'), Restarted = max(Restarts) - min(Restarts) by Container
   | where NotOk >= 3 or Restarted > 0
   | project Container, Problem = strcat('restarted ', Restarted, 'x, not running or unhealthy in ', NotOk, ' of 15 reports');
-union silent, bad
+union silent, empty, bad
 '''
   }
   {
@@ -332,7 +340,7 @@ resource logAlerts 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = [
           {
             query: reduce(
               thresholdNames,
-              replace(q.query, '{computer}', computer),
+              replace(replace(q.query, '{computer}', computer), '{ignoredContainers}', ignoredContainers),
               (text, t) => replace(text, '{${t}}', string(thresholds[t]))
             )
             timeAggregation: 'Count'

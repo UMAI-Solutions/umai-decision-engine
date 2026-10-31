@@ -50,7 +50,7 @@ outside need a third party.
 
      | Signal | Rule |
      |---|---|
-     | Container health | `containers` (restart, not running or unhealthy in 3 of 15 reports, reporter silent) |
+     | Container health | `containers` (restart, not running or unhealthy in 3 of 15 reports, no container running, reporter silent; the gateway is ignored where it is switched off) |
      | 5xx rate | `http-5xx` (Caddy access lines: > 5 % of ≥ 20 requests, or ≥ 10, in 15 min) |
      | Latency | `latency` (p95 of the decision `total_ms` above 1 500 ms with ≥ 20 decisions) |
      | L1b timeouts | `l1b-timeouts` (≥ 5 enforcing or ≥ 30 in total in 15 min) |
@@ -132,7 +132,7 @@ outside need a third party.
 - `az deployment group what-if` (2026-10-31): 35 resources to create, nothing changed or deleted
   ([`deploy/azure/README.md`](../../deploy/azure/README.md) §8).
 - All eight log-alert queries and both ingestion transformations were run against synthetic rows
-  in the engine's real log formats on a Log Analytics query endpoint, 2026-10-31. That was 24
+  in the engine's real log formats on a Log Analytics query endpoint, 2026-10-31. That was 27
   alert cases, each firing when it should and staying quiet when it should, plus the
   transformation output, which keeps no client address.
 - After deploying: rows in `Heartbeat`, `Perf`, `Syslog` and `UmaiContainerLog_CL` within 15
