@@ -18,6 +18,14 @@ session cookie; no `Origin` check), CC6.1 (people authenticate; tokens and roles
 Still **missing**: 6.3.3 MFA, 7.4.1/7.4.2 (cookie sessions cannot be revoked server-side),
 roles (8.x). Not deployed on `umai-beta` yet: Caddy basic auth stays in front of the console.
 
+**Update 2026-10-30 (audit log, ADR-0045, contract audit 0.1):** every changing policy-service
+route writes an audit event (actor, action, target, before/after of non-secret fields, outcome,
+request id, UTC) to the append-only tenant table `audit_events`; refused attempts (403) are
+recorded as `denied`; owners and admins list and export them as CSV (console Organization → Audit
+log). Rows this moves: 16.2.1–16.2.4 and 16.3.1–16.3.4 (who/what/when and failed authorization
+for configuration changes; process logs unchanged), CC7.1 (configuration changes detected).
+Still open: hash chain, SIEM export, 401s, the engine API's control endpoints.
+
 ## 1. Where the code stands (facts, not judgements)
 
 | Area | Evidence |
@@ -85,9 +93,9 @@ roles (8.x). Not deployed on `umai-beta` yet: Caddy basic auth stays in front of
 | ID | L | Requirement | Status | Evidence / gap | Closes with |
 |---|---|---|---|---|---|
 | 16.1.1 | 2 | Log inventory per layer (events, formats, storage, retention) | partial | `docs/architecture/overview.md` principles; no inventory | ADR-0030 §6 |
-| 16.2.1–16.2.4 | 2 | When/where/who/what, UTC, documented sinks, correlatable format | partial | request id and ids in messages; plain text, no `who` | ADR-0030 §6 |
+| 16.2.1–16.2.4 | 2 | When/where/who/what, UTC, documented sinks, correlatable format | partial | configuration changes: audit events with who/what/when (UTC), target and request id (ADR-0045, 2026-10-30); process logs still plain text | ADR-0030 §6 |
 | 16.2.5 | 2 | Sensitive data never logged; hash or mask | **holds** | leak suite, readiness C1; Presidio logger clamped | keep; extend to traces |
-| 16.3.1–16.3.4 | 2 | Log authentication attempts, failed authorization, control bypasses, unexpected errors | partial | `l0.failed`, `config_failure` logged; 401s not logged; no authorization exists | ADR-0030 §1 |
+| 16.3.1–16.3.4 | 2 | Log authentication attempts, failed authorization, control bypasses, unexpected errors | partial | `l0.failed`, `config_failure` logged; failed authorization in the policy service recorded as `denied` audit events (ADR-0045, 2026-10-30); 401s not logged; sign-in attempts only at the identity service | ADR-0030 §1 |
 | 16.4.1–16.4.3 | 2 | Encode log data, protect logs, ship to a separate system | **missing** | stdout only; no pipeline | launch plan S0 |
 | 16.5.1 | 2 | Generic error messages, no internals | holds | mapped error kinds; 422 without input (`api/errors.py`, readiness L1 green 2026-10-19) | — |
 | 16.5.2, 16.5.3 | 2 | Fail securely, no fail-open | **holds** | failure policy explicit (`pipeline/failure.py`), `L1_NOT_IMPLEMENTED` never allows silently | — |
@@ -134,7 +142,7 @@ ASVS tally over the rows above (2026-10-18, after ADR-0023/0025 code): **holds 1
 | CC6.6 protection against external threats | TLS, ingress, rate limiting, WAF | **missing** | none deployed | launch plan S0 |
 | CC6.7 restrict transmission/removal of information | Content never leaves L0; exports controlled; encryption in transit | partial | ADR-0005 holds in code; no TLS, no export controls yet | ADR-0030, S0 |
 | CC6.8 malicious software prevention/detection | Dependency scanning, image scanning, signed images | partial (2026-10-30) | dependency audit, secret scan and image scan gate every change and run weekly; actions pinned by SHA, scanners and base images by digest, 7-day Dependabot cooldown (ADR-0049); images not signed yet | ADR-0049; Notation with ACR (ADR-0031 §6) |
-| CC7.1 detect configuration changes and vulnerabilities | Audit events, IaC drift detection, vulnerability scanning | partial | the change log names the actor of every publish and activation (readiness A1 green, 2026-10-19); vulnerability scanning of dependencies and images in CI, weekly (ADR-0049, 2026-10-30); audit events and drift detection are missing | ADR-0030, S0 |
+| CC7.1 detect configuration changes and vulnerabilities | Audit events, IaC drift detection, vulnerability scanning | partial | the change log names the actor of every publish and activation (readiness A1 green, 2026-10-19); every policy-service change and refused attempt is an audit event, listed and exported in the console (ADR-0045, 2026-10-30); vulnerability scanning of dependencies and images in CI, weekly (ADR-0049, 2026-10-30); drift detection is missing | ADR-0030, S0 |
 | CC7.2 monitor for anomalies | Metrics, alerts, usage anomalies | **missing** | no metrics pipeline | ADR-0028 §7, S0 |
 | CC7.3 / CC7.4 evaluate events; incident response program | IR plan, on-call, runbooks, status page | **missing** | — | launch plan S0 (company + ops) |
 | CC7.5 recovery | Backups, restore drill | **missing** | nothing to back up yet; drill defined | ADR-0025, verification plan |

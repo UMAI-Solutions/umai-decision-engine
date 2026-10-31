@@ -191,6 +191,14 @@ async client with `IYZWSv2` signing, the state machine, reconciliation, `billing
 billing details, hosted checkout confirmed by token, plan change, cancel at period end, 14-day
 grace with retries (`/v1/billing…`), signed webhooks on the public `/hooks/iyzico`; migration 0009.
 Tested against a fake iyzico; the sandbox run waits for keys.
+Audit log (2026-10-30, ADR-0045 Proposed, contract audit 0.1): every changing policy-service route
+declares an audit action (`audit: Audit = _AUDIT[...]`) and the router's `AuditRoute`
+(`control_plane/audit.py`) writes one event per call to the append-only tenant table
+`audit_events` (migration 0010): `success`, or `denied` for a 403; actor as subject and user id,
+before/after of non-secret fields, never secrets or billing details. `GET /v1/audit-events`
+(filters, cursor) and `GET /v1/audit-events/export` (CSV) behind `audit.read` (owner, admin);
+400 days (`UMAI_DE_AUDIT_RETENTION_DAYS`). A route-walk test fails for a new changing route
+without an action.
 Supply chain (2026-10-30, ADR-0049): `.github/workflows/supply-chain.yml` runs `pip-audit`, gitleaks
 over the history (`.gitleaks.toml`: exact synthetic values only) and the image build with a Trivy
 scan and a CycloneDX SBOM artifact, on pull requests, `main` and weekly; Dependabot proposes
