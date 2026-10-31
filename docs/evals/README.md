@@ -9,14 +9,19 @@ provider default, changing thresholds, adding a dependency for accuracy reasons.
 Implemented (2026-10-17): the harness (`python -m evals.run`), the `l0-pii-tr` suite with
 dataset v2 ([`evals/datasets/l0-pii-tr/`](../../evals/datasets/l0-pii-tr/README.md); every type
 of the [L0 entity catalog](../architecture/l0-entity-catalog.md)) and the `leak` suite.
-Gateway (2026-10-19): `gateway-latency` and the live `masking-survival` suite. The other suites
-below are planned.
+Gateway (2026-10-19): `gateway-latency` and the live `masking-survival` suite. Launch plan stage 0
+(2026-10-31): `l0-latency` with admission (S0-15), `revocation` (S0-2) and `load` (S0-3) on a
+local stack of real processes (`evals/stack.py`, stubs in `evals/stubs.py`), and the `leak`
+suite's error paths (S0-4, `evals/suites/leak_errors.py`). The other suites below are planned.
 
 ```powershell
 python -m evals.run --suite l0-pii-tr --split dev --tag <label>   # [--bundle policies/<id>/<v>]
 python -m evals.run --suite leak --split dev --tag <label>        # [--bundle-id <id>]
 python -m evals.datasets.generate_l0_pii_tr                       # regenerate dataset v2
 python -m evals.run --suite gateway-latency --tag <label>         # gateway cost per call, no network
+python -m evals.run --suite l0-latency --tag <label>              # L0 by size and admission per request
+python -m evals.run --suite revocation --tag <label>              # local stack: revoked key refused after
+python -m evals.run --suite load --tag <label>                    # local stack: throughput, p50/p95/p99
 python -m evals.run --suite masking-survival --model gpt-4.1-mini --tag <label>  # live: UMAI_EVAL_OPENAI_API_KEY
 python -m evals.run --suite l1-cold-start --region-note "<where>" --tag <label>  # live: UMAI_EVAL_OPENAI_API_KEY
 ```
@@ -26,7 +31,9 @@ python -m evals.run --suite l1-cold-start --region-note "<where>" --tag <label> 
 | Suite | Layer | Question it answers | Baseline |
 |---|---|---|---|
 | `l0-pii-tr` | L0 | Do we find every catalog type (Lakera parity, Türkiye, Europe) precisely? | Per-type targets (ADR-0017); a naive regex baseline is reported for orientation |
-| `l0-latency` | L0 | p50/p95/p99 by input size, NER on/off | budget in L0 doc |
+| `l0-latency` | L0, admission | p50/p95/p99 by input size (NER off); admission per request, step by step (client address, throttle, key, networks, rate limit, size, quota) | L0: budget in L0 doc; admission: p99 ≤ 1 ms (`architecture/decision-merge-and-failure.md`) |
+| `revocation` | admission | How long a revoked key keeps working at the engine API and the gateway, end to end through the policy service and the snapshot poll; idle or with background load | ≤ 10 s (launch plan S0-2) |
+| `load` | engine API, gateway | Throughput and p50/p95/p99 per scenario (L0 only, L1b against a stub provider, gateway to a stub upstream) at closed-loop concurrency or open-loop rates; CPU per request; what a B2s carries. Local stack with CPU pinning, or a deployment (`docs/workflow/load-test-beta.md`) | — |
 | `l1-decisions` | L1 | Correct action for content × context variants? | `umai-engine` context-aware policy (gpt-oss-safeguard) |
 | `l1-providers` | L1b | On-prem candidates (d3-flash, clef-flash, kev-4b, generic scoring) vs hosted Jev / OpenAI Decisions: accuracy (TR/EN), calibration, latency on reference hardware | hosted Jev |
 | `l1-calibration` | L1b | Do probabilities move when option order changes? | — |
@@ -37,7 +44,7 @@ python -m evals.run --suite l1-cold-start --region-note "<where>" --tag <label> 
 | `pi-tr` | L1 (paused) | Prompt-attack detectors on Turkish-first attacks, paraphrases and look-alike benign text; `holdout` split written after the heuristic was frozen. Groundwork for L1 | — |
 | `l1-cold-start` | L1b | Are the first decision calls of a new engine or gateway process as fast as later ones? Fresh processes with and without the startup warm-up (ADR-0040 amendment 2026-10-26); separates client and network time from the provider's own processing time. Live | the same process's later calls |
 | `masking-survival` | gateway | Do models write the gateway's placeholders back intact, so restoration works (kept, altered, dropped, restored per type and task)? Live | — |
-| `leak` | all | Does any raw value appear in responses, logs, traces, history, provider payloads? Also: which values an allowed decision would forward unmasked | must be 0 |
+| `leak` | all | Does any raw value appear in responses, logs, traces, history, provider payloads, stored records, or in any 4xx/5xx answer of the engine API, the gateway and the policy service and what they log meanwhile (error paths, `--leak-parts`)? Also: which values an allowed decision would forward unmasked | must be 0 |
 
 ## Datasets
 
@@ -97,3 +104,14 @@ scenarios (banking, telecom, insurance).
 `evals/reports/<date>-<suite>-<tag>/` with `summary.md` (committed) and raw per-case
 results (not committed; they contain redacted excerpts only, but stay local). Every
 summary records: git commit, bundle versions, provider/model ids, region, dataset version.
+
+## Load and stack tooling
+
+The `load` and `revocation` suites start real processes (`evals/stack.py`): policy service,
+engine API and gateway under uvicorn with production settings, plus `evals/stubs.py` as the
+upstream model and the OpenAI Decisions provider. The load generator is an async httpx script
+inside the harness rather than locust or k6: no new dependency (httpx is already one), the same
+report conventions as every suite (commit, host, date), and it can start the stack, pin the
+services to CPUs and read their CPU time per request, which a capacity estimate needs. Closed
+loop (`--concurrency`) for the local sweep, open loop at fixed arrival rates (`--rates`) for a
+remote deployment, so a slow server is not hidden by the generator waiting for it.

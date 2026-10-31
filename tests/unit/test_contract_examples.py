@@ -201,6 +201,7 @@ def test_organizations_examples() -> None:
         Domain,
         OrganizationCreate,
         InvitationCreate,
+        ValidationErrorBody,  # 422 on every policy-service route (0.6)
     ]
     assert len(blocks) == len(models)
     for model, block in zip(models, blocks, strict=True):
