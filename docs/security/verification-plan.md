@@ -29,7 +29,7 @@ without one of these is a claim, not a control.
 | E1 | Every mutating route emits exactly one audit event; event rows are insert-only; hash chain breaks on tampering (ADR-0030) | `tests/unit/test_audit_routes.py` (declaration walk), `tests/integration/test_audit_log.py` (refused-attempt walk, events per change), `test_isolation.py` (insert-only, ADR-0045) | partial (policy service green; hash chain and engine control endpoints open) |
 | E2 | Leak suite over decision events, audit events, JSON logs, span attributes, exports | extend `evals/suites/leak.py` | partial (logs, responses) |
 | M1 | Metering: decision events = usage counter = metered quantity over a test period (ADR-0028) | with ADR-0028 | — |
-| S1 | Dependency audit, SBOM, image scan in CI; no known critical CVE | `pip-audit`, CycloneDX, Trivy in `ci.yml` | **missing** |
+| S1 | Dependency audit, SBOM, image scan in CI; no known critical CVE | `pip-audit` / npm audit gate, gitleaks, Trivy with CycloneDX SBOM in `supply-chain.yml` (both repositories); pins checked by `tests/unit/test_supply_chain.py` | **green** (2026-10-30; the console's Next.js 14 advisories are accepted until 2026-11-30, ADR-0049) |
 
 Rule for the readiness suite: a gap test is `xfail(strict=True)`. When the control lands, the
 test XPASSes, CI fails, and the marker is removed in the same change as the gap-analysis update.

@@ -199,6 +199,12 @@ before/after of non-secret fields, never secrets or billing details. `GET /v1/au
 (filters, cursor) and `GET /v1/audit-events/export` (CSV) behind `audit.read` (owner, admin);
 400 days (`UMAI_DE_AUDIT_RETENTION_DAYS`). A route-walk test fails for a new changing route
 without an action.
+Supply chain (2026-10-30, ADR-0049): `.github/workflows/supply-chain.yml` runs `pip-audit`, gitleaks
+over the history (`.gitleaks.toml`: exact synthetic values only) and the image build with a Trivy
+scan and a CycloneDX SBOM artifact, on pull requests, `main` and weekly; Dependabot proposes
+updates weekly. Actions are pinned by SHA, scanners and base images by digest
+(`tests/unit/test_supply_chain.py`); an accepted finding goes to `.trivyignore.yaml` with a
+statement and an expiry at most 90 days ahead.
 Tenants are organizations created in the console; API keys, bundles and HMAC keys are per tenant.
 The console signs people in with OIDC (Auth0 development tenant, `umai-control-center`, locally
 since 2026-10-18 and on `umai-beta` since 2026-10-19).
