@@ -29,9 +29,9 @@ jobs:
     env:
       PYTHONUTF8: "1"
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.12"
           cache: pip
@@ -71,9 +71,9 @@ jobs:
       UMAI_DE_TEST_POSTGRES_ADMIN_URL: postgresql+asyncpg://umai_owner:ci-owner@127.0.0.1:5432/umai
       UMAI_DE_TEST_POSTGRES_APP_URL: postgresql+asyncpg://umai_app:ci-app@127.0.0.1:5432/umai
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.12"
           cache: pip

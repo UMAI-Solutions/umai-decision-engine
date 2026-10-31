@@ -67,11 +67,17 @@
 		reverse_proxy engine:9100
 	}
 
+	# The console serves no WebSocket. Next.js 14 proxies upgrade requests to any host
+	# (GHSA-c4j6-fc7j-m34r, SSRF, fixed in Next.js 15.5.16), so they stop here until the console
+	# runs a fixed Next.js (umai-control-center .github/npm-audit-allowlist.json, ADR-0049).
+	@upgrade header Upgrade *
+
 	# Brand kit files (logos, icons, fonts) without basic auth: Auth0's hosted login page and the
 	# e-mails load them from here in the visitor's browser. Public brand files only; the console's
 	# middleware also serves them without a session. Fonts need CORS for a cross-origin page.
 	@brand path /brand/*
 	handle @brand {
+		respond @upgrade 400
 		header /brand/fonts/* Access-Control-Allow-Origin "*"
 		reverse_proxy console:3100 {
 			# Replace the console's own Cache-Control (max-age=0) instead of adding a second one.
@@ -80,6 +86,7 @@
 	}
 
 	handle {
+		respond @upgrade 400
 		# basic_auth when UMAI_CONSOLE_BASIC_AUTH=true, else a no-op; written by umai.sh into tmpfs.
 		import /run/umai/console-gate.caddy
 		reverse_proxy console:3100
