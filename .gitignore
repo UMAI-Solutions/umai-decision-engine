@@ -39,3 +39,6 @@ evals/reports/**
 .cache/
 *.onnx
 *.safetensors
+
+# The API documentation site, built by dev/api_docs.py (ADR-0054)
+/site/

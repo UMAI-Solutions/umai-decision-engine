@@ -9,6 +9,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from umai_decision_engine.api.openapi import EVALUATE_OPENAPI_EXTRA, EVALUATE_RESPONSES
 from umai_decision_engine.contracts.credentials import Scope
 from umai_decision_engine.contracts.evaluation import (
     BundleInfo,
@@ -150,6 +151,20 @@ async def readyz(request: Request) -> JSONResponse:
     "/v1/evaluate",
     response_model=EvaluationResponse,
     response_model_exclude_none=True,
+    tags=["Evaluation"],
+    summary="Evaluate content against a guardrail",
+    description="""Check one piece of content: a prompt (`PRE_LLM`), a model's answer
+(`POST_LLM`), or an agent's tool call or tool result (`TOOL_INPUT`, `TOOL_OUTPUT`). Send the
+conversation in `content.messages`; the guardrail decides which part it scans.
+
+The answer is a decision: go on (`ALLOW`, `ALLOW_WITH_WARNINGS`), go on with the masked text in
+`output_modifications.redacted_text` (`ALLOW_WITH_MODIFICATIONS`), or stop (`BLOCK`,
+`STEP_UP_APPROVAL`). A key that belongs to an application is evaluated with the application's
+guardrail; leave `bundle` out. The answer never contains the values it found.
+
+Requires the `evaluate` scope.""",
+    responses=EVALUATE_RESPONSES,
+    openapi_extra=EVALUATE_OPENAPI_EXTRA,
 )
 async def evaluate(
     body: EvaluationRequest, request: Request, principal: Principal = _EVALUATE

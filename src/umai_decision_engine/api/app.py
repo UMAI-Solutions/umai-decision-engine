@@ -11,13 +11,23 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 
-from umai_decision_engine import __version__
+from umai_decision_engine.api import openapi
 from umai_decision_engine.api.errors import validation_error_handler
 from umai_decision_engine.l0.detector import EntityDetector
 from umai_decision_engine.l1.decision_models.registry import DecisionModels
 from umai_decision_engine.policy.store import BundleStore
 from umai_decision_engine.runtime import start_runtime
 from umai_decision_engine.settings import Settings, get_settings
+
+# The version of docs/contracts/evaluation-api.md this app implements. The OpenAPI document says
+# so, and tests/unit/test_api_docs.py holds the two together (ADR-0054).
+API_VERSION = "0.14"
+
+DESCRIPTION = """Check content against your organization's guardrail before it goes to a model,
+after the model answers, and around an agent's tool calls. One call per check; the answer is the
+decision to act on.
+
+Guides, limits and the error catalogue: the API documentation at `/docs/` on your UMAI address."""
 
 
 def create_app(
@@ -51,7 +61,14 @@ def create_app(
             state.ready = False
             await runtime.stop()
 
-    app = FastAPI(title="umai-decision-engine", version=__version__, lifespan=lifespan)
+    app = FastAPI(
+        title="UMAI evaluation API",
+        version=API_VERSION,
+        description=DESCRIPTION,
+        openapi_tags=[{"name": "Evaluation", "description": "Decide whether content may go on."}],
+        lifespan=lifespan,
+    )
+    openapi.install(app)
     app.add_exception_handler(RequestValidationError, validation_error_handler)  # gap L1
     from umai_decision_engine.api.routes import router
 
