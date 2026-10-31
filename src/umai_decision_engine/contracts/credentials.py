@@ -96,7 +96,7 @@ class KeyRegistryEntry(BaseModel):
     )
     status: Literal["active", "revoked"]
     expires_at: datetime | None = None
-    # The networks the key may be used from (0.8, ADR-0046); absent: any address.
+    # The networks the key may be used from (0.9, ADR-0046); absent: any address.
     allowed_ips: list[str] | None = Field(None, min_length=1, max_length=MAX_ALLOWED_IPS)
 
     @field_validator("allowed_ips")
@@ -147,7 +147,7 @@ class ApiKeyRecord(BaseModel):
     region: KeyRegion
     scopes: list[Scope]
     application_id: str | None = None  # the application the key belongs to (0.6, ADR-0039)
-    allowed_ips: list[str] | None = None  # networks the key may be used from (0.8, ADR-0046)
+    allowed_ips: list[str] | None = None  # networks the key may be used from (0.9, ADR-0046)
     created_by: str
     created_at: datetime
     expires_at: datetime | None = None

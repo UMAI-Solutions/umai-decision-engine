@@ -364,7 +364,7 @@ def test_snapshot_0_5_carries_networks_signed_and_compiled() -> None:
 
 
 def test_older_snapshots_still_load_and_verify() -> None:
-    """A 0.4 payload written before credentials 0.8 has no allowed_ips: it still loads, its
+    """A 0.4 payload written before credentials 0.9 has no allowed_ips: it still loads, its
     signature still verifies, and its keys accept any address."""
 
     private, public = _keypair()
