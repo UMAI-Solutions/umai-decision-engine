@@ -78,3 +78,28 @@ def test_the_restore_project_is_closed_and_uses_the_live_images() -> None:
 def test_ship_sh_delivers_the_restore_project() -> None:
     ship = (VM / "ship.sh").read_text(encoding="utf-8")
     assert "vm/restore-test.yml" in ship
+
+
+def test_the_api_documentation_ships_in_the_image_and_caddy_serves_it() -> None:
+    """ADR-0054: the image builds the site, the seed copies it, Caddy serves it read-only."""
+
+    root = VM.parents[1]
+    dockerfile = (root / "Dockerfile").read_text(encoding="utf-8")
+    pyproject = (root / "pyproject.toml").read_text(encoding="utf-8")
+    pin = re.search(r'docs = \["markdown-it-py==([0-9.]+)"\]', pyproject)
+    assert pin and f"pip install markdown-it-py=={pin.group(1)}" in dockerfile
+    assert "COPY --from=docs --chown=umai /site /app/docs-site" in dockerfile
+    ignore = (root / ".dockerignore").read_text(encoding="utf-8").splitlines()
+    assert "!docs/api" in ignore and "!dev/api_docs.py" in ignore
+
+    compose = _compose("docker-compose.yml")
+    seed = compose["services"]["seed"]
+    assert "docs:/data/docs" in seed["volumes"]
+    assert "seed-docs.sh" in " ".join(seed["command"])
+    assert "docs:/srv/docs:ro" in compose["services"]["caddy"]["volumes"]
+    assert "docs" in compose["volumes"]
+    assert "vm/seed-docs.sh" in (VM / "ship.sh").read_text(encoding="utf-8")
+
+    caddyfile = (VM / "Caddyfile").read_text(encoding="utf-8")
+    assert "handle_path /docs/* {" in caddyfile and "root * /srv/docs" in caddyfile
+    assert re.search(r"@fastapi_docs path /redoc /openapi\.json", caddyfile)

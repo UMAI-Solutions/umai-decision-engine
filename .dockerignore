@@ -16,3 +16,5 @@ tests
 dev
 deploy
 !deploy/plans.yaml
+!docs/api
+!dev/api_docs.py

@@ -89,7 +89,7 @@ def stack(write_bundle, detector, tmp_path):
 
 def _status(client: TestClient, secret: str) -> int:
     auth = {"Authorization": f"Bearer {secret}"}
-    if client.app.title == "umai-gateway":  # no application: 404 once admitted, 401 if not
+    if "gateway" in client.app.title.lower():  # no application: 404 once admitted, 401 if not
         body = {"model": "m", "messages": [{"role": "user", "content": "Merhaba"}]}
         return client.post("/v1/chat/completions", json=body, headers=auth).status_code
     return client.post("/v1/evaluate", json=_request(), headers=auth).status_code

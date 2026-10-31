@@ -28,7 +28,7 @@ docker build --platform linux/amd64 -t umai-control-center:current \
 docker save umai-decision-engine:current umai-control-center:current | gzip -1 |
   ssh "${ssh_opts[@]}" "$target" 'gunzip | sudo docker load'
 
-tar -C "$here/.." -cf - postgres-init.sql vm/docker-compose.yml vm/Caddyfile vm/seed-policies.sh \
+tar -C "$here/.." -cf - postgres-init.sql vm/docker-compose.yml vm/Caddyfile vm/seed-policies.sh vm/seed-docs.sh \
   vm/postgres-init.sh vm/umai.sh vm/umai.service vm/umai-backup.service vm/umai-backup.timer \
   vm/config.env.example vm/restore-test.yml |
   ssh "${ssh_opts[@]}" "$target" \

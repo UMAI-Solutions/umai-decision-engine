@@ -38,28 +38,16 @@ python dev/api_docs.py build --out site/docs # the site; serve site/ and open /d
 ## Serving it
 
 The site is static: plain HTML, one stylesheet, the two OpenAPI documents, no JavaScript. CI
-uploads it as the artifact `api-docs` (its root holds `docs/`). On the single VM, Caddy serves
-it at `/docs/` and keeps FastAPI's own `/docs`, `/redoc` and `/openapi.json` closed
-(gap analysis 13.4.5). The change for `deploy/vm/` (owned by the deployment work):
+uploads it as the artifact `api-docs` (its root holds `docs/`). On the single VM (`deploy/vm/`):
 
-```caddyfile
-# Customer API documentation (ADR-0054): static files built by dev/api_docs.py. FastAPI's own
-# documentation stays closed: it lists internal routes.
-@fastapi_docs path /redoc /openapi.json
-handle @fastapi_docs {
-	respond 404
-}
-redir /docs /docs/ 308
-handle_path /docs/* {
-	root * /srv/docs
-	header Cache-Control "public, max-age=300"
-	header Content-Security-Policy "default-src 'none'; style-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
-	file_server
-}
-```
+- the engine image builds it in the Dockerfile's `docs` stage (`markdown-it-py` pinned like the
+  `docs` extra; a test keeps the two pins equal) and keeps it in `/app/docs-site`;
+- the one-shot `seed` service runs `seed-docs.sh` with every new image: it copies the site into
+  the `docs` volume, writing new files first and removing stale ones after, so no page is missing
+  while it runs;
+- Caddy mounts that volume read-only at `/srv/docs` and serves it with `handle_path /docs/*`
+  (`/docs` redirects to `/docs/`), with a strict Content-Security-Policy and a five-minute cache.
+  FastAPI's own `/redoc` and `/openapi.json` stay closed (gap analysis 13.4.5).
 
-replacing the current `@docs` block, plus a read-only mount of the built site into the Caddy
-container (`./docs-site:/srv/docs:ro` in `docker-compose.yml`) and a step in `ship.sh` that runs
-`python dev/api_docs.py build --out <tmp>` and copies `<tmp>/docs` to the VM's `docs-site/`.
 `handle_path` strips the `/docs` prefix, so `/docs/tr/errors.html` is served from
 `/srv/docs/tr/errors.html`.

@@ -63,9 +63,10 @@ Constraints:
 5. **Where it is served.** At **`/docs/` on the UMAI address**, the same host as the API: English
    at `/docs/`, Turkish at `/docs/tr/`, the OpenAPI documents at `/docs/openapi/`. The edge
    proxy serves the built files; FastAPI's own `/docs`, `/redoc` and `/openapi.json` stay
-   disabled at the edge. On the single VM this is a Caddy `handle_path /docs/*` with a
-   `file_server` (the change is described in the pull request for the session that owns
-   `deploy/vm/`). A self-hosted install serves the documentation of its own release. The
+   disabled at the edge. On the single VM the engine image builds the site (a `docs` stage in
+   the Dockerfile), the one-shot `seed` copies it into the `docs` volume with every new image,
+   and Caddy serves that volume with `handle_path /docs/*` and a `file_server`. A self-hosted
+   install therefore serves the documentation of its own release. The
    console's "API & SDKs" page links to it in the person's language.
 6. **Language.** English and Turkish, both complete: every hand-written page exists in both
    (a test compares the page sets and the error codes per page). The generated reference renders
@@ -94,8 +95,8 @@ Constraints:
   `docs/api/openapi/` (the test fails otherwise); the `change-contract` skill says so.
 - Publishing a route is explicit (the allow-list); removing a route from the documents is too.
 - New error codes need a line in both error catalogues before CI passes.
-- The single VM needs the site files and a Caddy rule; until then the documentation is the CI
-  artifact. The docs are public on the beta host once served; nothing in them is secret, and they
+- The single VM serves the site from the engine image (Dockerfile `docs` stage, `seed-docs.sh`,
+  Caddy). The docs are public on the beta host; nothing in them is secret, and they
   make no compliance claims. If the product owner wants them closed during the NDA beta, Caddy's
   basic auth on `/docs/*` is a one-line switch.
 - Turkish pages show English field descriptions in the generated reference (stated on the page).
