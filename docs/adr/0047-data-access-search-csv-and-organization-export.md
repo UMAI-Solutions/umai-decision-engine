@@ -1,6 +1,6 @@
 # ADR-0047 — Data access for organizations: decision search, CSV exports and the organization archive
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-10-31)
 - **Date:** 2026-10-30
 - **Deciders:** engineering (proposed); product owner to accept
 - **Builds on:** ADR-0005 (no content beyond L0), ADR-0025 §9 (tenant-level export, the export

@@ -1,6 +1,6 @@
 # ADR-0049 — Supply-chain checks in CI: Dependabot, dependency audit, gitleaks, Trivy image scan and SBOM, everything pinned
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-10-31)
 - **Date:** 2026-10-30
 - **Deciders:** engineering (product owner to confirm)
 

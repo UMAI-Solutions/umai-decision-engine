@@ -1,6 +1,6 @@
 # ADR-0046 — API key network restrictions: allowed networks per key, the client address through trusted proxies only, failed credentials throttled per source
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-10-31)
 - **Date:** 2026-10-30
 - **Deciders:** engineering (proposed; the product owner accepts or amends)
 - **Builds on:** ADR-0023 (per-tenant API keys, signed key-registry snapshots, admission, §7 abuse
