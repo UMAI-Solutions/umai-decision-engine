@@ -69,6 +69,9 @@ def test_the_restore_project_is_closed_and_uses_the_live_images() -> None:
         assert "ports" not in service, name
         if name in live:
             assert service["image"] == live[name]["image"], name
+    # Healthy only once the real server listens: over the socket, pg_isready already answers
+    # during the init scripts, and a restore started then failed on umai-beta (2026-10-31).
+    assert "pg_isready -h 127.0.0.1" in scratch["services"]["postgres"]["healthcheck"]["test"][1]
     policy = scratch["services"]["policy"]["environment"]
     assert policy["UMAI_DE_RECORDS_RETENTION_INTERVAL_S"] == "0"  # no deletes on restored data
     for forbidden in ("WEBHOOK", "IYZICO", "BILLING", "SIGNING_KEY"):

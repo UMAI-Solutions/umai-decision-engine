@@ -131,6 +131,9 @@ The VM is a B2s (2 vCPU, 4 GB, about 2.6 GB free). Caddy 2.10 is the only ingres
   0/12 942 and 0/11 599. Report and harness: `evals/reports/2026-10-31-vm-zero-downtime/`.
 - `umai.sh restore-test` locally on a 328 MB store (300 672 decision events, 300 672 usage
   records): PASSED in 83 s; an old-format backup passed with the grant repair and failed without it.
+- On `umai-beta` (2026-10-31, with the operator's go-ahead, from a scratch directory): the latest
+  nightly blob PASSED in 40 s (grants repaired, migrated 0009 → 0013); a backup taken then PASSED
+  in 34 s after the scratch Postgres got a TCP health check. Beta's `/healthz` stayed up.
 - Unit tests: `tests/unit/test_vm_script.py` (the deploy decisions, the order, the refusal, the
   restore helpers), `tests/unit/test_vm_files.py` (Compose, Caddyfile, scratch project).
 - Revisit when the stack moves to the regional design (ADR-0031: AKS rolling updates and Flexible

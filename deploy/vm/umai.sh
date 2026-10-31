@@ -631,7 +631,7 @@ restore_test() {  # $1 = archive file on this host, a blob name, or nothing: a b
   quiet scratch up -d --wait postgres
   gunzip -c "$work/db/umai.sql.gz" |
     scratch exec -T postgres psql -U umai_owner -d umai -q -v ON_ERROR_STOP=1 >/dev/null 2>"$work/psql.log" || {
-    grep -E 'ERROR' "$work/psql.log" | head -n 5 >&2  # ERROR lines only: DETAIL may quote a row
+    grep -iE 'error|fatal' "$work/psql.log" | head -n 5 >&2  # not DETAIL: it may quote a row
     echo "restore-test: FAIL loading the dump" >&2
     exit 1
   }
