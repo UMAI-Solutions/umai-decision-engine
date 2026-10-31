@@ -42,7 +42,8 @@ docs/
 ├── evals/                        eval strategy, datasets, metrics
 └── workflow/                     how to develop, test and ship changes here
     ├── policy-authoring.md       how the team changes, tests and activates a policy
-    └── gateway.md                using the UMAI gateway: routes, SDK calls, refusals, errors
+    ├── gateway.md                using the UMAI gateway: routes, SDK calls, refusals, errors
+    └── load-test-beta.md         plan: load test against umai-beta with a test tenant (S0-3)
 ```
 
 ## Reading order for a newcomer

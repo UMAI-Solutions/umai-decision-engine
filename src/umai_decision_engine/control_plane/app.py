@@ -22,6 +22,7 @@ from typing import Any, Literal
 
 import httpx
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -85,6 +86,7 @@ from umai_decision_engine.control_plane.authz import (
     check_tenant,
 )
 from umai_decision_engine.control_plane.authz import allowed as _allowed
+from umai_decision_engine.control_plane.errors import validation_error_handler
 from umai_decision_engine.control_plane.exports import (
     ExportLimits,
     ExportRunning,
@@ -2034,6 +2036,8 @@ def create_app(
                 engine.close()
 
     app = FastAPI(title="umai-policy-service", version=__version__, lifespan=lifespan)
+    # 422 names the field and the error type, never the input (launch plan S0-4).
+    app.add_exception_handler(RequestValidationError, validation_error_handler)
 
     @app.exception_handler(ServiceError)
     async def _service_error(_request: Request, exc: ServiceError) -> JSONResponse:

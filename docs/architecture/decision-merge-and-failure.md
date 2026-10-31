@@ -66,6 +66,7 @@ Rules:
 
 | Component | Budget | Source of value |
 |---|---|---|
+| Admission (key, networks, failed-credential throttle, rate limit, size, quota) | p99 ≤ 1 ms per request, no I/O | launch plan S0-15; measured by `l0-latency` (2026-10-31) |
 | Whole evaluation | `request.timeout_ms` (default 1 500 ms), capped by settings | request |
 | L0 | p95 < 20 ms pattern-only (hypothesis) | measured in F1 |
 | L1a | < 5 ms | measured in F2 |

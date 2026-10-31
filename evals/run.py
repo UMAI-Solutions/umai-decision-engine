@@ -2,14 +2,17 @@
 
 python -m evals.run --suite l0-pii-tr [--split dev|test|all] [--tag NAME] [--bundle DIR]
 python -m evals.run --suite leak      [--split dev|test|all] [--tag NAME] [--bundle-id ID]
-                                      [--bundle-version N]
+                                      [--bundle-version N] [--leak-parts pipeline,errors]
 python -m evals.run --suite gateway-latency [--tag NAME]
 python -m evals.run --suite admission [--tag NAME]  # admission cost per request (ADR-0046)
+python -m evals.run --suite l0-latency [--tag NAME]  # L0 by input size and admission (S0-15)
 python -m evals.run --suite pi-tr [--split dev|test|all] --detector heuristic[,<model>]
                                       [--model-dir DIR] [--threshold T]
 python -m evals.run --suite masking-survival --model gpt-4.1-mini[,other] [--tag NAME]  # live
 python -m evals.run --suite l1-latency [--limit 40] [--modes all,split] [--region-note TEXT]  # live
 python -m evals.run --suite l1-cold-start [--processes 6] [--gap-s 8] [--region-note TEXT]  # live
+python -m evals.run --suite revocation [--rounds 20] [--background-load N]  # local stack (S0-2)
+python -m evals.run --suite load [--concurrency 1,4,16,32] [--server-cpus 0,1]  # local stack (S0-3)
 
 Writes evals/reports/<date>-<suite>-<tag>/summary.md (committed) and results.jsonl (local).
 Use the dev split while iterating; run the test split once at the end and never tune on it.
@@ -24,16 +27,20 @@ import sys
 from evals.suites import (
     admission,
     gateway_latency,
+    l0_latency,
     l0_pii_tr,
     l1_cold_start,
     l1_latency,
     leak,
+    load,
     masking_survival,
     pi_tr,
+    revocation,
 )
 
 SUITES = {
     l0_pii_tr.NAME: l0_pii_tr.run,
+    l0_latency.NAME: l0_latency.run,
     leak.NAME: leak.run,
     gateway_latency.NAME: gateway_latency.run,
     admission.NAME: admission.run,
@@ -41,6 +48,8 @@ SUITES = {
     pi_tr.NAME: pi_tr.run,
     l1_latency.NAME: l1_latency.run,
     l1_cold_start.NAME: l1_cold_start.run,
+    revocation.NAME: revocation.run,
+    load.NAME: load.run,
 }
 
 
@@ -61,6 +70,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--threshold", type=float, default=0.5, help="pi-tr: deployment threshold")
     l1_latency.add_arguments(parser)
     l1_cold_start.add_arguments(parser)
+    revocation.add_arguments(parser)
+    load.add_arguments(parser)
+    l0_latency.add_arguments(parser)
+    leak.add_arguments(parser)
     args = parser.parse_args(argv)
     logging.getLogger("umai.de").setLevel(logging.WARNING)
     if hasattr(sys.stdout, "reconfigure"):
