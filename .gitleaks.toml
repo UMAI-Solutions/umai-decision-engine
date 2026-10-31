@@ -25,6 +25,11 @@ targetRules = ["generic-api-key"]
 regexes = ['''^sk-proj-synthetic_Key-0123$''']
 
 [[allowlists]]
+description = "Synthetic webhook master key in the VM script tests (tests/unit/test_vm_script.py, base64 of 'synthetic-webhook-master-key-000000', marked synthetic there)"
+targetRules = ["generic-api-key"]
+regexes = ['''^c3ludGhldGljLXdlYmhvb2stbWFzdGVyLWtleS0wMDAwMDA=$''']
+
+[[allowlists]]
 description = "Azure built-in role definition ids (Key Vault Secrets User, Key Vault Secrets Officer), public constants in deploy/azure/main.bicep"
 targetRules = ["generic-api-key"]
 regexes = [
