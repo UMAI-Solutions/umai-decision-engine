@@ -33,7 +33,7 @@ without one of these is a claim, not a control.
 | M1 | Metering: decision events = usage counter = metered quantity over a test period (ADR-0028) | with ADR-0028 | — |
 | P1 | Admission within budget: p99 ≤ 1 ms per request (launch plan S0-15) | key, networks, throttle, rate limit, size, quota timed step by step | `python -m evals.run --suite l0-latency` | **green** on a laptop (2026-10-31); on the VM with the beta plan |
 | P2 | Throughput and p50/p95/p99 per endpoint; what the VM carries (launch plan S0-3) | closed-loop sweep on a local stack pinned like a B2s; open-loop rates against beta with a test tenant | `python -m evals.run --suite load`; `docs/workflow/load-test-beta.md` | partial (local 2026-10-31; beta run waits for the go-ahead) |
-| S1 | Dependency audit, SBOM, image scan in CI; no known critical CVE | `pip-audit` / npm audit gate, gitleaks, Trivy with CycloneDX SBOM in `supply-chain.yml` (both repositories); pins checked by `tests/unit/test_supply_chain.py` | **green** (2026-10-30; the console's Next.js 14 advisories are accepted until 2026-11-30, ADR-0049) |
+| S1 | Dependency audit, SBOM, image scan in CI; no known critical CVE | `pip-audit` / npm audit gate, gitleaks, Trivy with CycloneDX SBOM in `supply-chain.yml` (both repositories); pins checked by `tests/unit/test_supply_chain.py` | **green** (2026-10-30; since 2026-10-31 the console runs Next.js 15.5.28 with no accepted advisories, ADR-0049) |
 
 Rule for the readiness suite: a gap test is `xfail(strict=True)`. When the control lands, the
 test XPASSes, CI fails, and the marker is removed in the same change as the gap-analysis update.

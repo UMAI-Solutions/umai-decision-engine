@@ -41,7 +41,7 @@ answered by the guardrail's failure policy, with `CONFIG_INVALID` in `errors`.
 
 | Field | Required | What to send |
 |---|---|---|
-| `contract_version` | yes | `"0.12"`, the version of the request shape |
+| `contract_version` | yes | `"0.12"`, the version of the request shape (`"0.2"`–`"0.14"` are accepted) |
 | `request_id` | yes | Your id for the call (at most 128 characters); returned in the answer |
 | `timestamp` | yes | When you made the call, RFC 3339 |
 | `phase` | yes | See [When to call](#when-to-call) |

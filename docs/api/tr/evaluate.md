@@ -41,7 +41,7 @@ bir aşama, guardrail'in hata politikasıyla ve `errors` içinde `CONFIG_INVALID
 
 | Alan | Zorunlu | Ne gönderilir |
 |---|---|---|
-| `contract_version` | evet | `"0.12"`, istek biçiminin sürümü |
+| `contract_version` | evet | `"0.12"`, istek biçiminin sürümü (`"0.2"`–`"0.14"` kabul edilir) |
 | `request_id` | evet | Çağrı için sizin kimliğiniz (en fazla 128 karakter); yanıtta geri döner |
 | `timestamp` | evet | Çağrıyı yaptığınız zaman, RFC 3339 |
 | `phase` | evet | Bkz. [Ne zaman çağrılır](#ne-zaman-cagrilir) |

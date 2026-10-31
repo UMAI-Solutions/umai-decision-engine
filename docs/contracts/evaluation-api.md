@@ -40,7 +40,7 @@ not part of this API ([ADR-0010](../adr/0010-l2-asynchronous-review.md)).
 
 | Field | Type | Req. | Notes |
 |---|---|---|---|
-| `contract_version` | string | yes | `"0.6"` (`"0.2"`–`"0.5"` still accepted) |
+| `contract_version` | string | yes | `"0.12"`, the version of the request shape (`"0.2"`–`"0.14"` accepted; answers carry `"0.12"`) |
 | `request_id` | string | yes | Echoed; used as trace id |
 | `timestamp` | RFC 3339 string | yes | Caller time |
 | `tenant_id` | string | no (0.6) | The credential's tenant is authoritative (ADR-0023 §5): omitted → filled from the API key; present → must equal it, else 403 `tenant_mismatch`. Required with the shared operator token (400 `tenant_required`). Selects HMAC key and history namespace |
@@ -289,7 +289,9 @@ applies, visibly. The check runs after admission and schema validation.
 
 - 0.14 (2026-10-30, ADR-0046): admission answers 403 `ip_not_allowed` for a key used outside
   its allowed networks and 429 `too_many_failed_attempts` (`Retry-After`) for a source with too
-  many bad credentials; the client address comes from trusted proxies only. Requests unchanged.
+  many bad credentials; the client address comes from trusted proxies only. Requests unchanged;
+  since 2026-10-31 a request may also name `"0.13"` or `"0.14"` (before, they were refused
+  with 422 although this document named them).
 - 0.13 (2026-10-30, ADR-0043): monthly quota: 429 `quota_exceeded` with `limit`, `used`,
   `environment`, `resets_at` and `Retry-After`, before anything is evaluated; the prompt-size
   limit is the tenant's `max_input_chars` capped by the deployment's. Requests unchanged.

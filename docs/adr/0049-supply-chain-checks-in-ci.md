@@ -63,9 +63,9 @@ First run on 2026-10-30, before any fix (engine `21defe1`, console `2f2e9a9`):
    npm, npx, corepack and yarn; `postcss` is overridden to 8.5.31; Next.js's image optimizer is
    turned off (`images.unoptimized`), which takes the two critical optimizer advisories off the
    attack surface; the single-VM Caddy refuses WebSocket upgrade requests to the console
-   (GHSA-c4j6-fc7j-m34r). The twelve high and critical Next.js 14 advisories are accepted until
-   2026-11-30, each with its reason; upgrading the console to Next.js 15.5.28 or later removes
-   them and is the next console change.
+   (GHSA-c4j6-fc7j-m34r). The twelve high and critical Next.js 14 advisories were accepted until
+   2026-11-30, each with its reason; the console moved to Next.js 15.5.28 on 2026-10-31
+   (umai-control-center #30) and its allowlists are empty again.
 6. **Not in this decision:** image signing with Notation and pushing to ACR (ADR-0031 §6) waits
    for the registry; branch protection, required checks, Dependabot alerts and security updates,
    private vulnerability reporting and GitHub secret scanning with push protection are repository
