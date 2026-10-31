@@ -488,7 +488,7 @@ async def test_quota_counts_requests_of_its_own_tenant_only_on_postgres(pg, two_
 @postgres
 @pytest.mark.asyncio
 async def test_key_networks_round_trip_for_their_tenant_only_on_postgres(pg, two_tenants) -> None:
-    """A key's allowed networks (credentials 0.8, migration 0013) are stored, edited and
+    """A key's allowed networks (credentials 0.9, migration 0013) are stored, edited and
     published for its own tenant; another tenant can neither see nor change them."""
 
     a, b = two_tenants

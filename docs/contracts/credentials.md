@@ -55,12 +55,12 @@ and a request naming another is refused ([evaluation-api](evaluation-api.md) 0.1
 when the key is created (`POST /v1/tenants/{id}/keys` with `{"name", "application_id"}`; the
 application must exist; `scopes` then default to `["evaluate", "gateway"]`) and cannot change;
 create a new key to move an application. `null`: the key belongs to no application.
-`allowed_ips` (0.8, ADR-0046) are the networks the key may be used from (below); `null` or
+`allowed_ips` (0.9, ADR-0046) are the networks the key may be used from (below); `null` or
 absent: any address. `status` is derived
 (`revoked` when `revoked_at` is set). `last_used_at` is reserved: engines do not write to the
 store, so it stays `null` until usage telemetry exists.
 
-### Allowed networks (0.8, ADR-0046)
+### Allowed networks (0.9, ADR-0046)
 
 A key may be restricted to 1–50 IPv4 or IPv6 networks. Each entry is a CIDR (`203.0.113.0/24`,
 `2001:db8:1::/48`) or a bare address (one host: `/32`, `/128`); the policy service stores them
@@ -115,10 +115,10 @@ plane; engines poll the directory (`UMAI_DE_KEY_REGISTRY_POLL_INTERVAL_S`, defau
 
 | Field | Notes |
 |---|---|
-| `contract_version` | `0.5` since credentials 0.8 (entries may carry `allowed_ips`); `0.4` since 0.7 (`entitlements`); `0.3` since 0.6 (entries may carry `application_id`); engines still accept `0.1` to `0.4` files (0.2 calls the field `gateway_id`; its signature covers that name). An engine older than 0.8 refuses a 0.5 file and keeps the tenant's last good keys: update engines first |
+| `contract_version` | `0.5` since credentials 0.9 (entries may carry `allowed_ips`); `0.4` since 0.7 (`entitlements`); `0.3` since 0.6 (entries may carry `application_id`); engines still accept `0.1` to `0.4` files (0.2 calls the field `gateway_id`; its signature covers that name). An engine older than 0.8 refuses a 0.5 file and keeps the tenant's last good keys: update engines first |
 | `entitlements` | The tenant's limits ([entitlements](entitlements.md) 0.1, ADR-0043): edition, `monthly_requests`, `monthly_test_requests`, `max_input_chars`; null or absent fields mean no limit (the size: the deployment's). Absent when the deployment has no plans file |
 | `keys[].application_id` | The key's application (0.6); absent when the key belongs to none |
-| `keys[].allowed_ips` | The key's networks, canonical CIDRs, 1–50 (0.8, ADR-0046); absent: any address |
+| `keys[].allowed_ips` | The key's networks, canonical CIDRs, 1–50 (0.9, ADR-0046); absent: any address |
 | `keys[].status` | `active` or `revoked`; revoked keys stay listed so a reload can never resurrect one |
 | `signing_key_id`, `signature` | Ed25519 over the JSON of the snapshot without `signature`, with the control plane's bundle-signing key; verified against `UMAI_DE_BUNDLE_PUBLIC_KEYS`. Required whenever signed bundles are required (everything but development) |
 
@@ -175,7 +175,7 @@ wrong algorithm or type, unknown key, bad signature, expired, wrong issuer or au
 assertion names no tenant); 403 `tenant_mismatch` (the target tenant is not the assertion's); 403
 `forbidden` (the roles do not allow the action).
 
-## Client address (0.8, ADR-0046)
+## Client address (0.9, ADR-0046)
 
 Admission needs the caller's address for allowed networks and for the failed-credential
 throttle. It is the socket peer, unless the peer is a trusted proxy
