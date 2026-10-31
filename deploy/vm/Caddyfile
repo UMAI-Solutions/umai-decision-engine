@@ -1,10 +1,33 @@
 # One hostname (Azure DNS label or a custom domain): the engine API on /v1, /healthz, /readyz;
 # /brand/* (public brand files for Auth0's login page and e-mails); everything else is the
 # console, which signs people in itself (OIDC, ADR-0024), optionally behind basic auth too.
+#
+# Every file Caddy reads is in /etc/caddy, one directory mount written by umai.sh, so a changed
+# file takes effect with a reload rather than a restart.
 {
 	# No ACME account e-mail: Let's Encrypt does not require one (expiry mails are optional).
 	servers {
 		protocols h1 h2 h3
+	}
+}
+
+# Zero-downtime deploys (ADR-0052): a request goes to any running container of the service
+# ({args[0]}), found in Docker's DNS every second, so a new container takes requests once it
+# listens and Caddy is never reloaded for a deploy. A starting container, and one told to stop,
+# refuse connections; a refused connection (or one to a container gone a moment ago) is tried
+# again on another container for up to 5 s, for every method, since nothing was sent. Caddy
+# 2.11.4 or later keeps the request body for that retry (2.10 sent it empty). No idle
+# connections to containers: a kept one could be closed by a stopping container just as a
+# request is sent on it, and that request could not be retried.
+(upstream) {
+	dynamic a {args[0]} {args[1]} {
+		refresh 1s
+	}
+	lb_try_duration 5s
+	lb_try_interval 50ms
+	transport http {
+		keepalive off
+		dial_timeout 500ms
 	}
 }
 
@@ -47,7 +70,8 @@
 	# these paths answer 502. (@gateway is defined with the body caps above.)
 	handle @gateway {
 		header Cache-Control "no-store"
-		reverse_proxy gateway:9300 {
+		reverse_proxy {
+			import upstream gateway 9300
 			flush_interval -1
 		}
 	}
@@ -58,13 +82,17 @@
 	@hooks path /hooks/iyzico
 	handle @hooks {
 		header Cache-Control "no-store"
-		reverse_proxy policy:9200
+		reverse_proxy {
+			import upstream policy 9200
+		}
 	}
 
 	@engine path /v1/* /healthz /readyz
 	handle @engine {
 		header Cache-Control "no-store"
-		reverse_proxy engine:9100
+		reverse_proxy {
+			import upstream engine 9100
+		}
 	}
 
 	# The console serves no WebSocket. Next.js 14 proxies upgrade requests to any host
@@ -79,7 +107,8 @@
 	handle @brand {
 		respond @upgrade 400
 		header /brand/fonts/* Access-Control-Allow-Origin "*"
-		reverse_proxy console:3100 {
+		reverse_proxy {
+			import upstream console 3100
 			# Replace the console's own Cache-Control (max-age=0) instead of adding a second one.
 			header_down Cache-Control "public, max-age=86400"
 		}
@@ -88,8 +117,10 @@
 	handle {
 		respond @upgrade 400
 		# basic_auth when UMAI_CONSOLE_BASIC_AUTH=true, else a no-op; written by umai.sh into tmpfs.
-		import /run/umai/console-gate.caddy
-		reverse_proxy console:3100
+		import /etc/caddy/console-gate.caddy
+		reverse_proxy {
+			import upstream console 3100
+		}
 	}
 
 	log {
@@ -102,5 +133,20 @@
 			request>tls delete
 			resp_headers delete
 		}
+	}
+}
+
+# Internal entry points for the console's server-side calls (UMAI_ENGINE_URL, UMAI_CONTROL_URL in
+# docker-compose.yml): not published, reachable on the Compose network only, as the services
+# themselves are. Through Caddy the console gets the same retries during a deploy (ADR-0052).
+http://:9100 {
+	reverse_proxy {
+		import upstream engine 9100
+	}
+}
+
+http://:9200 {
+	reverse_proxy {
+		import upstream policy 9200
 	}
 }

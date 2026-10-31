@@ -106,7 +106,7 @@ python -m evals.run --suite l1-cold-start --tag <label>          # live: first L
 docker build -t umai-decision-engine .                            # one image: engine API, policy service, gateway
 az deployment group create -g <rg> -f deploy/azure/main.bicep -p deploy/azure/main.bicepparam  # starter VM (ADR-0032)
 deploy/vm/ship.sh <user@host>                                    # build locally, ship images to the VM
-deploy/vm/umai.sh init | up | backup | status                     # on the VM; runbook: deploy/vm/README.md
+deploy/vm/umai.sh init | up [--recreate] | backup | restore-test [ARCHIVE|BLOB] | status  # on the VM; runbook: deploy/vm/README.md
 ```
 
 Not available yet: `python -m pytest -m live` (no live providers before L1b) and the eval suites
@@ -240,6 +240,10 @@ scan and a CycloneDX SBOM artifact, on pull requests, `main` and weekly; Dependa
 updates weekly. Actions are pinned by SHA, scanners and base images by digest
 (`tests/unit/test_supply_chain.py`); an accepted finding goes to `.trivyignore.yaml` with a
 statement and an expiry at most 90 days ahead.
+VM operations (2026-10-31, ADR-0052 proposed): `umai.sh up` replaces services side by side without
+downtime (Caddy 2.11.7 routes by Docker DNS; network, Postgres and Caddy changes need
+`up --recreate`; migrations expand, then contract); `umai.sh restore-test` restores a backup into a
+scratch project and checks it (S0-14 on the VM: RPO 24 h, RTO 1 h / 4 h).
 Stage 0 measurements (2026-10-31, launch plan S0-2, S0-3, S0-4, S0-15): `evals/stack.py` starts
 the policy service, engine API and gateway as real processes with production settings, plus stubs
 for the upstream and the L1b provider (`evals/stubs.py`); suites `revocation` (a revoked key is

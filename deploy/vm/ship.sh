@@ -30,10 +30,14 @@ docker save umai-decision-engine:current umai-control-center:current | gzip -1 |
 
 tar -C "$here/.." -cf - postgres-init.sql vm/docker-compose.yml vm/Caddyfile vm/seed-policies.sh \
   vm/postgres-init.sh vm/umai.sh vm/umai.service vm/umai-backup.service vm/umai-backup.timer \
-  vm/config.env.example |
+  vm/config.env.example vm/restore-test.yml |
   ssh "${ssh_opts[@]}" "$target" \
     "sudo mkdir -p $remote_dir && sudo tar -C $remote_dir -xf - && sudo chmod +x $remote_dir/vm/umai.sh $remote_dir/vm/postgres-init.sh"
 
-ssh "${ssh_opts[@]}" "$target" "sudo test -f /opt/umai/secrets.env -o -n \"\$(sudo grep -s '^UMAI_KEY_VAULT=.' /opt/umai/config.env)\"" &&
-  ssh "${ssh_opts[@]}" "$target" "sudo $remote_dir/vm/umai.sh up" ||
+if ! ssh "${ssh_opts[@]}" "$target" "sudo test -f /opt/umai/secrets.env -o -n \"\$(sudo grep -s '^UMAI_KEY_VAULT=.' /opt/umai/config.env)\""; then
   echo "ship: images and files delivered; finish first-time setup (README §3), then run umai.sh up"
+  exit 0
+fi
+# Zero-downtime deploy (ADR-0052). A change that needs downtime (network, Postgres, Caddy) stops
+# here with exit status 3 and a message; then run `umai.sh up --recreate` on the VM.
+ssh "${ssh_opts[@]}" "$target" "sudo $remote_dir/vm/umai.sh up"
