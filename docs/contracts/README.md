@@ -22,6 +22,7 @@ in the same commit (skill `change-contract`).
 | [billing](billing.md) | 0.1 | console ↔ policy service: plan, billing details, checkout, plan change, cancel; iyzico → policy service: webhook (ADR-0044) |
 | [organizations](organizations.md) | 0.4 | policy service ↔ console: organizations, memberships, invitations, verified domains (ADR-0033) |
 | [console-sessions](console-sessions.md) | 0.1 | console ↔ policy service: a record per sign-in, list, end one, end others, sign-out, the middleware's check (ADR-0024 §2 amendment) |
+| [audit](audit.md) | 0.1 | policy service → tenant store → console, auditors: who changed what, when, refused attempts; list and CSV export (ADR-0045) |
 
 ## Versioning rules
 

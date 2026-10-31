@@ -248,11 +248,11 @@ class MembershipRepository:
         roles: list[str] | None,
         *,
         may_change_owners: bool,
-    ) -> None:
+    ) -> list[str]:
         """New roles, or removal (``roles`` None). The tenant's memberships are locked first and
         every rule is checked on the locked rows, so concurrent changes cannot slip past them
         (ADR-0033 §5): without ``may_change_owners`` (an owner acting) neither an owner nor the
-        owner role is touched, and an active owner must remain."""
+        owner role is touched, and an active owner must remain. Returns the roles before."""
 
         async with tenant_session(self.engine, tenant.id) as session:
             rows = list(
@@ -278,10 +278,12 @@ class MembershipRepository:
             )
             if owners_after == 0:
                 raise LastOwner("the organization would have no owner")
+            before = list(target.roles)
             if roles is None:
                 await session.delete(target)
             else:
                 target.roles = list(roles)
+            return before
 
     async def create_with_owner(
         self,

@@ -198,6 +198,20 @@ session on every call made for the person (401 `session_ended`; `UMAI_DE_CONSOLE
 `required` in production), the console middleware checks it with `POST /v1/sessions/check` (30 s
 cache, also answers membership of the active organization), and `/v1/me/sessions…` lists and ends
 a person's sessions (`control_plane/sessions.py`, `db/sessions.py`).
+Audit log (2026-10-30, ADR-0045 Proposed, contract audit 0.1): every changing policy-service route
+declares an audit action (`audit: Audit = _AUDIT[...]`) and the router's `AuditRoute`
+(`control_plane/audit.py`) writes one event per call to the append-only tenant table
+`audit_events` (migration 0010): `success`, or `denied` for a 403; actor as subject and user id,
+before/after of non-secret fields, never secrets or billing details. `GET /v1/audit-events`
+(filters, cursor) and `GET /v1/audit-events/export` (CSV) behind `audit.read` (owner, admin);
+400 days (`UMAI_DE_AUDIT_RETENTION_DAYS`). A route-walk test fails for a new changing route
+without an action.
+Supply chain (2026-10-30, ADR-0049): `.github/workflows/supply-chain.yml` runs `pip-audit`, gitleaks
+over the history (`.gitleaks.toml`: exact synthetic values only) and the image build with a Trivy
+scan and a CycloneDX SBOM artifact, on pull requests, `main` and weekly; Dependabot proposes
+updates weekly. Actions are pinned by SHA, scanners and base images by digest
+(`tests/unit/test_supply_chain.py`); an accepted finding goes to `.trivyignore.yaml` with a
+statement and an expiry at most 90 days ahead.
 Tenants are organizations created in the console; API keys, bundles and HMAC keys are per tenant.
 The console signs people in with OIDC (Auth0 development tenant, `umai-control-center`, locally
 since 2026-10-18 and on `umai-beta` since 2026-10-19).

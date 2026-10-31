@@ -78,6 +78,7 @@ umai-decision-engine/
 │   │   └── cli.py                 # keygen / validate / test / sign / verify
 │   ├── control_plane/             # ADR-0022 policy service: drafts, tests, publish, activate
 │   │   ├── records.py             # ADR-0041: read API over records, retention job (owner role)
+│   │   ├── audit.py               # ADR-0045: audit route class, audit log store, CSV export
 │   │   ├── app.py                 # FastAPI app (port 9200), bearer token; every route authorized
 │   │   ├── authz.py               # ADR-0029 permission matrix, actor, tenant binding
 │   │   ├── actors.py              # ADR-0023 §1 on-behalf-of assertion (ES256) verification

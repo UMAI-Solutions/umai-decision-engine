@@ -21,7 +21,7 @@ from typing import Any, Literal
 
 import httpx
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, ValidationError
 
 from umai_decision_engine import __version__
@@ -34,6 +34,7 @@ from umai_decision_engine.applications import (
 from umai_decision_engine.applications import problem as application_problem
 from umai_decision_engine.billing.iyzico import IyzicoClient
 from umai_decision_engine.billing.service import BillingError, BillingService
+from umai_decision_engine.contracts.audit import AuditAction
 from umai_decision_engine.contracts.billing import (
     BillingAccount,
     CheckoutCompletion,
@@ -60,7 +61,17 @@ from umai_decision_engine.contracts.organizations import (
 )
 from umai_decision_engine.contracts.sessions import SessionCheck, SessionStart
 from umai_decision_engine.control_plane.actors import load_public_key
+from umai_decision_engine.control_plane.audit import (
+    EXPORT_MAX,
+    Audit,
+    AuditLog,
+    AuditRoute,
+    audited,
+    before_after,
+)
+from umai_decision_engine.control_plane.audit import BadCursor as BadAuditCursor
 from umai_decision_engine.control_plane.authz import (
+    TENANT_HEADER,
     Action,
     Actor,
     actor_of,
@@ -173,9 +184,6 @@ async def require_token(request: Request) -> None:
         raise HTTPException(401, "missing or invalid token", headers={"WWW-Authenticate": "Bearer"})
 
 
-TENANT_HEADER = "X-Umai-Tenant"
-
-
 async def current_tenant(request: Request) -> TenantInfo:
     """The tenant a control-plane request acts for. A person: the tenant their assertion names
     (``X-Umai-Tenant``, if sent, must agree). The operator (control token alone): the
@@ -198,10 +206,12 @@ async def current_tenant(request: Request) -> TenantInfo:
     return tenant
 
 
-router = APIRouter(prefix="/v1", dependencies=[Depends(require_token)])
+router = APIRouter(prefix="/v1", dependencies=[Depends(require_token)], route_class=AuditRoute)
 _TENANT = Depends(current_tenant)
 # One dependency per action of the permission matrix (ADR-0029 §3); every route takes one.
 _ALLOW = {action: Depends(authorize(action)) for action in Action}
+# One per audit action (ADR-0045); every changing route takes one and names its target.
+_AUDIT = {action: Depends(audited(action)) for action in AuditAction}
 
 
 def _service(request: Request) -> PolicyService:
@@ -248,8 +258,11 @@ async def create_draft(
     request: Request,
     tenant: TenantInfo = _TENANT,
     actor: Actor = _ALLOW[Action.DRAFT_WRITE],
+    audit: Audit = _AUDIT[AuditAction.DRAFT_CREATE],
 ) -> dict[str, Any]:
-    return await _service(request).create_draft(tenant, bundle_id, body.base_version)
+    draft = await _service(request).create_draft(tenant, bundle_id, body.base_version)
+    audit.set(bundle_id, base_version=draft["base_version"])
+    return draft
 
 
 @router.get("/guardrails/{bundle_id}/draft")
@@ -269,8 +282,11 @@ async def save_draft(
     request: Request,
     tenant: TenantInfo = _TENANT,
     actor: Actor = _ALLOW[Action.DRAFT_WRITE],
+    audit: Audit = _AUDIT[AuditAction.DRAFT_SAVE],
 ) -> dict[str, Any]:
-    return await _service(request).save_draft(tenant, bundle_id, body.bundle)
+    draft = await _service(request).save_draft(tenant, bundle_id, body.bundle)
+    audit.set(bundle_id, problems=len(draft["problems"]))
+    return draft
 
 
 @router.delete("/guardrails/{bundle_id}/draft", status_code=204)
@@ -279,8 +295,10 @@ async def discard_draft(
     request: Request,
     tenant: TenantInfo = _TENANT,
     actor: Actor = _ALLOW[Action.DRAFT_WRITE],
+    audit: Audit = _AUDIT[AuditAction.DRAFT_DISCARD],
 ) -> None:
     await _service(request).discard_draft(tenant, bundle_id)
+    audit.set(bundle_id)
 
 
 @router.post("/guardrails/{bundle_id}/draft/test")
@@ -289,8 +307,11 @@ async def test_draft(
     request: Request,
     tenant: TenantInfo = _TENANT,
     actor: Actor = _ALLOW[Action.DRAFT_TEST],
+    audit: Audit = _AUDIT[AuditAction.DRAFT_TEST],
 ) -> dict[str, Any]:
-    return await _service(request).test_draft(tenant, bundle_id)
+    report = await _service(request).test_draft(tenant, bundle_id)
+    audit.set(bundle_id, passed=report["passed"], total=report["total"], failed=report["failed"])
+    return report
 
 
 @router.post("/guardrails/{bundle_id}/draft/publish")
@@ -300,10 +321,11 @@ async def publish(
     request: Request,
     tenant: TenantInfo = _TENANT,
     actor: Actor = _ALLOW[Action.GUARDRAIL_PUBLISH],
+    audit: Audit = _AUDIT[AuditAction.GUARDRAIL_PUBLISH],
 ) -> dict[str, Any]:
     if body.activate:  # publish-and-activate also needs the activation permission
         await authorize(Action.GUARDRAIL_ACTIVATE)(request)
-    return await _service(request).publish(
+    result = await _service(request).publish(
         tenant,
         bundle_id,
         activate=body.activate,
@@ -311,6 +333,15 @@ async def publish(
         note=body.note,
         actor=actor.record(),
     )
+    audit.set(
+        bundle_id,
+        version=result["version"],
+        activated=result["activated"],
+        previous_active=result["previous_active"],
+        accepted=result["accepted"] or None,
+        note=body.note,
+    )
+    return result
 
 
 @router.post("/guardrails/{bundle_id}/activate")
@@ -320,10 +351,15 @@ async def activate(
     request: Request,
     tenant: TenantInfo = _TENANT,
     actor: Actor = _ALLOW[Action.GUARDRAIL_ACTIVATE],
+    audit: Audit = _AUDIT[AuditAction.GUARDRAIL_ACTIVATE],
 ) -> dict[str, Any]:
-    return await asyncio.to_thread(
+    result = await asyncio.to_thread(
         _service(request).activate, tenant, bundle_id, body.version, body.note, actor.record()
     )
+    audit.set(
+        bundle_id, version=before_after(result["previous_active"], body.version), note=body.note
+    )
+    return result
 
 
 # ------------------------------------------------------------------ records (ADR-0041)
@@ -449,6 +485,81 @@ async def get_entitlements(
     return _entitlements_view(request, tenant, used).model_dump(mode="json")
 
 
+# ------------------------------------------------------------------ audit log (ADR-0045)
+
+_ACTION_FILTER = r"^[a-z]+(\.[a-z]+)*$"  # an audit action, or a prefix of one up to a dot
+
+
+def _audit_filters(
+    since: datetime | None = None,
+    until: datetime | None = None,
+    actor: str | None = Query(None, max_length=255),
+    action: str | None = Query(None, max_length=64, pattern=_ACTION_FILTER),
+    target_type: str | None = Query(None, max_length=32),
+    target_id: str | None = Query(None, max_length=255),
+    outcome: Literal["success", "denied"] | None = None,
+) -> dict[str, Any]:
+    """The filters of the list and the export (audit 0.1): ``actor`` is ``operator``, a
+    person's user id or their subject."""
+
+    return {
+        "since": _utc(since),
+        "until": _utc(until),
+        "actor": actor,
+        "action": action,
+        "target_type": target_type,
+        "target_id": target_id,
+        "outcome": outcome,
+    }
+
+
+_AUDIT_FILTERS = Depends(_audit_filters)
+
+
+@router.get("/audit-events")
+async def list_audit_events(
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.AUDIT_READ],
+    limit: int = Query(50, ge=1, le=200),
+    cursor: str | None = Query(None, max_length=200),
+    filters: dict[str, Any] = _AUDIT_FILTERS,
+) -> dict[str, Any]:
+    """The tenant's audit events, newest first (audit 0.1)."""
+
+    try:
+        page = await request.app.state.audit.page(tenant, limit=limit, cursor=cursor, **filters)
+    except BadAuditCursor as exc:
+        raise HTTPException(400, {"error": "bad_cursor", "detail": str(exc)}) from exc
+    return page.model_dump(mode="json", exclude_none=True)
+
+
+@router.get("/audit-events/export")
+async def export_audit_events(
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.AUDIT_READ],
+    audit: Audit = _AUDIT[AuditAction.AUDIT_EXPORT],
+    filters: dict[str, Any] = _AUDIT_FILTERS,
+) -> StreamingResponse:
+    """The matching events as CSV, newest first, at most ``EXPORT_MAX`` rows; the export itself
+    is an audit event."""
+
+    audit_log: AuditLog = request.app.state.audit
+    matched = await audit_log.count(tenant, **filters)
+    audit.set(rows=min(matched, EXPORT_MAX), **{k: v for k, v in filters.items() if v is not None})
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    return StreamingResponse(
+        audit_log.csv_lines(tenant, **filters),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="audit-{tenant.slug}-{stamp}.csv"',
+            "X-Umai-Export-Rows": str(min(matched, EXPORT_MAX)),
+            "X-Umai-Export-Truncated": "true" if matched > EXPORT_MAX else "false",
+        },
+    )
+
+
 # ------------------------------------------------------------------ billing (ADR-0044)
 
 
@@ -484,8 +595,10 @@ async def put_billing_account(
     request: Request,
     tenant: TenantInfo = _TENANT,
     actor: Actor = _ALLOW[Action.BILLING_MANAGE],
+    audit: Audit = _AUDIT[AuditAction.BILLING_ACCOUNT_UPDATE],
 ) -> dict[str, Any]:
     await _billing(request).save_account(tenant, body, actor.label)
+    audit.set()  # the details themselves are billing data: never in the audit log
     view = await _billing(request).view(tenant, can_manage=True)
     return view.model_dump(mode="json")
 
@@ -496,10 +609,12 @@ async def start_checkout(
     request: Request,
     tenant: TenantInfo = _TENANT,
     actor: Actor = _ALLOW[Action.BILLING_MANAGE],
+    audit: Audit = _AUDIT[AuditAction.BILLING_CHECKOUT_START],
 ) -> dict[str, Any]:
     """Opens iyzico's hosted form for a paid plan; card data never reaches UMAI (D2)."""
 
     started = await _billing(request).start_checkout(tenant, body.edition, actor.label)
+    audit.set(started.checkout_id, edition=body.edition)
     return started.model_dump(mode="json")
 
 
@@ -510,10 +625,12 @@ async def complete_checkout(
     request: Request,
     tenant: TenantInfo = _TENANT,
     actor: Actor = _ALLOW[Action.BILLING_COMPLETE],
+    audit: Audit = _AUDIT[AuditAction.BILLING_CHECKOUT_COMPLETE],
 ) -> dict[str, Any]:
     """The console's public return route, as operator: confirms the form by its token."""
 
     result = await _billing(request).complete_checkout(tenant, checkout_id[:64], body.token)
+    audit.set(result.checkout_id, status=result.status, edition=result.edition)
     return result.model_dump(mode="json")
 
 
@@ -523,8 +640,10 @@ async def change_billing_plan(
     request: Request,
     tenant: TenantInfo = _TENANT,
     actor: Actor = _ALLOW[Action.BILLING_MANAGE],
+    audit: Audit = _AUDIT[AuditAction.BILLING_PLAN_CHANGE],
 ) -> dict[str, Any]:
     await _billing(request).change_plan(tenant, body.edition, actor.label)
+    audit.set(edition=body.edition, previous_edition=tenant.edition)
     view = await _billing(request).view(tenant, can_manage=True)
     return view.model_dump(mode="json")
 
@@ -534,8 +653,10 @@ async def cancel_billing(
     request: Request,
     tenant: TenantInfo = _TENANT,
     actor: Actor = _ALLOW[Action.BILLING_MANAGE],
+    audit: Audit = _AUDIT[AuditAction.BILLING_CANCEL],
 ) -> dict[str, Any]:
     await _billing(request).cancel(tenant, actor.label)
+    audit.set(edition=tenant.edition)
     view = await _billing(request).view(tenant, can_manage=True)
     return view.model_dump(mode="json")
 
@@ -587,13 +708,17 @@ async def list_tenants(
 
 @router.post("/tenants", status_code=201)
 async def create_tenant(
-    body: TenantCreate, request: Request, actor: Actor = _ALLOW[Action.TENANT_CREATE]
+    body: TenantCreate,
+    request: Request,
+    actor: Actor = _ALLOW[Action.TENANT_CREATE],
+    audit: Audit = _AUDIT[AuditAction.TENANT_CREATE],
 ) -> dict[str, Any]:
     region = body.region or request.app.state.settings.region
     try:
         tenant = await _tenant_repo(request).create(body.id, body.name or body.id, region)
     except Conflict as exc:
         raise HTTPException(409, str(exc)) from exc
+    audit.set(tenant.slug, tenant=tenant, name=tenant.name, region=tenant.region)
     return tenant.public()
 
 
@@ -603,10 +728,12 @@ async def set_plan(
     body: PlanUpdate,
     request: Request,
     actor: Actor = _ALLOW[Action.TENANT_PLAN],
+    audit: Audit = _AUDIT[AuditAction.TENANT_PLAN],
 ) -> dict[str, Any]:
     """The tenant's edition and limit overrides (entitlements 0.1, ADR-0043 D3); the snapshot is
     republished so engines enforce them within one poll interval."""
 
+    previous = await _tenant(request, tenant_id)
     try:
         tenant = await _tenant_repo(request).set_plan(
             tenant_id, body.edition, body.override_values()
@@ -620,6 +747,14 @@ async def set_plan(
         tenant.slug,
         tenant.edition,
         sorted(tenant.entitlement_overrides or {}),
+    )
+    audit.set(
+        tenant.slug,
+        tenant=tenant,
+        edition=before_after(previous.edition, tenant.edition),
+        overrides=before_after(
+            previous.entitlement_overrides or {}, tenant.entitlement_overrides or {}
+        ),
     )
     return {
         "tenant": tenant.public(),
@@ -655,6 +790,7 @@ async def create_key(
     body: KeyCreate,
     request: Request,
     actor: Actor = _ALLOW[Action.KEY_CREATE],
+    audit: Audit = _AUDIT[AuditAction.KEY_CREATE],
 ) -> dict[str, Any]:
     """Creates a key; the secret is in the response once and never stored (ADR-0023 §2)."""
 
@@ -680,6 +816,15 @@ async def create_key(
         )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+    audit.set(  # never the secret
+        record.key_id,
+        tenant=tenant,
+        name=record.name,
+        env=record.env,
+        scopes=list(record.scopes),
+        application_id=record.application_id,
+        expires_at=record.expires_at,
+    )
     return {"key": _key_view(record), "secret": secret, "published": published}
 
 
@@ -689,6 +834,7 @@ async def revoke_key(
     key_id: str,
     request: Request,
     actor: Actor = _ALLOW[Action.KEY_REVOKE],
+    audit: Audit = _AUDIT[AuditAction.KEY_REVOKE],
 ) -> dict[str, Any]:
     check_tenant(actor, tenant_id)
     tenant = await _tenant(request, tenant_id)
@@ -696,17 +842,23 @@ async def revoke_key(
         record, published = await _keys(request).revoke(tenant, key_id)
     except NotFound as exc:
         raise HTTPException(404, str(exc)) from exc
+    audit.set(record.key_id, tenant=tenant, name=record.name)
     return {"key": _key_view(record), "published": published}
 
 
 @router.post("/tenants/{tenant_id}/keys/publish")
 async def publish_keys(
-    tenant_id: str, request: Request, actor: Actor = _ALLOW[Action.KEY_PUBLISH]
+    tenant_id: str,
+    request: Request,
+    actor: Actor = _ALLOW[Action.KEY_PUBLISH],
+    audit: Audit = _AUDIT[AuditAction.KEY_PUBLISH],
 ) -> dict[str, Any]:
     """Rewrite the tenant's registry snapshot (after a signing-key change, or to repair)."""
 
     tenant = await _tenant(request, tenant_id)
-    return {"published": await _keys(request).republish(tenant)}
+    published = await _keys(request).republish(tenant)
+    audit.set(tenant.slug, tenant=tenant, published=published)
+    return {"published": published}
 
 
 # ------------------------------------------------------------------ organizations (ADR-0033)
@@ -824,6 +976,7 @@ async def put_application(
     request: Request,
     tenant: TenantInfo = _TENANT,
     actor: Actor = _ALLOW[Action.APPLICATION_WRITE],
+    audit: Audit = _AUDIT[AuditAction.APPLICATION_SAVE],
 ) -> JSONResponse:
     """Create or replace one application; its guardrail must exist for this tenant. Changing
     an existing application's guardrail changes what protects its live traffic: it also needs
@@ -852,6 +1005,13 @@ async def put_application(
         content = await _write_file(request, tenant, data)
     stored = content.application(application_id)
     assert stored is not None
+    audit.set(
+        application_id,
+        created=created,
+        guardrail=stored.guardrail
+        if previous is None
+        else before_after(previous.get("guardrail"), stored.guardrail),
+    )
     log.info(
         "application.saved tenant=%s actor=%s application=%s created=%s",
         tenant.slug,
@@ -874,6 +1034,7 @@ async def delete_application(
     request: Request,
     tenant: TenantInfo = _TENANT,
     actor: Actor = _ALLOW[Action.APPLICATION_WRITE],
+    audit: Audit = _AUDIT[AuditAction.APPLICATION_DELETE],
 ) -> dict[str, Any]:
     """Remove an application; refused while one of its keys is active, so no caller silently
     loses its guardrail."""
@@ -903,6 +1064,7 @@ async def delete_application(
         actor.label,
         application_id,
     )
+    audit.set(application_id)
     return {"tenant_id": tenant.slug, "deleted": application_id}
 
 
@@ -924,6 +1086,7 @@ async def put_provider(
     request: Request,
     tenant: TenantInfo = _TENANT,
     actor: Actor = _ALLOW[Action.GATEWAY_WRITE],
+    audit: Audit = _AUDIT[AuditAction.PROVIDER_SAVE],
 ) -> JSONResponse:
     """Create or replace one provider. ``default: true`` moves the default to it. Defining
     ``openai`` replaces the built-in OpenAI provider (for example to disable it)."""
@@ -963,6 +1126,13 @@ async def put_provider(
         data["providers"] = providers + ([body] if created else [])
         content = await _write_file(request, tenant, data)
     view = next(p for p in _provider_view(content) if p["provider_id"] == provider_id)
+    audit.set(  # the credential mode, never a key
+        provider_id,
+        created=created,
+        credential=view.get("credential"),
+        enabled=view.get("enabled"),
+        default=view.get("default"),
+    )
     log.info(
         "provider.saved tenant=%s actor=%s provider=%s created=%s",
         tenant.slug,
@@ -981,6 +1151,7 @@ async def delete_provider(
     request: Request,
     tenant: TenantInfo = _TENANT,
     actor: Actor = _ALLOW[Action.GATEWAY_WRITE],
+    audit: Audit = _AUDIT[AuditAction.PROVIDER_DELETE],
 ) -> dict[str, Any]:
     """Remove a provider; refused while an application names it (allowed providers, aliases or
     fallback) or, for the provider marked default, while an application sends bare model names
@@ -1030,6 +1201,7 @@ async def delete_provider(
     log.info(
         "provider.deleted tenant=%s actor=%s provider=%s", tenant.slug, actor.label, provider_id
     )
+    audit.set(provider_id)
     return {"tenant_id": tenant.slug, "deleted": provider_id}
 
 
@@ -1050,6 +1222,7 @@ async def put_gateway_settings(
     request: Request,
     tenant: TenantInfo = _TENANT,
     actor: Actor = _ALLOW[Action.GATEWAY_WRITE],
+    audit: Audit = _AUDIT[AuditAction.GATEWAY_SETTINGS_UPDATE],
 ) -> dict[str, Any]:
     try:
         body = await request.json()
@@ -1061,9 +1234,15 @@ async def put_gateway_settings(
         )
     async with _FILE_LOCKS[tenant.slug]:
         data = await _read_file(request, tenant)
+        try:
+            old = _content(data, request).gateway.model_dump(mode="json")
+        except HTTPException:  # a stored file that no longer validates: everything changes
+            old = {}
         data["gateway"] = body
         content = await _write_file(request, tenant, data)
     log.info("gateway.settings.saved tenant=%s actor=%s", tenant.slug, actor.label)
+    new = content.gateway.model_dump(mode="json")
+    audit.set(changed=sorted(k for k in old.keys() | new.keys() if old.get(k) != new.get(k)))
     return {"tenant_id": tenant.slug, "gateway": content.gateway.model_dump(mode="json")}
 
 
@@ -1079,8 +1258,17 @@ async def create_organization(
     body: OrganizationCreate,
     request: Request,
     actor: Actor = _ALLOW[Action.ORGANIZATION_CREATE],
+    audit: Audit = _AUDIT[AuditAction.ORGANIZATION_CREATE],
 ) -> dict[str, Any]:
-    return await _orgs(request).create(actor, body)
+    result = await _orgs(request).create(actor, body)
+    audit.set(
+        body.id,
+        tenant=await _tenant_repo(request).get(body.id),
+        name=body.name,
+        region=body.region,
+        starter_guardrail=result["starter_guardrail"],
+    )
+    return result
 
 
 @router.get("/organizations/{org_id}")
@@ -1096,8 +1284,12 @@ async def update_organization(
     body: OrganizationUpdate,
     request: Request,
     actor: Actor = _ALLOW[Action.ORGANIZATION_UPDATE],
+    audit: Audit = _AUDIT[AuditAction.ORGANIZATION_UPDATE],
 ) -> dict[str, Any]:
-    return await _orgs(request).rename(await _org(request, org_id, actor), body.name)
+    tenant = await _org(request, org_id, actor)
+    result = await _orgs(request).rename(tenant, body.name)
+    audit.set(tenant.slug, tenant=tenant, name=before_after(tenant.name, body.name))
+    return result
 
 
 @router.get("/organizations/{org_id}/members")
@@ -1114,9 +1306,12 @@ async def update_member(
     body: MembershipUpdate,
     request: Request,
     actor: Actor = _ALLOW[Action.MEMBER_UPDATE],
+    audit: Audit = _AUDIT[AuditAction.MEMBER_UPDATE],
 ) -> dict[str, Any]:
     tenant = await _org(request, org_id, actor)
-    return await _orgs(request).set_roles(tenant, actor, user_id, body.roles)
+    member, before = await _orgs(request).set_roles(tenant, actor, user_id, body.roles)
+    audit.set(user_id, tenant=tenant, roles=before_after(before, member["roles"]))
+    return member
 
 
 @router.delete("/organizations/{org_id}/members/{user_id}", status_code=204)
@@ -1125,15 +1320,24 @@ async def remove_member(
     user_id: uuid.UUID,
     request: Request,
     actor: Actor = _ALLOW[Action.MEMBER_REMOVE],
+    audit: Audit = _AUDIT[AuditAction.MEMBER_REMOVE],
 ) -> None:
-    await _orgs(request).remove(await _org(request, org_id, actor), actor, user_id)
+    tenant = await _org(request, org_id, actor)
+    before = await _orgs(request).remove(tenant, actor, user_id)
+    audit.set(user_id, tenant=tenant, roles=before_after(before, None))
 
 
 @router.post("/organizations/{org_id}/leave", status_code=204)
 async def leave_organization(
-    org_id: str, request: Request, actor: Actor = _ALLOW[Action.MEMBER_LEAVE]
+    org_id: str,
+    request: Request,
+    actor: Actor = _ALLOW[Action.MEMBER_LEAVE],
+    audit: Audit = _AUDIT[AuditAction.MEMBER_LEAVE],
 ) -> None:
-    await _orgs(request).leave(await _org(request, org_id, actor), actor)
+    tenant = await _org(request, org_id, actor)
+    await _orgs(request).leave(tenant, actor)
+    user = await _orgs(request).users.get(actor.sub or "")
+    audit.set(user.id if user else None, tenant=tenant)
 
 
 @router.get("/organizations/{org_id}/invitations")
@@ -1150,10 +1354,20 @@ async def create_invitation(
     body: InvitationCreate,
     request: Request,
     actor: Actor = _ALLOW[Action.INVITATION_MANAGE],
+    audit: Audit = _AUDIT[AuditAction.INVITATION_CREATE],
 ) -> dict[str, Any]:
     """The link's secret is in the response once (``token``) and stored as a hash only."""
 
-    return await _orgs(request).invite(await _org(request, org_id, actor), actor, body)
+    tenant = await _org(request, org_id, actor)
+    result = await _orgs(request).invite(tenant, actor, body)
+    invitation = result["invitation"]  # never the token, nor the invitee's address
+    audit.set(
+        invitation["id"],
+        tenant=tenant,
+        roles=invitation["roles"],
+        expires_at=invitation["expires_at"],
+    )
+    return result
 
 
 @router.delete("/organizations/{org_id}/invitations/{invitation_id}")
@@ -1162,8 +1376,12 @@ async def revoke_invitation(
     invitation_id: uuid.UUID,
     request: Request,
     actor: Actor = _ALLOW[Action.INVITATION_MANAGE],
+    audit: Audit = _AUDIT[AuditAction.INVITATION_REVOKE],
 ) -> dict[str, Any]:
-    return await _orgs(request).revoke(await _org(request, org_id, actor), invitation_id)
+    tenant = await _org(request, org_id, actor)
+    result = await _orgs(request).revoke(tenant, invitation_id)
+    audit.set(invitation_id, tenant=tenant)
+    return result
 
 
 @router.post("/organizations/{org_id}/invitations/{invitation_id}/resend", status_code=201)
@@ -1172,16 +1390,29 @@ async def resend_invitation(
     invitation_id: uuid.UUID,
     request: Request,
     actor: Actor = _ALLOW[Action.INVITATION_MANAGE],
+    audit: Audit = _AUDIT[AuditAction.INVITATION_RESEND],
 ) -> dict[str, Any]:
     tenant = await _org(request, org_id, actor)
-    return await _orgs(request).resend(tenant, actor, invitation_id)
+    result = await _orgs(request).resend(tenant, actor, invitation_id)
+    audit.set(invitation_id, tenant=tenant, replaced_by=result["invitation"]["id"])
+    return result
 
 
 @router.post("/invitations/accept")
 async def accept_invitation(
-    body: InvitationAccept, request: Request, actor: Actor = _ALLOW[Action.INVITATION_ACCEPT]
+    body: InvitationAccept,
+    request: Request,
+    actor: Actor = _ALLOW[Action.INVITATION_ACCEPT],
+    audit: Audit = _AUDIT[AuditAction.INVITATION_ACCEPT],
 ) -> dict[str, Any]:
-    return await _orgs(request).accept(actor, body.organization, body.token)
+    result = await _orgs(request).accept(actor, body.organization, body.token)
+    user = await _orgs(request).users.get(actor.sub or "")
+    audit.set(
+        user.id if user else None,
+        tenant=await _tenant_repo(request).get(body.organization),
+        roles=result["roles"],
+    )
+    return result
 
 
 # ------------------------------------------------- console sessions (ADR-0024 §2 amendment)
@@ -1345,6 +1576,7 @@ def create_app(
         )
         log.info("control_plane.console_sessions mode=%s", cfg.console_sessions)
         app.state.records = RecordsReader(db)
+        app.state.audit = AuditLog(db)
         # Billing (ADR-0044): iyzico when configured; plans on offer checked against it.
         client = None
         if cfg.billing_provider == "iyzico":
@@ -1386,6 +1618,7 @@ def create_app(
                     owner_db,
                     decision_days=cfg.records_decision_retention_days,
                     usage_days=cfg.records_usage_retention_days,
+                    audit_days=cfg.audit_retention_days,
                     interval_s=cfg.records_retention_interval_s,
                 )
             )
