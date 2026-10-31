@@ -19,6 +19,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
 
 from umai_decision_engine.contracts.common import Phase
+from umai_decision_engine.gateway import openapi
 from umai_decision_engine.gateway.chat import (
     Call,
     _admit,
@@ -66,7 +67,7 @@ def _texts(value: Any) -> tuple[list[tuple[int | None, str]], int]:
     )
 
 
-@router.post("/v1/embeddings")
+@router.post("/v1/embeddings", tags=["AI gateway"], **openapi.EMBEDDINGS)
 async def create_embeddings(request: Request) -> Response:
     started = time.perf_counter()
     request_id = (request.headers.get("x-umai-request-id") or "")[:128] or f"gw-{uuid.uuid4().hex}"

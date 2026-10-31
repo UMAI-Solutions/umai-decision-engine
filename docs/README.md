@@ -35,6 +35,9 @@ docs/
 │   ├── l2-analysis.md            L2 output and stored analysis
 │   ├── tag-taxonomy.md           tag codes
 │   └── policy-tests.md           golden cases for a bundle version
+├── api/                          customer API documentation, English and Turkish (ADR-0054)
+│   ├── en/, tr/                  hand-written pages, built into the site by dev/api_docs.py
+│   └── openapi/                  published OpenAPI documents, generated from the apps
 ├── adr/                          architecture decision records
 ├── reference/                    external facts: vendors, libraries, algorithms (dated)
 ├── security/                     threat model, gap analysis, launch plan, verification plan, incident response (SaaS readiness)
@@ -42,7 +45,8 @@ docs/
 ├── evals/                        eval strategy, datasets, metrics
 └── workflow/                     how to develop, test and ship changes here
     ├── policy-authoring.md       how the team changes, tests and activates a policy
-    └── gateway.md                using the UMAI gateway: routes, SDK calls, refusals, errors
+    ├── gateway.md                using the UMAI gateway: routes, SDK calls, refusals, errors
+    └── load-test-beta.md         plan: load test against umai-beta with a test tenant (S0-3)
 ```
 
 ## Reading order for a newcomer

@@ -19,3 +19,8 @@ Read first: `docs/contracts/README.md` (versioning rules) and the contract docum
    `docs/platform-context/compatibility-contract.md`.
 7. If the change is a decision between alternatives, add an ADR (skill `write-adr`).
 8. Never add a field that carries raw content outside L0 (ADR-0005).
+9. Customer surfaces (`evaluation-api`, `gateway-api`) are published (ADR-0054): bump
+   `API_VERSION` in `api/app.py` or `gateway/app.py` with the document's version, run
+   `python dev/api_docs.py openapi`, and update the pages in `docs/api/en/` and `docs/api/tr/`
+   (a new error code goes into both `errors.md` catalogues). `tests/unit/test_api_docs.py`
+   fails until all of it matches.

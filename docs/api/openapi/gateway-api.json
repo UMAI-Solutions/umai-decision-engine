@@ -1,0 +1,1404 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "UMAI AI gateway",
+    "description": "OpenAI-compatible endpoints with your organization's guardrail on every call:\npoint an OpenAI SDK at UMAI with a UMAI key, and prompts, answers and tool calls are checked,\nmasked or refused on the way.\n\nGuides, limits and the error catalogue: the API documentation at `/docs/` on your UMAI address.",
+    "version": "0.14"
+  },
+  "paths": {
+    "/v1/chat/completions": {
+      "post": {
+        "tags": [
+          "AI gateway"
+        ],
+        "summary": "Chat Completions, checked by your guardrail",
+        "description": "OpenAI's Chat Completions, with your guardrail on the way in and out. The\ngateway checks every message it forwards (history included), masks or refuses, sends the call\nto the provider, then checks the answer and its tool calls. Values it masked in your messages\nare put back in the answer for you.\n\nA refusal is HTTP 400 with `code: umai_blocked` (the OpenAI SDKs raise `BadRequestError`), or,\nwhen the application is set to answer with a message, HTTP 200 with\n`finish_reason: \"content_filter\"`. Streams (`\"stream\": true`) are checked while they flow.\n\nEvery field not named here is forwarded unchanged. Requires the `gateway` scope.",
+        "operationId": "chat_completions_v1_chat_completions_post",
+        "responses": {
+          "200": {
+            "description": "The provider's answer (a `chat.completion`, or `chat.completion.chunk` events when streaming), after the answer checks.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              },
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "headers": {
+              "X-Umai-Request-Id": {
+                "description": "The call's id; quote it when you contact support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Umai-Application": {
+                "description": "The application the call ran as.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Umai-Event-Id": {
+                "description": "The recorded decision of the input check.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Umai-Input-Decision": {
+                "description": "The input check's action, e.g. `ALLOW_WITH_MODIFICATIONS`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Umai-Output-Decision": {
+                "description": "The strictest action of the answer checks (non-streaming answers and `buffer` streams).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Umai-Upstream-Error": {
+                "description": "`true` when the body is the provider's own error, passed on.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Umai-Fallback": {
+                "description": "Present when the application's fallback target answered.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`umai_blocked` / `umai_step_up_required` (the guardrail refused; `type: umai_guardrail`), or `invalid_request`, `application_required`, `provider_key_required`, `unsupported_content`.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "umai_blocked": {
+                    "value": {
+                      "error": {
+                        "message": "Blocked by UMAI guardrail gr-demo-data-protection: L0: TR_TCKN detected by policy Kimlik verileri v2",
+                        "type": "umai_guardrail",
+                        "code": "umai_blocked",
+                        "umai": {
+                          "request_id": "gw-3f9c1e0b",
+                          "event_id": "ta-195c97496f4748b88442e60f6ed6e1b9",
+                          "phase": "PRE_LLM",
+                          "action": "BLOCK",
+                          "entities": [
+                            "TR_TCKN"
+                          ],
+                          "matched": [
+                            "identity-data"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "provider_key_required": {
+                    "value": {
+                      "error": {
+                        "message": "this provider needs your provider key in the X-Umai-Provider-Key header",
+                        "type": "umai_gateway",
+                        "code": "provider_key_required"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`invalid_credential`: missing, unknown, expired or revoked UMAI key.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "invalid_credential": {
+                    "value": {
+                      "error": {
+                        "message": "missing or invalid API credential",
+                        "type": "umai_gateway",
+                        "code": "invalid_credential"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`ip_not_allowed`, `insufficient_scope`, `application_mismatch` or `provider_not_allowed`.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "ip_not_allowed": {
+                    "value": {
+                      "error": {
+                        "message": "this key may not be used from this address",
+                        "type": "umai_gateway",
+                        "code": "ip_not_allowed"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`unknown_application`, `unknown_provider` or `model_not_allowed`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited`, `too_many_failed_attempts` or `quota_exceeded`.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before the next attempt.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "`request_too_large` (body bytes) or `input_too_large` (characters to scan).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`provider_misconfigured`: the provider's key is not set up on UMAI's side.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "`upstream_unreachable` or `upstream_invalid_response`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayErrorBody"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "`upstream_timeout`: the provider did not answer in time.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-Umai-Application",
+            "in": "header",
+            "required": false,
+            "description": "The application to call as. Needed only when the key belongs to no application and the organization has several; a key that belongs to an application uses that one.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Umai-Provider-Key",
+            "in": "header",
+            "required": false,
+            "description": "Your provider's API key (e.g. OpenAI's), when the provider is set up with your own key (`pass_through`, the built-in OpenAI provider). Sent to the provider only; never stored, logged or echoed.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Umai-Request-Id",
+            "in": "header",
+            "required": false,
+            "description": "Your id for the call (at most 128 characters); generated when absent and returned in the response header of the same name.",
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "X-Umai-Session-Id",
+            "in": "header",
+            "required": false,
+            "description": "Your id for the conversation.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Umai-Subject-User",
+            "in": "header",
+            "required": false,
+            "description": "Your pseudonymous id for the person; falls back to the body's `safety_identifier`, then `user`.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Umai-Subject-Role",
+            "in": "header",
+            "required": false,
+            "description": "The person's role, for policies that use it.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Umai-Subject-Department",
+            "in": "header",
+            "required": false,
+            "description": "The person's department, for policies that use it.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Umai-Agent-Id",
+            "in": "header",
+            "required": false,
+            "description": "Your id for the AI agent making the call.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "An OpenAI Chat Completions request.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "model",
+                  "messages"
+                ],
+                "properties": {
+                  "model": {
+                    "type": "string",
+                    "description": "The model, as your application sends it. An alias or `@<provider>/<model>` picks a provider the organization connected; other names go to the default provider.",
+                    "examples": [
+                      "gpt-4.1-mini"
+                    ]
+                  },
+                  "messages": {
+                    "type": "array",
+                    "description": "The conversation. `system`, `developer`, `user`, `assistant` (with tool-call arguments) and `tool` messages are checked.",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "role"
+                      ],
+                      "properties": {
+                        "role": {
+                          "type": "string"
+                        },
+                        "content": {
+                          "description": "A string, or an array of content parts. `text` parts are checked; other parts (images, audio, files) are refused unless the application forwards them unscanned."
+                        }
+                      },
+                      "additionalProperties": true
+                    }
+                  },
+                  "stream": {
+                    "type": "boolean",
+                    "description": "Stream the answer as events."
+                  },
+                  "n": {
+                    "type": "integer",
+                    "description": "Each choice is checked on its own."
+                  }
+                },
+                "additionalProperties": true
+              },
+              "examples": {
+                "masked": {
+                  "summary": "A prompt with an identity number",
+                  "value": {
+                    "model": "gpt-4.1-mini",
+                    "messages": [
+                      {
+                        "role": "user",
+                        "content": "10000000146 numaralı müşterinin kredi limitini özetle."
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "UmaiKey": []
+          }
+        ]
+      }
+    },
+    "/v1/responses": {
+      "post": {
+        "tags": [
+          "AI gateway"
+        ],
+        "summary": "Responses API, checked by your guardrail",
+        "description": "OpenAI's Responses API with the same checks, masking, restoration and\nrefusals as Chat Completions. `instructions`, `input` text and tool outputs are checked before\nthe call; output text and tool calls after it. With a message refusal the response has\n`status: \"incomplete\"` and `incomplete_details.reason: \"content_filter\"`.\n\nItems the provider keeps (`previous_response_id`, `item_reference`) and what hosted tools read\ninside the provider are not checked by UMAI. Requires the `gateway` scope.",
+        "operationId": "create_response_v1_responses_post",
+        "responses": {
+          "200": {
+            "description": "The provider's response object (or Responses events when streaming), after the answer checks.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              },
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "headers": {
+              "X-Umai-Request-Id": {
+                "description": "The call's id; quote it when you contact support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Umai-Application": {
+                "description": "The application the call ran as.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Umai-Event-Id": {
+                "description": "The recorded decision of the input check.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Umai-Input-Decision": {
+                "description": "The input check's action, e.g. `ALLOW_WITH_MODIFICATIONS`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Umai-Output-Decision": {
+                "description": "The strictest action of the answer checks (non-streaming answers and `buffer` streams).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Umai-Upstream-Error": {
+                "description": "`true` when the body is the provider's own error, passed on.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Umai-Fallback": {
+                "description": "Present when the application's fallback target answered.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`umai_blocked` / `umai_step_up_required` (the guardrail refused; `type: umai_guardrail`), or `invalid_request`, `application_required`, `provider_key_required`, `unsupported_content`.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "umai_blocked": {
+                    "value": {
+                      "error": {
+                        "message": "Blocked by UMAI guardrail gr-demo-data-protection: L0: TR_TCKN detected by policy Kimlik verileri v2",
+                        "type": "umai_guardrail",
+                        "code": "umai_blocked",
+                        "umai": {
+                          "request_id": "gw-3f9c1e0b",
+                          "event_id": "ta-195c97496f4748b88442e60f6ed6e1b9",
+                          "phase": "PRE_LLM",
+                          "action": "BLOCK",
+                          "entities": [
+                            "TR_TCKN"
+                          ],
+                          "matched": [
+                            "identity-data"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "provider_key_required": {
+                    "value": {
+                      "error": {
+                        "message": "this provider needs your provider key in the X-Umai-Provider-Key header",
+                        "type": "umai_gateway",
+                        "code": "provider_key_required"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`invalid_credential`: missing, unknown, expired or revoked UMAI key.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "invalid_credential": {
+                    "value": {
+                      "error": {
+                        "message": "missing or invalid API credential",
+                        "type": "umai_gateway",
+                        "code": "invalid_credential"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`ip_not_allowed`, `insufficient_scope`, `application_mismatch` or `provider_not_allowed`.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "ip_not_allowed": {
+                    "value": {
+                      "error": {
+                        "message": "this key may not be used from this address",
+                        "type": "umai_gateway",
+                        "code": "ip_not_allowed"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`unknown_application`, `unknown_provider` or `model_not_allowed`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited`, `too_many_failed_attempts` or `quota_exceeded`.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before the next attempt.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "`request_too_large` (body bytes) or `input_too_large` (characters to scan).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`provider_misconfigured`: the provider's key is not set up on UMAI's side.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "`upstream_unreachable` or `upstream_invalid_response`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayErrorBody"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "`upstream_timeout`: the provider did not answer in time.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-Umai-Application",
+            "in": "header",
+            "required": false,
+            "description": "The application to call as. Needed only when the key belongs to no application and the organization has several; a key that belongs to an application uses that one.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Umai-Provider-Key",
+            "in": "header",
+            "required": false,
+            "description": "Your provider's API key (e.g. OpenAI's), when the provider is set up with your own key (`pass_through`, the built-in OpenAI provider). Sent to the provider only; never stored, logged or echoed.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Umai-Request-Id",
+            "in": "header",
+            "required": false,
+            "description": "Your id for the call (at most 128 characters); generated when absent and returned in the response header of the same name.",
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "X-Umai-Session-Id",
+            "in": "header",
+            "required": false,
+            "description": "Your id for the conversation.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Umai-Subject-User",
+            "in": "header",
+            "required": false,
+            "description": "Your pseudonymous id for the person; falls back to the body's `safety_identifier`, then `user`.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Umai-Subject-Role",
+            "in": "header",
+            "required": false,
+            "description": "The person's role, for policies that use it.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Umai-Subject-Department",
+            "in": "header",
+            "required": false,
+            "description": "The person's department, for policies that use it.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Umai-Agent-Id",
+            "in": "header",
+            "required": false,
+            "description": "Your id for the AI agent making the call.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "An OpenAI Responses request.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "model",
+                  "input"
+                ],
+                "properties": {
+                  "model": {
+                    "type": "string",
+                    "description": "The model, as your application sends it. An alias or `@<provider>/<model>` picks a provider the organization connected; other names go to the default provider.",
+                    "examples": [
+                      "gpt-4.1-mini"
+                    ]
+                  },
+                  "instructions": {
+                    "type": "string",
+                    "description": "Checked as a system message."
+                  },
+                  "input": {
+                    "description": "A string, or an array of input items; message text, tool calls and tool outputs are checked."
+                  },
+                  "stream": {
+                    "type": "boolean",
+                    "description": "Stream the answer as events."
+                  }
+                },
+                "additionalProperties": true
+              },
+              "examples": {
+                "masked": {
+                  "summary": "A prompt with an IBAN",
+                  "value": {
+                    "model": "gpt-4.1-mini",
+                    "input": "TR330006100519786457841326 hesabına gelen son ödemeleri listele."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "UmaiKey": []
+          }
+        ]
+      }
+    },
+    "/v1/embeddings": {
+      "post": {
+        "tags": [
+          "AI gateway"
+        ],
+        "summary": "Embeddings, with the input checked and masked",
+        "description": "OpenAI's embeddings with an input check: each string is checked and masked\nbefore it is embedded, so a search index never stores vectors of the values your guardrail\nmasks. A refusal is always HTTP 400 `umai_blocked`. Token arrays cannot be checked and follow\nthe application's setting for unscanned content. Requires the `gateway` scope.",
+        "operationId": "create_embeddings_v1_embeddings_post",
+        "responses": {
+          "200": {
+            "description": "The provider's embeddings, unchanged.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "X-Umai-Request-Id": {
+                "description": "The call's id; quote it when you contact support.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Umai-Application": {
+                "description": "The application the call ran as.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Umai-Event-Id": {
+                "description": "The recorded decision of the input check.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Umai-Input-Decision": {
+                "description": "The input check's action, e.g. `ALLOW_WITH_MODIFICATIONS`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Umai-Output-Decision": {
+                "description": "The strictest action of the answer checks (non-streaming answers and `buffer` streams).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Umai-Upstream-Error": {
+                "description": "`true` when the body is the provider's own error, passed on.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Umai-Fallback": {
+                "description": "Present when the application's fallback target answered.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`umai_blocked` / `umai_step_up_required` (the guardrail refused; `type: umai_guardrail`), or `invalid_request`, `application_required`, `provider_key_required`, `unsupported_content`.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "umai_blocked": {
+                    "value": {
+                      "error": {
+                        "message": "Blocked by UMAI guardrail gr-demo-data-protection: L0: TR_TCKN detected by policy Kimlik verileri v2",
+                        "type": "umai_guardrail",
+                        "code": "umai_blocked",
+                        "umai": {
+                          "request_id": "gw-3f9c1e0b",
+                          "event_id": "ta-195c97496f4748b88442e60f6ed6e1b9",
+                          "phase": "PRE_LLM",
+                          "action": "BLOCK",
+                          "entities": [
+                            "TR_TCKN"
+                          ],
+                          "matched": [
+                            "identity-data"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "provider_key_required": {
+                    "value": {
+                      "error": {
+                        "message": "this provider needs your provider key in the X-Umai-Provider-Key header",
+                        "type": "umai_gateway",
+                        "code": "provider_key_required"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`invalid_credential`: missing, unknown, expired or revoked UMAI key.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "invalid_credential": {
+                    "value": {
+                      "error": {
+                        "message": "missing or invalid API credential",
+                        "type": "umai_gateway",
+                        "code": "invalid_credential"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`ip_not_allowed`, `insufficient_scope`, `application_mismatch` or `provider_not_allowed`.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "ip_not_allowed": {
+                    "value": {
+                      "error": {
+                        "message": "this key may not be used from this address",
+                        "type": "umai_gateway",
+                        "code": "ip_not_allowed"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`unknown_application`, `unknown_provider` or `model_not_allowed`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited`, `too_many_failed_attempts` or `quota_exceeded`.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before the next attempt.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "`request_too_large` (body bytes) or `input_too_large` (characters to scan).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`provider_misconfigured`: the provider's key is not set up on UMAI's side.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "`upstream_unreachable` or `upstream_invalid_response`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayErrorBody"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "`upstream_timeout`: the provider did not answer in time.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-Umai-Application",
+            "in": "header",
+            "required": false,
+            "description": "The application to call as. Needed only when the key belongs to no application and the organization has several; a key that belongs to an application uses that one.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Umai-Provider-Key",
+            "in": "header",
+            "required": false,
+            "description": "Your provider's API key (e.g. OpenAI's), when the provider is set up with your own key (`pass_through`, the built-in OpenAI provider). Sent to the provider only; never stored, logged or echoed.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Umai-Request-Id",
+            "in": "header",
+            "required": false,
+            "description": "Your id for the call (at most 128 characters); generated when absent and returned in the response header of the same name.",
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "X-Umai-Session-Id",
+            "in": "header",
+            "required": false,
+            "description": "Your id for the conversation.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Umai-Subject-User",
+            "in": "header",
+            "required": false,
+            "description": "Your pseudonymous id for the person; falls back to the body's `safety_identifier`, then `user`.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Umai-Subject-Role",
+            "in": "header",
+            "required": false,
+            "description": "The person's role, for policies that use it.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Umai-Subject-Department",
+            "in": "header",
+            "required": false,
+            "description": "The person's department, for policies that use it.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Umai-Agent-Id",
+            "in": "header",
+            "required": false,
+            "description": "Your id for the AI agent making the call.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "An OpenAI embeddings request.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "model",
+                  "input"
+                ],
+                "properties": {
+                  "model": {
+                    "type": "string",
+                    "description": "The model, as your application sends it. An alias or `@<provider>/<model>` picks a provider the organization connected; other names go to the default provider.",
+                    "examples": [
+                      "gpt-4.1-mini"
+                    ]
+                  },
+                  "input": {
+                    "description": "A string or an array of strings; each one is checked."
+                  }
+                },
+                "additionalProperties": true
+              },
+              "examples": {
+                "texts": {
+                  "summary": "Two passages for a search index",
+                  "value": {
+                    "model": "text-embedding-3-small",
+                    "input": [
+                      "Müşteri hizmetleri hafta içi 09:00-18:00 arası açıktır.",
+                      "İade talebi için 10000000146 numaralı başvuruyu kullanın."
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "UmaiKey": []
+          }
+        ]
+      }
+    },
+    "/v1/models": {
+      "get": {
+        "tags": [
+          "AI gateway"
+        ],
+        "summary": "List the models your application may use",
+        "description": "The application's model names and aliases when it has a list; otherwise\nthe provider's own list. Never counts toward the monthly quota. Requires the `gateway`\nscope.",
+        "operationId": "list_models_v1_models_get",
+        "responses": {
+          "200": {
+            "description": "An OpenAI model list.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "object": "list",
+                  "data": [
+                    {
+                      "id": "gpt-4.1-mini",
+                      "object": "model",
+                      "created": 0,
+                      "owned_by": "umai"
+                    }
+                  ]
+                }
+              }
+            },
+            "headers": {
+              "X-Umai-Application": {
+                "description": "The application the call ran as.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`application_required` or `provider_key_required`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`invalid_credential`: missing, unknown, expired or revoked UMAI key.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "invalid_credential": {
+                    "value": {
+                      "error": {
+                        "message": "missing or invalid API credential",
+                        "type": "umai_gateway",
+                        "code": "invalid_credential"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`ip_not_allowed`, `insufficient_scope`, `application_mismatch` or `provider_not_allowed`.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "ip_not_allowed": {
+                    "value": {
+                      "error": {
+                        "message": "this key may not be used from this address",
+                        "type": "umai_gateway",
+                        "code": "ip_not_allowed"
+                      }
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`unknown_application`, `unknown_provider` or `model_not_allowed`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited`, `too_many_failed_attempts` or `quota_exceeded`.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before the next attempt.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`provider_misconfigured`: the provider's key is not set up on UMAI's side.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "`upstream_unreachable` or `upstream_invalid_response`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayErrorBody"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "`upstream_timeout`: the provider did not answer in time.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatewayErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-Umai-Application",
+            "in": "header",
+            "required": false,
+            "description": "The application to call as. Needed only when the key belongs to no application and the organization has several; a key that belongs to an application uses that one.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Umai-Provider-Key",
+            "in": "header",
+            "required": false,
+            "description": "Your provider's API key (e.g. OpenAI's), when the provider is set up with your own key (`pass_through`, the built-in OpenAI provider). Sent to the provider only; never stored, logged or echoed.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "UmaiKey": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Action": {
+        "type": "string",
+        "enum": [
+          "ALLOW",
+          "ALLOW_WITH_WARNINGS",
+          "ALLOW_WITH_MODIFICATIONS",
+          "STEP_UP_APPROVAL",
+          "BLOCK"
+        ],
+        "title": "Action"
+      },
+      "GatewayError": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "umai_guardrail",
+              "umai_gateway"
+            ],
+            "title": "Type"
+          },
+          "param": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Param"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "umai": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UmaiDecisionInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "message",
+          "type",
+          "code"
+        ],
+        "title": "GatewayError"
+      },
+      "GatewayErrorBody": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/GatewayError"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "title": "GatewayErrorBody",
+        "description": "OpenAI-shaped error body for refusals and gateway errors."
+      },
+      "Phase": {
+        "type": "string",
+        "enum": [
+          "PRE_LLM",
+          "POST_LLM",
+          "TOOL_INPUT",
+          "TOOL_OUTPUT",
+          "MCP_REQUEST",
+          "MCP_RESPONSE",
+          "MEMORY_WRITE"
+        ],
+        "title": "Phase"
+      },
+      "UmaiDecisionInfo": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "title": "Request Id"
+          },
+          "event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Id"
+          },
+          "phase": {
+            "$ref": "#/components/schemas/Phase"
+          },
+          "action": {
+            "$ref": "#/components/schemas/Action"
+          },
+          "entities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Entities"
+          },
+          "matched": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Matched"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "phase",
+          "action"
+        ],
+        "title": "UmaiDecisionInfo",
+        "description": "Why the gateway refused: ids, types and actions only, never content."
+      }
+    },
+    "securitySchemes": {
+      "UmaiKey": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "An API key from the console: `umai_<env>_<region>_<key_id>_<secret>`. Server side only; never in a browser or a mobile app."
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "AI gateway",
+      "description": "OpenAI-compatible calls through your guardrail."
+    }
+  ],
+  "servers": [
+    {
+      "url": "https://{host}",
+      "description": "Your UMAI address; the console shows it under API & SDKs.",
+      "variables": {
+        "host": {
+          "default": "umai.example"
+        }
+      }
+    }
+  ]
+}

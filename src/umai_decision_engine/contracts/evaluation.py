@@ -28,79 +28,148 @@ _ACCEPTED_REQUEST_VERSIONS = Literal[
 
 
 class ChatMessage(ContractModel):
-    role: Literal["system", "user", "assistant"]
-    content: str
+    role: Literal["system", "user", "assistant"] = Field(description="Who wrote the message.")
+    content: str = Field(description="The message text.")
 
 
 class Artifact(ContractModel):
     artifact_type: Literal[
         "TOOL_INPUT", "TOOL_OUTPUT", "MCP_REQUEST", "MCP_RESPONSE", "MEMORY_WRITE", "CUSTOM"
-    ] = "CUSTOM"
-    name: str | None = None
-    payload_summary: str | None = None
-    content: str | None = None
-    content_type: Literal["text", "markdown", "json"] = "text"
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    ] = Field("CUSTOM", description="What the artifact is: a tool call, a tool result, ...")
+    name: str | None = Field(None, description="The artifact's name, e.g. a file or tool name.")
+    payload_summary: str | None = Field(
+        None, description="A short text summary of the artifact; scanned like content."
+    )
+    content: str | None = Field(None, description="The artifact's text; scanned.")
+    content_type: Literal["text", "markdown", "json"] = Field(
+        "text", description="Format of `content`."
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict, description="Your own key-value pairs; never interpreted."
+    )
 
 
 class Content(ContractModel):
-    messages: list[ChatMessage] = Field(min_length=1)
-    focus: Literal["LAST_USER_MESSAGE", "LAST_ASSISTANT_MESSAGE"]
-    artifacts: list[Artifact] = Field(default_factory=list)
-    content_type: Literal["text", "markdown", "json"] = "text"
-    language: str | None = Field(None, max_length=8)
+    messages: list[ChatMessage] = Field(
+        min_length=1,
+        description="The conversation, oldest first. The guardrail decides which part is "
+        "scanned; by default the last message.",
+    )
+    focus: Literal["LAST_USER_MESSAGE", "LAST_ASSISTANT_MESSAGE"] = Field(
+        description="The message being checked: the prompt (`LAST_USER_MESSAGE`) or the "
+        "model's answer (`LAST_ASSISTANT_MESSAGE`)."
+    )
+    artifacts: list[Artifact] = Field(
+        default_factory=list, description="Tool calls, tool results, files or memory writes."
+    )
+    content_type: Literal["text", "markdown", "json"] = Field(
+        "text", description="Format of the messages."
+    )
+    language: str | None = Field(
+        None,
+        max_length=8,
+        description="ISO 639-1 language hint, e.g. `tr` or `en`; detected when absent.",
+    )
 
 
 class Subject(ContractModel):
-    user_id: str | None = None
-    role: str | None = None
-    department: str | None = None
-    agent_id: str | None = None
-    session_id: str | None = None
+    user_id: str | None = Field(
+        None, description="Your id for the person; use a pseudonym, not an e-mail address."
+    )
+    role: str | None = Field(None, description="The person's role, e.g. `sales`.")
+    department: str | None = Field(None, description="The person's department.")
+    agent_id: str | None = Field(None, description="Your id for the AI agent acting.")
+    session_id: str | None = Field(None, description="Your id for the conversation.")
 
 
 class Destination(ContractModel):
-    app: str | None = None
-    class_: DestinationClass = Field(DestinationClass.UNKNOWN, alias="class")
+    app: str | None = Field(None, description="Where the content goes, e.g. `chatgpt.com`.")
+    class_: DestinationClass = Field(
+        DestinationClass.UNKNOWN, alias="class", description="The kind of destination."
+    )
 
 
 class AgentAction(ContractModel):
-    name: str | None = None
-    tool_name: str | None = None
-    server_name: str | None = None
-    method: str | None = None
-    memory_scope: str | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    name: str | None = Field(
+        None,
+        description="The action's name. Required for `TOOL_INPUT`, `MCP_REQUEST` and "
+        "`MEMORY_WRITE`.",
+    )
+    tool_name: str | None = Field(None, description="The tool called; required for `TOOL_INPUT`.")
+    server_name: str | None = Field(None, description="The MCP server; required for `MCP_REQUEST`.")
+    method: str | None = Field(None, description="The MCP method; required for `MCP_REQUEST`.")
+    memory_scope: str | None = Field(
+        None, description="The memory written to; required for `MEMORY_WRITE`."
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict, description="Your own key-value pairs; never interpreted."
+    )
 
 
 class BundleRef(ContractModel):
-    id: str = Field(min_length=1)
-    version: int | None = Field(None, ge=1)  # None → the bundle's active version
+    id: str = Field(min_length=1, description="The guardrail's id.")
+    version: int | None = Field(  # None → the bundle's active version
+        None,
+        ge=1,
+        description="A published version; omitted: the active version. Not allowed with an "
+        "application's key.",
+    )
 
 
 class Flags(ContractModel):
-    allow_model_calls: bool = True
-    trace: bool = False
+    allow_model_calls: bool = Field(
+        True,
+        description="`false` skips decision-model policies (faster); the answer is then "
+        "`degraded` if one applied.",
+    )
+    trace: bool = Field(False, description="Include the per-layer `trace` in the answer.")
 
 
 class EvaluationRequest(ContractModel):
-    contract_version: _ACCEPTED_REQUEST_VERSIONS
-    request_id: str = Field(min_length=1, max_length=128)
-    timestamp: datetime
+    contract_version: _ACCEPTED_REQUEST_VERSIONS = Field(
+        description=f"Version of the request shape; send `{CONTRACT_VERSION}`."
+    )
+    request_id: str = Field(
+        min_length=1, max_length=128, description="Your id for this call; echoed in the answer."
+    )
+    timestamp: datetime = Field(description="When you made the call (RFC 3339).")
     # 0.6: optional; the credential's tenant is authoritative and fills it (ADR-0023 §5).
     # Required when the caller uses the shared operator token (self-hosted, ADR-0016).
-    tenant_id: str | None = Field(None, min_length=1, max_length=128)
+    tenant_id: str | None = Field(
+        None,
+        min_length=1,
+        max_length=128,
+        description="Leave it out: the key says whose request it is. If sent, it must be the "
+        "key's organization.",
+    )
     # 0.10: optional for a key that belongs to an application, whose guardrail applies; required
     # otherwise (ADR-0039 §2).
-    bundle: BundleRef | None = None
-    bundle_inline: PolicyBundle | None = None
-    phase: Phase
-    content: Content
-    subject: Subject = Field(default_factory=Subject)
-    destination: Destination = Field(default_factory=Destination)
-    action: AgentAction | None = None
-    timeout_ms: int | None = Field(None, ge=50, le=60_000)
-    flags: Flags = Field(default_factory=Flags)
+    bundle: BundleRef | None = Field(
+        None,
+        description="The guardrail to evaluate against. Leave it out with an application's "
+        "key: the application's guardrail applies.",
+    )
+    bundle_inline: PolicyBundle | None = Field(  # development only: not in the public docs
+        None, json_schema_extra={"x-umai-internal": True}
+    )
+    phase: Phase = Field(description="What is being checked; see the phases table.")
+    content: Content = Field(description="The content to check.")
+    subject: Subject = Field(
+        default_factory=Subject, description="Who acts; facts the guardrail's policies can use."
+    )
+    destination: Destination = Field(
+        default_factory=Destination, description="Where the content goes."
+    )
+    action: AgentAction | None = Field(
+        None, description="The agent's action, for the agent phases."
+    )
+    timeout_ms: int | None = Field(
+        None,
+        ge=50,
+        le=60_000,
+        description="Time budget for the whole evaluation in milliseconds; capped by the service.",
+    )
+    flags: Flags = Field(default_factory=Flags, description="Options for this call.")
 
 
 # ------------------------------------------------------------------ response
@@ -111,88 +180,125 @@ class MatchedRule(ContractModel):
     L0 exception, an L1a rule or an L1b decision policy (0.12). Ids and versions only, never
     content."""
 
-    kind: Literal["l0_policy", "l0_on_detect", "l0_exception", "l1a_rule", "l1b_policy"]
-    id: str
-    version: int | None = None
-    name: str | None = None
-    action: Action
-    entities: list[str] = Field(default_factory=list)
+    kind: Literal["l0_policy", "l0_on_detect", "l0_exception", "l1a_rule", "l1b_policy"] = Field(
+        description="What matched: a data-protection policy (`l0_policy`), an exception "
+        "(`l0_exception`), a rule (`l1a_rule`) or a decision-model policy (`l1b_policy`)."
+    )
+    id: str = Field(description="The policy's, exception's or rule's id.")
+    version: int | None = Field(None, description="The policy's version, when it has one.")
+    name: str | None = Field(None, description="The policy's display name.")
+    action: Action = Field(description="The action this match asked for.")
+    entities: list[str] = Field(
+        default_factory=list, description="Entity types involved, e.g. `TR_TCKN`."
+    )
 
 
 class Decision(ContractModel):
-    action: Action
-    allowed: bool
-    severity: Severity
-    reason: str
-    decided_by: Literal["L0", "L1a", "L1b", "pipeline"]
+    action: Action = Field(description="What to do; see acting on a decision.")
+    allowed: bool = Field(description="`true` when the content may go on (perhaps masked).")
+    severity: Severity = Field(description="How serious the finding is.")
+    reason: str = Field(
+        description="Short explanation with entity types and ids, never the content."
+    )
+    decided_by: Literal["L0", "L1a", "L1b", "pipeline"] = Field(
+        description="Which layer decided: `L0` data protection, `L1a` rules, `L1b` decision "
+        "model, `pipeline` the guardrail's failure policy."
+    )
     # Strictest first; empty when no rule applied (e.g. failure policy, nothing detected).
-    matched: list[MatchedRule] = Field(default_factory=list)
+    matched: list[MatchedRule] = Field(
+        default_factory=list, description="What produced the decision, strictest first."
+    )
 
 
 class Tag(ContractModel):
-    code: str
-    layer: Layer
-    score: float | None = None
-    probability: float | None = None
-    policy_id: str | None = None
-    policy_version: int | None = None
-    rule_id: str | None = None
+    code: str = Field(description="What was found, e.g. `data.pii.tr_tckn`.")
+    layer: Layer = Field(description="The layer that found it.")
+    score: float | None = Field(None, description="Detection confidence (0–1), for `L0`.")
+    probability: float | None = Field(
+        None, description="The decision model's probability (0–1), for `L1b`."
+    )
+    policy_id: str | None = Field(None, description="The policy that produced the tag.")
+    policy_version: int | None = Field(None, description="That policy's version.")
+    rule_id: str | None = Field(None, description="The rule that produced the tag.")
 
 
 class OutputModifications(ContractModel):
-    redacted_text: str
-    entities: list[str]
+    redacted_text: str = Field(
+        description="The scanned text with the listed entity types replaced by placeholders "
+        "such as `<TR_TCKN_1>`; send this instead of the original."
+    )
+    entities: list[str] = Field(description="The entity types that were replaced.")
 
 
 class BundleInfo(ContractModel):
-    id: str
-    version: int | None = None
-    mode: Mode | None = None
-    sha256: str | None = None
+    id: str = Field(description="The guardrail's id.")
+    version: int | None = Field(None, description="The guardrail version that decided.")
+    mode: Mode | None = Field(
+        None, description="`ENFORCE`, or `MONITOR` (decisions are recorded, never enforced)."
+    )
+    sha256: str | None = Field(None, description="Hash of that exact guardrail version.")
 
 
 class LatencyMs(ContractModel):
-    total: float
-    l0: float | None = None
-    l1a: float | None = None
-    l1b: float | None = None
+    total: float = Field(description="Time spent in UMAI for this call, in milliseconds.")
+    l0: float | None = Field(None, description="Data protection (entity detection).")
+    l1a: float | None = Field(None, description="Rules.")
+    l1b: float | None = Field(None, description="Decision-model policies.")
 
 
 class TraceEntry(ContractModel):
-    layer: Layer
-    outcome: str
-    latency_ms: float
-    provider: str | None = None
-    model: str | None = None
-    prompt: str | None = None
+    layer: Layer = Field(description="The layer.")
+    outcome: str = Field(description="What the layer concluded.")
+    latency_ms: float = Field(description="Time the layer took, in milliseconds.")
+    provider: str | None = Field(None, description="Decision-model provider, for `L1b`.")
+    model: str | None = Field(None, description="Decision model, for `L1b`.")
+    prompt: str | None = Field(None, description="Reserved.")
 
 
 class ErrorInfo(ContractModel):
-    layer: Layer
-    type: str
-    message: str | None = None
-    retryable: bool | None = None
+    layer: Layer = Field(description="Where the failure happened.")
+    type: str = Field(description="Failure type, e.g. `L1B_TIMEOUT`; see the error catalogue.")
+    message: str | None = Field(None, description="Explanation; never contains content.")
+    retryable: bool | None = Field(None, description="A retry may succeed.")
 
 
 class EvaluationResponse(ContractModel):
     contract_version: Literal[
         "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "0.10", "0.11", "0.12"
-    ] = CONTRACT_VERSION
-    request_id: str
-    tenant_id: str
-    bundle: BundleInfo
-    phase: Phase
-    decision: Decision
-    would_have: Decision | None = None
-    degraded: bool = False
-    tags: list[Tag] = Field(default_factory=list)
-    entities: list[EntitySummary] = Field(default_factory=list)
-    output_modifications: OutputModifications | None = None
-    event_id: str
-    review_queued: bool = False
-    latency_ms: LatencyMs
-    trace: list[TraceEntry] | None = None
-    errors: list[ErrorInfo] = Field(default_factory=list)
+    ] = Field(CONTRACT_VERSION, description="Version of the answer's shape.")
+    request_id: str = Field(description="Your `request_id`.")
+    tenant_id: str = Field(description="Your organization's id.")
+    bundle: BundleInfo = Field(description="The exact guardrail version that decided.")
+    phase: Phase = Field(description="The phase you sent.")
+    decision: Decision = Field(description="The decision to act on.")
+    would_have: Decision | None = Field(
+        None,
+        description="In `MONITOR` mode: what `ENFORCE` would have decided; `decision` is then "
+        "`ALLOW`.",
+    )
+    degraded: bool = Field(
+        False,
+        description="A part of the evaluation failed and the guardrail's failure policy was "
+        "applied; details in `errors`.",
+    )
+    tags: list[Tag] = Field(default_factory=list, description="What was found.")
+    entities: list[EntitySummary] = Field(
+        default_factory=list, description="Entity types found with counts; never values."
+    )
+    output_modifications: OutputModifications | None = Field(
+        None, description="The masked text, when the action is `ALLOW_WITH_MODIFICATIONS`."
+    )
+    event_id: str = Field(
+        description="Id of the recorded decision; quote it when you contact support."
+    )
+    review_queued: bool = Field(False, description="Reserved; always `false`.")
+    latency_ms: LatencyMs = Field(description="Time spent, in milliseconds.")
+    trace: list[TraceEntry] | None = Field(
+        None, description="Per-layer trace, when you sent `flags.trace`."
+    )
+    errors: list[ErrorInfo] = Field(
+        default_factory=list, description="Failures inside the evaluation; empty normally."
+    )
 
 
 # ------------------------------------------------------------------ development endpoints
@@ -250,6 +356,18 @@ def input_size(content: Content) -> int:
     return sum(len(m.content) for m in content.messages) + sum(
         len(a.payload_summary or "") + len(a.content or "") for a in content.artifacts
     )
+
+
+class ErrorDetail(ContractModel):
+    error: str = Field(description="Stable error code; see the error catalogue.")
+    detail: str = Field(description="Explanation; never contains request content.")
+
+
+class ErrorBody(ContractModel):
+    """Admission and request refusals (evaluation API 0.6): the shape every 4xx shares;
+    413, 422 ``invalid_request`` and 429 ``quota_exceeded`` add fields (models below)."""
+
+    detail: ErrorDetail
 
 
 class InputTooLargeDetail(ContractModel):

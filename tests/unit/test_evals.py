@@ -8,11 +8,13 @@ import json
 import pytest
 
 import evals.common
+from evals import stack, stubs
 from evals.baselines import naive_regex
 from evals.common import L0_DATASET, load_cases
 from evals.datasets import generate_l0_pii_tr as generator
 from evals.metrics import Scores, Span, TypeScore, match_case, overlap_ratio
-from evals.suites import l0_pii_tr, leak
+from evals.suites import l0_pii_tr, leak, leak_errors, load
+from umai_decision_engine.policy.store import parse_bundle
 
 # ------------------------------------------------------------------ metrics
 
@@ -121,3 +123,91 @@ def test_l0_suite_writes_a_summary_without_text(reports) -> None:
 def test_leak_suite_passes(reports) -> None:
     directory = leak.run(_args())
     assert "## Verdict: PASS" in (directory / "summary.md").read_text(encoding="utf-8")
+
+
+# ------------------------------------------------------------------ S0 measurements
+
+
+def test_error_paths_reach_every_refusal_without_leaks(detector) -> None:
+    """The leak suite's error part (launch plan S0-4) reaches the refusals it claims, so a
+    probe that silently lands elsewhere (another status, another code) is noticed."""
+
+    cases = [c for c in load_cases(L0_DATASET, "dev") if c["expected"]]
+    probes = leak_errors.run_error_paths(cases, detector)
+    assert not [p.label for p in probes if p.leaked]
+    reached = {(p.surface, p.status, p.code) for p in probes}
+    expected = {
+        ("engine", 401, "invalid_credential"),
+        ("engine", 403, "tenant_mismatch"),
+        ("engine", 403, "insufficient_scope"),
+        ("engine", 403, "ip_not_allowed"),
+        ("engine", 403, "guardrail_mismatch"),
+        ("engine", 413, "input_too_large"),
+        ("engine", 422, "invalid_request"),
+        ("engine", 422, "bundle_required"),
+        ("engine", 429, "rate_limited"),
+        ("engine", 429, "quota_exceeded"),
+        ("engine", 429, "too_many_failed_attempts"),
+        ("gateway", 401, "invalid_credential"),
+        ("gateway", 403, "ip_not_allowed"),
+        ("gateway", 400, "invalid_request"),
+        ("gateway", 400, "umai_blocked"),
+        ("gateway", 413, "request_too_large"),
+        ("gateway", 429, "quota_exceeded"),
+        ("gateway", 502, "upstream_unreachable"),
+        ("gateway", 504, "upstream_timeout"),
+        ("policy", 422, "invalid_request"),
+    }
+    assert expected <= reached, sorted(expected - reached)
+    assert {p.status for p in probes if "500" in p.label} == {500}
+
+
+def test_error_probes_count_raw_values_and_content_echoes() -> None:
+    values = leak_errors.Values({"TR_TCKN": ["10000000146"], "TR_IBAN": ["TR33 0006 1005"]})
+    assert values.found("id 10000000146") == ["TR_TCKN"]
+    assert values.found("iban 3300061005") == ["TR_IBAN"]  # its digits are a form too
+    assert values.found("0006 1005") == []
+    passed = leak_errors.Probe("gateway", "x", 400, "e", response=["TR_TCKN"], passthrough=True)
+    own = leak_errors.Probe("gateway", "x", 400, "e", echo=True)
+    assert not passed.leaked and own.leaked
+
+
+def test_load_bundle_enforces_two_policies_through_the_stub() -> None:
+    bundle = parse_bundle(stack.LocalStack.l1b_bundle_yaml().encode("utf-8"))
+    assert bundle.id == stack.L1B_BUNDLE and bundle.l1b.provider == "stub"
+    enforced = {p.id for p in bundle.l1b.policies if p.enforcement == "enforce"}
+    assert enforced == set(stack.L1B_ENFORCED)
+    assert len(bundle.l1b.policies) > len(enforced)  # the rest run in shadow
+    assert bundle.l1b.timeout_ms == stack.L1B_TIMEOUT_MS
+
+
+def test_stub_provider_answers_every_question_benignly() -> None:
+    questions = [
+        {"type": "choice", "name": "c", "choices": [{"value": "attack"}, {"value": "general"}]},
+        {"type": "score", "name": "s", "levels": [{"label": "none"}, {"label": "high"}]},
+        {"type": "predicate", "name": "p"},
+    ]
+    answers = [stubs._answer(q) for q in questions]
+    assert answers[0]["choice"] == "general" and answers[1]["score"] == 0
+    assert answers[2]["probability"] < 0.5
+    assert [a["name"] for a in answers] == ["c", "s", "p"]
+
+
+def test_load_texts_are_unique_and_sized() -> None:
+    texts = load.Texts(1000)
+    batch = [texts.next() for _ in range(500)]
+    assert len(set(batch)) == len(batch)  # no L0 cache hit (ADR-0037)
+    assert {len(t) for t in batch} == {1000}
+
+
+def test_load_capacity_ignores_steps_with_degraded_answers() -> None:
+    """A saturated step can answer 200 with a failure-policy decision (an L1b call past its
+    timeout): that is overload, not capacity."""
+
+    fast, clean = load.Step("evaluate-l1b", "c=32", 10.0), load.Step("evaluate-l1b", "c=4", 10.0)
+    for _ in range(600):
+        fast.record((200, None, "BLOCK!"), 900.0)
+    for _ in range(400):
+        clean.record((200, None, "ALLOW"), 40.0)
+    assert fast.degraded == 600 and fast.actions == {"BLOCK": 600}
+    assert load._best([fast, clean], "evaluate-l1b") is clean

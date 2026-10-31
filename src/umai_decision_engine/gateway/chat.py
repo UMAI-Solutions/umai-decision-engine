@@ -34,6 +34,7 @@ from umai_decision_engine.contracts.gateway import (
     Route,
     UmaiDecisionInfo,
 )
+from umai_decision_engine.gateway import openapi
 from umai_decision_engine.gateway.content import (
     ContentError,
     Segment,
@@ -375,7 +376,7 @@ def refusal_error(call: Call, check: Check) -> GatewayHTTPError:
 # ------------------------------------------------------------------ the call
 
 
-@router.get("/v1/models")
+@router.get("/v1/models", tags=["AI gateway"], **openapi.MODELS)
 async def list_models(request: Request) -> Response:
     """The application's ``models`` and alias names; without either, its provider's own list."""
 
@@ -413,7 +414,7 @@ async def list_models(request: Request) -> Response:
     )
 
 
-@router.post("/v1/chat/completions")
+@router.post("/v1/chat/completions", tags=["AI gateway"], **openapi.CHAT_COMPLETIONS)
 async def chat_completions(request: Request) -> Response:
     started = time.perf_counter()
     request_id = (request.headers.get("x-umai-request-id") or "")[:128] or f"gw-{uuid.uuid4().hex}"

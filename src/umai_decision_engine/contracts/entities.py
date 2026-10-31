@@ -19,9 +19,9 @@ class DetectedEntity(ContractModel):
 
 
 class EntitySummary(ContractModel):
-    type: str
-    count: int = Field(ge=0)
-    distinct: int = Field(ge=0)
+    type: str = Field(description="Entity type, e.g. `TR_TCKN`.")
+    count: int = Field(ge=0, description="How often it occurs.")
+    distinct: int = Field(ge=0, description="How many different values occur.")
 
 
 class EntityDetectionResult(ContractModel):

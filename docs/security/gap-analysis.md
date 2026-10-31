@@ -37,6 +37,21 @@ log). Rows this moves: 16.2.1–16.2.4 and 16.3.1–16.3.4 (who/what/when and fa
 for configuration changes; process logs unchanged), CC7.1 (configuration changes detected).
 Still open: hash chain, SIEM export, 401s, the engine API's control endpoints.
 
+**Update 2026-10-31 (Stage 0 measurements, launch plan S0-2, S0-3, S0-4, S0-15):** the leak suite
+probes every error path of the engine API, the gateway and the policy service (150 probes:
+admission refusals, malformed requests, guardrail refusals, upstream failures, injected crashes,
+a walk over every policy-service route with a body or query parameters) and the access line
+uvicorn writes for each. It found two leaks, both fixed: the policy service's FastAPI default 422
+repeated the input (a guardrail draft, billing details, a search term) — now location and type
+only (`control_plane/errors.py`, organizations 0.6, readiness L1 for both services); and uvicorn's
+access line carried the query string (the decision search `q`) — now the path only
+(`telemetry/logging.py`). Revocation was measured end to end on separate processes, idle and under
+load (`revocation` suite, `tests/integration/test_revocation.py`), admission step by step
+(`l0-latency`), throughput per endpoint (`load`). Rows this moves: 6.5.6 and API2 (revocation
+**holds**, worst 5.9 s end to end, idle and under load: one 5 s registry poll plus the policy service's answer), 16.2.5 and 16.5.1 (**hold** for the policy
+service and the access log too), API4 (a load test exists; the run on the VM is planned,
+`workflow/load-test-beta.md`). Still open: the same measurements on the VM itself.
+
 ## 1. Where the code stands (facts, not judgements)
 
 | Area | Evidence |
@@ -105,10 +120,10 @@ Still open: hash chain, SIEM export, 401s, the engine API's control endpoints.
 |---|---|---|---|---|---|
 | 16.1.1 | 2 | Log inventory per layer (events, formats, storage, retention) | partial | `docs/architecture/overview.md` principles; no inventory | ADR-0030 §6 |
 | 16.2.1–16.2.4 | 2 | When/where/who/what, UTC, documented sinks, correlatable format | partial | configuration changes: audit events with who/what/when (UTC), target and request id (ADR-0045, 2026-10-30); process logs still plain text | ADR-0030 §6 |
-| 16.2.5 | 2 | Sensitive data never logged; hash or mask | **holds** | leak suite, readiness C1; Presidio logger clamped | keep; extend to traces |
+| 16.2.5 | 2 | Sensitive data never logged; hash or mask | **holds** | leak suite (since 2026-10-31 over every error path and the access line), readiness C1; Presidio logger clamped; access lines without query strings | keep; extend to traces |
 | 16.3.1–16.3.4 | 2 | Log authentication attempts, failed authorization, control bypasses, unexpected errors | partial | `l0.failed`, `config_failure` logged; failed authorization in the policy service recorded as `denied` audit events (ADR-0045, 2026-10-30); 401s not logged; sign-in attempts only at the identity service | ADR-0030 §1 |
 | 16.4.1–16.4.3 | 2 | Encode log data, protect logs, ship to a separate system | **missing** | stdout only; no pipeline | launch plan S0 |
-| 16.5.1 | 2 | Generic error messages, no internals | holds | mapped error kinds; 422 without input (`api/errors.py`, readiness L1 green 2026-10-19) | — |
+| 16.5.1 | 2 | Generic error messages, no internals | holds | mapped error kinds; 422 without input (`api/errors.py`, readiness L1 green 2026-10-19; the policy service since 2026-10-31, `control_plane/errors.py`); every error path probed by the leak suite (S0-4) | — |
 | 16.5.2, 16.5.3 | 2 | Fail securely, no fail-open | **holds** | failure policy explicit (`pipeline/failure.py`), `L1_NOT_IMPLEMENTED` never allows silently | — |
 
 ### Data protection and cryptography (V11, V12, V14)

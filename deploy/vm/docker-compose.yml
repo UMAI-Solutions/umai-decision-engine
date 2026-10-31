@@ -7,6 +7,11 @@
 #   console :3100    umai-control-center         (internal network only)
 #   gateway :9300    UMAI gateway, OpenAI-compatible (profile "gateway": UMAI_GATEWAY=true)
 #   postgres :5432   tenant store with row-level security (ADR-0025); internal only
+#
+# Deploys replace engine, policy, gateway and console without downtime (ADR-0052): umai.sh starts
+# the new container beside the old one, waits for its health check and stops the old one, which
+# finishes its requests; Caddy finds the containers of a service in Docker's DNS. So these
+# services have no container_name, no fixed address and no ports.
 
 name: umai
 
@@ -34,15 +39,18 @@ x-engine-env: &engine-env
 
 services:
   seed:
-    # One-shot: fills an empty policy volume from the image and signs it with the deployment key.
+    # One-shot: fills an empty policy volume from the image and signs it with the deployment key,
+    # and copies the image's API documentation to the volume Caddy serves (ADR-0054).
     build: { context: ../.., dockerfile: Dockerfile }
     image: umai-decision-engine:current
-    command: ["sh", "/app/deploy/seed-policies.sh"]
+    command: ["sh", "-c", "sh /app/deploy/seed-docs.sh && exec sh /app/deploy/seed-policies.sh"]
     environment:
       UMAI_SIGNING_KEY_ID: ${UMAI_SIGNING_KEY_ID:?set in config.env}
     volumes:
       - policies:/data/policies
+      - docs:/data/docs
       - ./seed-policies.sh:/app/deploy/seed-policies.sh:ro
+      - ./seed-docs.sh:/app/deploy/seed-docs.sh:ro
       - "${UMAI_RUN_DIR:-/run/umai}/signing.key:/run/secrets/signing.key:ro"
     restart: "no"
     logging: *logging
@@ -89,6 +97,8 @@ services:
       interval: 15s
       timeout: 5s
       start_period: 60s
+      start_interval: 2s  # a deploy goes on as soon as the new container is ready (ADR-0052)
+    stop_grace_period: 30s  # to finish its requests and flush its records when it is replaced
     read_only: true
     tmpfs: [/tmp]
     mem_limit: 900m
@@ -123,6 +133,8 @@ services:
       interval: 15s
       timeout: 5s
       start_period: 60s
+      start_interval: 2s  # a deploy goes on as soon as the new container is ready (ADR-0052)
+    stop_grace_period: 30s  # to finish its requests and flush its records when it is replaced
     read_only: true
     tmpfs: [/tmp]
     mem_limit: 900m
@@ -153,6 +165,8 @@ services:
       interval: 15s
       timeout: 5s
       start_period: 60s
+      start_interval: 2s  # a deploy goes on as soon as the new container is ready (ADR-0052)
+    stop_grace_period: 5m  # a replaced gateway finishes its streams (longer ones are cut)
     read_only: true
     tmpfs: [/tmp]
     mem_limit: 900m
@@ -163,8 +177,10 @@ services:
     build: { context: "${UMAI_CONSOLE_SRC:-/opt/umai/src/umai-control-center}" }
     image: umai-control-center:current
     environment:
-      UMAI_ENGINE_URL: http://engine:9100
-      UMAI_CONTROL_URL: http://policy:9200
+      # Through Caddy's internal listeners (not published): during a deploy the console's calls
+      # get Caddy's retries and never a kept connection to a stopping container (ADR-0052).
+      UMAI_ENGINE_URL: http://caddy:9100
+      UMAI_CONTROL_URL: http://caddy:9200
       UMAI_ENGINE_TIMEOUT_MS: "10000"
       UMAI_CONSOLE_TENANT_ID: ${UMAI_CONSOLE_TENANT_ID:-console}
       # Sign-in (ADR-0024) and organizations (ADR-0033); secrets in console.env (umai.sh).
@@ -181,6 +197,14 @@ services:
     depends_on:
       engine: { condition: service_healthy }
       policy: { condition: service_healthy }
+    healthcheck:
+      # A public brand file: served by the Node server without a session or a backend call.
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3100/brand/umai-symbol.svg').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      start_period: 60s
+      start_interval: 2s
+    stop_grace_period: 30s  # Next.js finishes its requests on SIGTERM
     read_only: true
     tmpfs: [/tmp, /app/.next/cache]
     mem_limit: 512m
@@ -188,18 +212,24 @@ services:
     logging: *logging
 
   caddy:
-    image: caddy:2.10-alpine
+    # 2.11.4 or later: a retried request keeps its body (zero-downtime deploys, ADR-0052).
+    image: caddy:2.11.7-alpine
     ports: ["80:80", "443:443", "443:443/udp"]
     environment:
       UMAI_HOSTNAME: ${UMAI_HOSTNAME:?set in config.env}
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - "${UMAI_RUN_DIR:-/run/umai}/console-gate.caddy:/run/umai/console-gate.caddy:ro"
+      # One directory, written by umai.sh: the Caddyfile and the console gate. A change takes
+      # effect with `caddy reload` (a single-file mount would need a restart; ADR-0052).
+      - "${UMAI_RUN_DIR:-/run/umai}/caddy:/etc/caddy:ro"
       - caddy_data:/data
       - caddy_config:/config
+      - docs:/srv/docs:ro  # the API documentation (ADR-0054), written by the seed
     networks:
       default:
         ipv4_address: 172.30.240.2  # the trusted proxy (UMAI_DE_TRUSTED_PROXIES above)
+    # A new connection per proxied request (Caddyfile, ADR-0052): reuse ports in TIME_WAIT.
+    sysctls:
+      net.ipv4.tcp_tw_reuse: 1
     depends_on: [engine, console]
     mem_limit: 256m
     restart: unless-stopped
@@ -218,6 +248,7 @@ networks:
 
 volumes:
   policies:
+  docs:
   postgres:
   caddy_data:
   caddy_config:

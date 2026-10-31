@@ -10,14 +10,14 @@ without one of these is a claim, not a control.
 
 | Id | Control | Test | Where | Today |
 |---|---|---|---|---|
-| C1 | No raw content in logs or response metadata (ADR-0005) | Evaluate synthetic PII with DEBUG logging captured; assert no raw value in logs or response | `tests/readiness/test_saas_readiness.py::test_c1_*`; `python -m evals.run --suite leak` | **green** |
+| C1 | No raw content in logs or response metadata (ADR-0005) | Evaluate synthetic PII with DEBUG logging captured; assert no raw value in logs or response; since 2026-10-31 also every 4xx/5xx answer of the engine API, the gateway and the policy service and what they log (error paths) | `tests/readiness/test_saas_readiness.py::test_c1_*`; `python -m evals.run --suite leak` (error paths: `evals/suites/leak_errors.py`, run in CI by `tests/unit/test_evals.py`) | **green** |
 | C2 | Distinct HMAC key per tenant | `Settings.tenant_key(a) != tenant_key(b)` | readiness C2 | **green** |
 | T1 | Credential tenant = body tenant, else 403 (ADR-0023) | Key of tenant A, body `tenant-b` → 403 `tenant_mismatch` | readiness T1; `tests/integration/test_api_keys.py` | **green** (2026-10-18) |
-| T2 | Oversized input → 413, nothing scanned (ADR-0019 §4) | 700 kB body → expect 413 | readiness T2 | **red** (xfail, GAP-T2) |
-| L1 | Validation errors never echo content | Missing `timestamp` with PII in content → 422 without the value | readiness L1 | **red** (xfail, GAP-L1) |
-| A1 | Every configuration change names its actor (ADR-0030) | Activate a version → history entry has `actor` | readiness A1 | **red** (xfail, GAP-A1) |
+| T2 | Oversized input → 413, nothing scanned (ADR-0019 §4) | 700 kB body → expect 413 | readiness T2 | **green** (2026-10-19) |
+| L1 | Validation errors never echo content | Missing `timestamp` with PII in content → 422 without the value; the policy service: malformed body, invalid JSON, bad query parameter → 422 without the value | readiness L1 (`test_l1_*`, both services) | **green** (engine API 2026-10-19, policy service 2026-10-31) |
+| A1 | Every configuration change names its actor (ADR-0030) | Activate a version → history entry has `actor` | readiness A1 | **green** (2026-10-19) |
 | T3 | Key of tenant A cannot evaluate as tenant B; cannot reload | Cross calls → 403 | `test_api_keys.py::test_key_of_tenant_a_cannot_act_as_tenant_b`, `::test_scopes_are_enforced_per_route` | **green** for evaluate/reload; bundle *listing* per tenant waits for tenant-owned bundles (ADR-0025 §8) |
-| T4 | Revoked key refused within the poll interval | Revoke → 401 after reload | `test_api_keys.py::test_key_lifecycle_create_use_revoke` | **green** |
+| T4 | Revoked key refused within the poll interval; ≤ 10 s end to end (launch plan S0-2) | Revoke → 401 after reload; the engine API and the gateway refuse after their own background poll; end to end on separate processes, idle and under load | `test_api_keys.py::test_key_lifecycle_create_use_revoke`, `tests/integration/test_revocation.py`; `python -m evals.run --suite revocation` | **green** (measured 2026-10-31) |
 | T5 | Scope enforcement (`evaluate`-only key on `GET /v1/bundles` → 403) | `test_api_keys.py::test_scopes_are_enforced_per_route` | **green** |
 | T6 | Per-key rate limit → 429 with `Retry-After`, no decision | `test_api_keys.py::test_rate_limit_answers_429_with_retry_after` | **green** (in-process bucket; Redis in the regional stack) |
 | T7 | Wrong-region key → 403 `wrong_region` before content is read (ADR-0026) | with ADR-0026 | — |
@@ -29,8 +29,10 @@ without one of these is a claim, not a control.
 | Z1 | Permission matrix: each role × each endpoint; undeclared endpoint fails (ADR-0029) | with ADR-0029 | — |
 | Z2 | Four-eyes: publisher cannot activate own production version when required | with ADR-0029 | — |
 | E1 | Every mutating route emits exactly one audit event; event rows are insert-only; hash chain breaks on tampering (ADR-0030) | `tests/unit/test_audit_routes.py` (declaration walk), `tests/integration/test_audit_log.py` (refused-attempt walk, events per change), `test_isolation.py` (insert-only, ADR-0045) | partial (policy service green; hash chain and engine control endpoints open) |
-| E2 | Leak suite over decision events, audit events, JSON logs, span attributes, exports | extend `evals/suites/leak.py` | partial (logs, responses) |
+| E2 | Leak suite over decision events, audit events, JSON logs, span attributes, exports | extend `evals/suites/leak.py` | partial (logs, responses, stored records, every error answer of the three services; audit events, exports and spans open) |
 | M1 | Metering: decision events = usage counter = metered quantity over a test period (ADR-0028) | with ADR-0028 | — |
+| P1 | Admission within budget: p99 ≤ 1 ms per request (launch plan S0-15) | key, networks, throttle, rate limit, size, quota timed step by step | `python -m evals.run --suite l0-latency` | **green** on a laptop (2026-10-31); on the VM with the beta plan |
+| P2 | Throughput and p50/p95/p99 per endpoint; what the VM carries (launch plan S0-3) | closed-loop sweep on a local stack pinned like a B2s; open-loop rates against beta with a test tenant | `python -m evals.run --suite load`; `docs/workflow/load-test-beta.md` | partial (local 2026-10-31; beta run waits for the go-ahead) |
 | S1 | Dependency audit, SBOM, image scan in CI; no known critical CVE | `pip-audit` / npm audit gate, gitleaks, Trivy with CycloneDX SBOM in `supply-chain.yml` (both repositories); pins checked by `tests/unit/test_supply_chain.py` | **green** (2026-10-30; the console's Next.js 14 advisories are accepted until 2026-11-30, ADR-0049) |
 
 Rule for the readiness suite: a gap test is `xfail(strict=True)`. When the control lands, the
