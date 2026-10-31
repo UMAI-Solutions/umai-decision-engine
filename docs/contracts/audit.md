@@ -112,6 +112,11 @@ action.
 | `billing.checkout.complete` | `POST /v1/billing/checkouts/{id}/complete` | `checkout` | `status`, `edition` |
 | `billing.plan.change` | `POST /v1/billing/plan` | `subscription` | `edition`, `previous_edition` |
 | `billing.cancel` | `POST /v1/billing/cancel` | `subscription` | `edition` |
+| `webhook.create` | `POST /v1/webhooks/endpoints` | `webhook_endpoint` | `kind`, `event_types` (never the URL: a Slack webhook URL is a credential) |
+| `webhook.update` | `PATCH /v1/webhooks/endpoints/{id}` | `webhook_endpoint` | `enabled`, `event_types`, `url_changed` |
+| `webhook.delete` | `DELETE /v1/webhooks/endpoints/{id}` | `webhook_endpoint` | — |
+| `webhook.secret.rotate` | `POST /v1/webhooks/endpoints/{id}/secret` | `webhook_endpoint` | — (the secret never) |
+| `webhook.test` | `POST /v1/webhooks/endpoints/{id}/test` | `webhook_endpoint` | `outcome` |
 | `audit.export` | `GET /v1/audit-events/export` | `audit_log` | `rows`, and the export's filters |
 
 Without a `{"before", "after"}` pair a field did not change. A denied event names the target from

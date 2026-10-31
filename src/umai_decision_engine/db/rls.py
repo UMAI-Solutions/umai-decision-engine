@@ -23,6 +23,9 @@ TENANT_TABLES: tuple[str, ...] = (
     "subscriptions",
     "billing_checkouts",
     "billing_events",
+    "webhook_endpoints",  # ADR-0048
+    "webhook_messages",
+    "webhook_deliveries",
     "audit_events",
 )
 
@@ -32,6 +35,7 @@ APPEND_ONLY_TABLES: tuple[str, ...] = (
     "l1b_outcomes",
     "usage_events",
     "billing_events",  # ADR-0044: the billing history
+    "webhook_deliveries",  # ADR-0048: the delivery log
     "audit_events",  # ADR-0045: the audit log
 )
 

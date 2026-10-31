@@ -210,6 +210,44 @@ def _row(table: str, tenant_id: uuid.UUID, user_id: uuid.UUID | None = None) -> 
         }
     if table == "billing_events":
         return {**base, "kind": "checkout_started", "occurred_at": datetime.now(UTC)}
+    now = datetime.now(UTC)
+    if table == "webhook_endpoints":
+        return {
+            **base,
+            "url_sealed": "v1:AAAA",
+            "kind": "generic",
+            "event_types": ["decision.blocked"],
+            "enabled": True,
+            "enabled_since": now,
+            "secret_version": 1,
+            "consecutive_failures": 0,
+            "created_by": "person:test",
+        }
+    message = {"endpoint_id": uuid.uuid4(), "event_id": f"evt_{uuid.uuid4().hex}"}
+    if table == "webhook_messages":
+        return {
+            **base,
+            **message,
+            "event_type": "decision.blocked",
+            "dedupe_key": f"decision.blocked:{uuid.uuid4().hex}",
+            "occurred_at": now,
+            "data": {},
+            "status": "pending",
+            "attempts": 0,
+        }
+    if table == "webhook_deliveries":
+        return {
+            **base,
+            **message,
+            "message_id": uuid.uuid4(),
+            "event_type": "decision.blocked",
+            "attempt": 1,
+            "attempted_at": now,
+            "outcome": "failed",
+            "status_code": 503,
+            "error": "http_status",
+            "test": False,
+        }
     if table == "audit_events":
         return {
             **record,

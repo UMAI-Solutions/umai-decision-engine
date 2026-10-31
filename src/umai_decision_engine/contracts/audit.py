@@ -51,6 +51,11 @@ class AuditAction(StrEnum):
     BILLING_CHECKOUT_COMPLETE = "billing.checkout.complete"
     BILLING_PLAN_CHANGE = "billing.plan.change"
     BILLING_CANCEL = "billing.cancel"
+    WEBHOOK_CREATE = "webhook.create"
+    WEBHOOK_UPDATE = "webhook.update"
+    WEBHOOK_DELETE = "webhook.delete"
+    WEBHOOK_SECRET_ROTATE = "webhook.secret.rotate"
+    WEBHOOK_TEST = "webhook.test"
     AUDIT_EXPORT = "audit.export"
 
 
@@ -67,6 +72,7 @@ TargetType = Literal[
     "billing_account",
     "subscription",
     "checkout",
+    "webhook_endpoint",
     "audit_log",
 ]
 

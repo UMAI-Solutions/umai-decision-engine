@@ -234,6 +234,7 @@ _PATH_VALUES = {
     "application_id": "hr-assistant",
     "provider_id": "contoso",
     "checkout_id": "co-1",
+    "endpoint_id": "we-0000000000000000",
 }
 AUDITED = [
     r for r in router.routes if isinstance(r, APIRoute) and audit_action(r.dependant) is not None

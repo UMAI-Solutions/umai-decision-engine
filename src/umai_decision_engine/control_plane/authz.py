@@ -70,6 +70,9 @@ class Action(StrEnum):
     BILLING_READ = "billing.read"
     BILLING_MANAGE = "billing.manage"
     BILLING_COMPLETE = "billing.complete"  # the console's public return route: operator only
+    # webhooks (ADR-0048): see endpoints and the delivery log; add, change, test, delete
+    WEBHOOK_READ = "webhook.read"
+    WEBHOOK_MANAGE = "webhook.manage"
     # console sessions (ADR-0024 §2 amendment): the person's own sign-ins; the middleware's check
     ME_SESSIONS = "me.sessions"
     SESSION_START = "me.sessions.start"  # the one person call made before its session exists
@@ -141,6 +144,8 @@ MATRIX: dict[Action, Rule] = {
     Action.BILLING_READ: _r(_O, _A, _B, operator=True),
     Action.BILLING_MANAGE: _r(_O, _B),  # a purchase names a person (ADR-0023 §1)
     Action.BILLING_COMPLETE: _r(operator=True),
+    Action.WEBHOOK_READ: _r(_O, _A, operator=True),
+    Action.WEBHOOK_MANAGE: _r(_O, _A),  # sends organization data outward: a person is named
     Action.ME_SESSIONS: _SELF,
     Action.SESSION_START: _SESSION_START,
     Action.SESSION_CHECK: _r(operator=True),

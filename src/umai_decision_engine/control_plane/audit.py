@@ -98,6 +98,11 @@ TARGET: dict[AuditAction, TargetType] = {
     AuditAction.BILLING_CHECKOUT_COMPLETE: "checkout",
     AuditAction.BILLING_PLAN_CHANGE: "subscription",
     AuditAction.BILLING_CANCEL: "subscription",
+    AuditAction.WEBHOOK_CREATE: "webhook_endpoint",
+    AuditAction.WEBHOOK_UPDATE: "webhook_endpoint",
+    AuditAction.WEBHOOK_DELETE: "webhook_endpoint",
+    AuditAction.WEBHOOK_SECRET_ROTATE: "webhook_endpoint",
+    AuditAction.WEBHOOK_TEST: "webhook_endpoint",
     AuditAction.AUDIT_EXPORT: "audit_log",
 }
 
@@ -112,6 +117,7 @@ _TARGET_PARAM: dict[str, str] = {
     "application": "application_id",
     "provider": "provider_id",
     "checkout": "checkout_id",
+    "webhook_endpoint": "endpoint_id",
 }
 
 

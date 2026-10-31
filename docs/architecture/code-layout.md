@@ -78,6 +78,7 @@ umai-decision-engine/
 │   │   └── cli.py                 # keygen / validate / test / sign / verify
 │   ├── control_plane/             # ADR-0022 policy service: drafts, tests, publish, activate
 │   │   ├── records.py             # ADR-0041: read API over records, retention job (owner role)
+│   │   ├── webhooks.py            # ADR-0048: endpoints, the worker (records → events), delivery log
 │   │   ├── audit.py               # ADR-0045: audit route class, audit log store, CSV export
 │   │   ├── app.py                 # FastAPI app (port 9200), bearer token; every route authorized
 │   │   ├── authz.py               # ADR-0029 permission matrix, actor, tenant binding
@@ -86,6 +87,11 @@ umai-decision-engine/
 │   │   ├── service.py             # draft → validate → golden tests → publish; accepted cases
 │   │   ├── repository.py          # the only writer of the bundle source, per tenant; changelog
 │   │   └── drafts.py              # SQLite draft store
+│   ├── webhooks/                  # ADR-0048: how webhooks are sent (control_plane decides what)
+│   │   ├── keys.py                # derived signing secrets, X-Umai-Signature, URL encryption
+│   │   ├── guard.py               # SSRF guard: URL rules, address policy, pinned transport
+│   │   ├── sender.py              # one attempt: no redirects, timeouts, the answer never read
+│   │   └── slack.py               # Slack incoming-webhook message format
 │   ├── golden/
 │   │   └── runner.py              # ADR-0015: golden cases → BundleStore + Evaluator → report
 │   ├── tenancy/                   # planned (F6, ADR-0019): admission before the pipeline
@@ -139,7 +145,8 @@ umai-decision-engine/
 | `events` | `contracts`, `db` (the writer only, imported where records are enabled) | `l0`, `l1`, `pipeline`, `api`; L1b hands its outcomes to the pipeline through a callback |
 | `api` | `pipeline`, `contracts`, `settings` | layer internals |
 | `golden` | `pipeline`, `policy`, `l0` (detector construction), `contracts`, `settings` | `api`, `l2`; nothing on the request path imports `golden` |
-| `control_plane` | `golden`, `policy`, `contracts`, `l0` (detector for tests), `settings`, `db`, `events` (stored rows → records, for the read API) | `api`; the engine never imports it |
+| `control_plane` | `golden`, `policy`, `contracts`, `l0` (detector for tests), `settings`, `db`, `events` (stored rows → records, for the read API), `webhooks` | `api`; the engine never imports it |
+| `webhooks` (ADR-0048) | `contracts` | everything else; only `control_plane` imports it, and nothing on the request path |
 | `tenancy` (planned) | `contracts`, `policy` (signature verification), `settings` | `l0`, `l1`, `l2`, `pipeline`; it receives a content size, never content (the size is measured in `l0/size.py`) |
 | `export` (planned) | `contracts`, `events` | `l0`, `l1`, `pipeline`, `api` |
 | `gateway` (ADR-0034) | `pipeline`, `contracts`, `tenancy`, `settings`, `runtime` (its `ApplicationTable`) | `l1`, `l2`, `api`, `control_plane`; nothing imports `gateway` |
