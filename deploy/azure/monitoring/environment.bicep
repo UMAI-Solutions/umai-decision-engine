@@ -58,7 +58,8 @@ resource healthReporter 'Microsoft.Compute/virtualMachines/runCommands@2024-07-0
   location: location
   dependsOn: [agent]
   properties: {
-    source: { script: loadTextContent('health-report.sh') }
+    // Without CR: a checkout with CRLF line endings must not reach the VM's shell.
+    source: { script: replace(loadTextContent('health-report.sh'), '\r', '') }
     asyncExecution: false
     timeoutInSeconds: 300
     treatFailureAsDeploymentFailure: true
