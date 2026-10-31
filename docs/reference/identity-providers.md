@@ -1,7 +1,7 @@
 # Identity providers and auth brokers for the console (SSO, SCIM, audit, sign-in pages, organizations)
 
-**Last verified:** 2026-10-17 (comparison, Entra) and **2026-10-18** (section "Sign-in, onboarding
-and branding": Auth0 and Keycloak) · **Used by:** ADR-0024 (human identity plane), ADR-0026
+**Last verified:** 2026-10-17 (comparison, Entra), **2026-10-18** (section "Sign-in, onboarding
+and branding": Auth0 and Keycloak) and **2026-10-31** (Auth0 MFA, below) · **Used by:** ADR-0024 (human identity plane), ADR-0026
 (residency of account metadata), ADR-0033 (organizations and onboarding),
 [`architecture/sign-in-and-onboarding.md`](../architecture/sign-in-and-onboarding.md) ·
 Labels: see [README](README.md). Everything is a **vendor claim** from the vendor's own pages
@@ -195,12 +195,62 @@ before passkeys are enabled; Auth0's developer keys for social connections stop 
   forms. `event.organization` only in organization transactions. Pre-registration is blocking,
   post-registration asynchronous [act-limits], [entity-limits], [post-login-api],
   [post-login-event], [act-redirect], [claims], [forms], [pre-reg], [post-reg].
-- **MFA:** factors OTP, WebAuthn (security key, device biometrics), e-mail, SMS, voice, push,
-  recovery codes, Duo; passkeys are a first factor, not MFA. **Free has neither "Pro" nor
-  "Enterprise" MFA factors**; Essentials has Pro (Enterprise factors as an add-on); which factor
-  is in which tier is *unverified*. The ID token carries `amr: ["mfa"]` after a challenge and
-  **not after silent authentication or a refresh** [mfa-factors], [pricing], [mfa],
-  [mfa-actions], [step-up].
+- **MFA** (re-verified 2026-10-31 for ADR-0053):
+  - **Factors:** OTP, WebAuthn (security key, device biometrics), e-mail, SMS, voice, push,
+    recovery codes, Duo. Security keys, OTP, push, phone and Duo are *independent*; device
+    biometrics, e-mail and recovery codes are *dependent* (enabled only next to an independent
+    one). Recovery codes are off by default; when on, Universal Login shows one at enrolment and
+    replaces a used one [mfa-enable], [mfa-recovery].
+  - **Plans:** the pricing page lists "Pro MFA Factors" and "Enterprise MFA Factors" as not
+    available on **Free** (B2C and B2B); B2B Essentials includes Pro and offers Enterprise as an
+    add-on; Professional and Enterprise include both; Adaptive MFA is an Enterprise add-on
+    [pricing]. Which factor is Pro and which Enterprise: *unverified* (the docs only say some
+    factors need Professional or Enterprise [mfa]; a 2024 blog suggests SMS, push and voice are
+    the Enterprise ones [mfa-lite]). *Secondary:* an Auth0 forum answer of 2026-04 says factors
+    can be switched on in a Free tenant for testing and upgrade alerts follow after about three
+    months, without blocking sign-in [mfa-free].
+  - **Policy:** dashboard *Never*, *Use Adaptive MFA*, *Always* ("MFA is required for all
+    logins"); Management API `PUT /api/v2/guardian/policies` with `all-applications` /
+    `confidence-score` (scope `update:mfa_policies`); Terraform `auth0_guardian.policy`
+    `never` / `all-applications` / `confidence-score` [mfa-enable], [mfa-policy-api].
+    Whether *Always* asks again within one Auth0 session: not stated.
+  - **Remembered browsers:** "Allow user to skip MFA on trusted browsers" with idle (default
+    7 days) and maximum (default 30 days) lifetimes, API `/api/v2/guardian/settings`; switched
+    off tenant-wide or per transaction with an Action's `allowRememberBrowser: false`, which
+    prompts "each time they authenticate". `acr_values` with the multi-factor URI also overrides
+    a remembered browser [mfa-customize].
+  - **`amr` / `acr`:** the ID token carries `amr: ["mfa"]` (and `acr` with the multi-factor URI)
+    **only after an MFA challenge in that transaction**; not after `prompt=none`, a refresh token
+    or an MFA API token. After a remembered browser or a reused Auth0 session: *unverified*,
+    expected absent (no challenge ran) [step-up].
+  - **Step-up:** Auth0's guide for web applications sends
+    `acr_values=http://schemas.openid.net/pape/policies/2007/06/multi-factor` and uses a
+    post-login Action that reads `event.transaction.acr_values` and calls
+    `api.multifactor.enable("any", …)`; whether `acr_values` alone triggers MFA under policy
+    *Never*: *unverified*. `max_age` is supported and puts `auth_time` into the ID token
+    [step-up], [max-age].
+  - **Actions for MFA:** `api.multifactor.enable(provider, { allowRememberBrowser })`, providers
+    `any`, `guardian`, `google-authenticator`, `duo`, `none`; `allowRememberBrowser` defaults to
+    `false`. `challengeWith` / `enrollWith` (at most four per flow) need "Customize MFA Factors
+    using Actions" and override the policy. `event.authentication.methods` lists completed
+    methods (`mfa` with the factor's type); `event.user.enrolledFactors` the person's factors.
+    Runtime Node 22 [post-login-api], [mfa-actions].
+  - **Recovery and self-service:** an administrator resets factors with
+    `DELETE /api/v2/users/{id}/authentication-methods` (`delete:authentication_methods`) or
+    `DELETE /api/v2/guardian/enrollments/{id}` (`delete:guardian_enrollments`); the person then
+    enrols "just like a new user". Universal Login has **no page to add a second factor**: that
+    needs an `enrollWith` Action (after a challenge with an existing factor) or the My Account
+    API [mfa-reset], [mfa-enroll].
+  - **Passkeys** are a first factor; after a passkey sign-in Auth0 still requires the MFA
+    challenge by default (an Action can skip it); the `amr` after a passkey: *unverified*
+    [passkeys].
+  - **Terraform** (`auth0/auth0` v1.60.0 of 2026-10-30): `auth0_guardian` (`policy`, `otp`,
+    `recovery_code`, `email`, blocks `webauthn_roaming`, `webauthn_platform`, `phone`, `push`,
+    `duo`, `settings`), `auth0_action` (`supported_triggers { id = "post-login", version = "v3" }`,
+    `runtime = "node22"`, `deploy`), `auth0_trigger_actions` (the whole ordered binding of a
+    trigger; do not mix with `auth0_trigger_action`). Scopes: `read:`/`update:guardian_factors`,
+    `read:`/`update:mfa_policies`, `read:`/`create:`/`update:`/`delete:actions` [tf-releases],
+    [tf-resources].
 - **Plans (B2B list prices, 2026-10-18):** Free $0 up to 25,000 MAU; Essentials from $150/month
   and Professional from $800/month (at 500 MAU); Enterprise by quote. Tenants included: Free 1,
   **Essentials 3**, Professional 12. Actions + Forms: 5 / 10 / 15. Log retention 1 / 5 / 10 / 30
@@ -363,6 +413,16 @@ above are links; their URLs are listed in this file's Markdown source below this
 [mfa-factors]: https://auth0.com/docs/secure/multi-factor-authentication/multi-factor-authentication-factors
 [mfa-actions]: https://auth0.com/docs/secure/multi-factor-authentication/customize-mfa/customize-mfa-selection-universal-login
 [step-up]: https://auth0.com/docs/secure/multi-factor-authentication/step-up-authentication/configure-step-up-authentication-for-web-apps
+[mfa-enable]: https://auth0.com/docs/secure/multi-factor-authentication/enable-mfa
+[mfa-recovery]: https://auth0.com/docs/secure/multi-factor-authentication/configure-recovery-codes-for-mfa
+[mfa-lite]: https://auth0.com/blog/pro-plan-improvements-for-self-service-customers-may-2024/
+[mfa-free]: https://community.auth0.com/t/clarification-of-mfa-on-the-free-plan/198768
+[mfa-policy-api]: https://auth0.com/docs/api/management/v2/guardian/put-policies
+[mfa-customize]: https://auth0.com/docs/secure/multi-factor-authentication/customize-mfa
+[max-age]: https://auth0.com/docs/authenticate/login/max-age-reauthentication
+[mfa-reset]: https://auth0.com/docs/secure/multi-factor-authentication/reset-user-mfa
+[mfa-enroll]: https://auth0.com/docs/secure/multi-factor-authentication/customize-mfa/customize-mfa-enrollments-universal-login
+[passkeys]: https://auth0.com/docs/authenticate/database-connections/passkeys
 [rl]: https://auth0.com/docs/troubleshoot/customer-support/operational-policies/rate-limit-policy
 [rl-free]: https://auth0.com/docs/troubleshoot/customer-support/operational-policies/rate-limit-policy/rate-limit-configurations/free-public
 [rl-ess]: https://auth0.com/docs/troubleshoot/customer-support/operational-policies/rate-limit-policy/rate-limit-configurations/essentials-professional-b2b

@@ -2,8 +2,9 @@
 
 - **Status:** Proposed (§1–§3 and §5–§8 await product-owner approval; §4 decided by the product owner on 2026-10-18)
 - **Date:** 2026-10-17 · **Amended:** 2026-10-18 (§4: Auth0 for UMAI Cloud, Keycloak for self-hosted; answers Q29, opens Q35);
-  2026-10-30 (§2: revocable console sessions, a session record per sign-in in the policy service; Proposed)
-- **Amended by:** ADR-0033 (accepted 2026-10-18), which moves the `IdentityBroker` of §5 from the console to the policy service and defines the organization model of §4
+  2026-10-30 (§2: revocable console sessions, a session record per sign-in in the policy service; Proposed);
+  2026-10-31 (§3: MFA for every console sign-in, ADR-0053; Proposed)
+- **Amended by:** ADR-0033 (accepted 2026-10-18), which moves the `IdentityBroker` of §5 from the console to the policy service and defines the organization model of §4; ADR-0053 (Proposed), which widens §3 to every person
 - **Deciders:** engineering proposal; product owner
 - **Builds on:** ADR-0016 (console repository), ADR-0018 (SSO is Enterprise; self-hosted edition), ADR-0023 (two identity planes), ADR-0026 (residency)
 - **Facts:** [`reference/identity-providers.md`](../reference/identity-providers.md) incl. the "Microsoft Entra External ID (Azure)" section (verified 2026-10-17) and Auth0 hosting (verified 2026-10-18); hosting constraint ADR-0031
@@ -39,7 +40,8 @@ for UMAI Cloud as an open decision (Q29). The product owner chose Auth0 for UMAI
    is behind the session except sign-in and health.
 3. **MFA** is required for `owner` and `admin` in every edition and can be required for all
    members by an Enterprise tenant; enforced by the identity service's authentication policy
-   (TOTP or WebAuthn) and checked in the console through the `amr`/`acr` claims.
+   (TOTP or WebAuthn) and checked in the console through the `amr`/`acr` claims. *(Amended
+   2026-10-31 by ADR-0053: every person, every sign-in; see the amendment at the end.)*
 4. **Identity service: Auth0 for UMAI Cloud, Keycloak for self-hosted** (product-owner
    decision 2026-10-18; answers Q29).
    - **UMAI Cloud:** one Auth0 tenant per SaaS region (EU now, US with the US stack,
@@ -215,3 +217,29 @@ others, sign-out, the limit, idle and absolute expiry, member removal answered b
 `required` / `optional`, the authz matrix) and `tests/db/test_isolation.py` (the global table and
 its grants on Postgres). Console: `tests/session-check.test.mjs` (cache bound, outage rules,
 device labels) in `umai-control-center`.
+
+## Amendment 2026-10-31: MFA for every console sign-in (§3)
+
+**Status of this amendment:** Proposed. Decision record: [ADR-0053](0053-mfa-for-every-console-sign-in.md)
+(launch plan S0-6).
+
+**Change to §3.** MFA is required for **every person at every console sign-in**, not only for
+`owner` and `admin`; the Enterprise tenant's choice to require it for all members is therefore
+moot while this holds. The identity service asks for the second factor and holds it (Auth0: policy
+*Always*, authenticator app plus recovery code, WebAuthn once the plan's tier is confirmed; a
+post-login Action turns the console's multi-factor `acr_values` into a challenge that a remembered
+browser cannot skip). The console checks **`amr`** (`mfa`), not `acr`, at the callback and starts
+no session without it; a deployed (`https`) console cannot switch the check off. A person enrols at
+their first sign-in. Factor resets are done by UMAI support after an identity check outside the
+product, never by an organization's admin. The policy service enforces nothing new until MFA
+becomes role-dependent or Enterprise SSO arrives (ADR-0053 Decision 4).
+
+**Why not role-dependent, as §3 was written.** Roles live in our store and the active organization
+is chosen after sign-in, so a role-dependent challenge needs a second trip to the identity service
+for owners (most Stage 0 users), checks wherever the organization changes, and lets enrolment wait
+until a promotion, when whoever holds the password can enrol their own factor first.
+
+**Still open from §2 and §3:** re-authentication before changing e-mail or MFA (Auth0's hosted
+pages offer no self-service factor change yet); ending a person's console sessions after a factor
+reset; Keycloak's `amr` values for OTP.
+

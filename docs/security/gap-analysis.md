@@ -29,6 +29,13 @@ per person. Rows this moves: 7.4.1 **holds**, 7.1.x concurrent-session limit and
 change, no re-authentication). Still **missing**: 7.4.2 (a person blocked at the identity service
 keeps their console sessions until they end; no account disabling in our store), 7.5.x.
 
+**Update 2026-10-31 (MFA for every console sign-in, ADR-0053):** the console asks every sign-in
+for a second factor and refuses an ID token without `amr` `mfa`; the Auth0 configuration (policy
+*Always*, authenticator app and recovery code, a post-login Action that forces the challenge) is
+Terraform, planned but not applied (Auth0's Free plan lists no MFA factors). 6.3.3 moves to
+**partial**; it holds once the configuration is applied and the browser run of ADR-0053 Validation
+is recorded.
+
 **Update 2026-10-30 (audit log, ADR-0045, contract audit 0.1):** every changing policy-service
 route writes an audit event (actor, action, target, before/after of non-secret fields, outcome,
 request id, UTC) to the append-only tenant table `audit_events`; refused attempts (403) are
@@ -67,7 +74,7 @@ Still open: hash chain, SIEM export, 401s, the engine API's control endpoints.
 | 13.2.1–13.2.3 | 2 | Backend-to-backend auth with individual service accounts, least privilege, no default credentials | **missing** | console → services with one shared token each; no acting-user identity | ADR-0023 (service credential + on-behalf-of assertion) |
 | 6.3.2 | 1 | No default accounts | holds | none exist | — |
 | 6.1.1 / 6.3.1 | 1 | Documented and implemented anti-brute-force on authentication | **holds** (2026-10-30) | per-credential token bucket (429 `rate_limited`) and bad credentials throttled per source address (IPv4 address, IPv6 /64): 20 in 60 s by default, then 429 `too_many_failed_attempts` before any lookup (`tenancy/limits.py` `FailedAuthThrottle`; readiness T8) | ADR-0023 §7, ADR-0046 |
-| 6.3.3 | 2 | MFA for console access | **missing** | no login | ADR-0024 §3 |
+| 6.3.3 | 2 | MFA for console access | **partial** (2026-10-31) | built, not applied: every console sign-in asks for a second factor (`acr_values`) and `/auth/callback` starts no session without `amr` `mfa` (`umai-control-center` `src/lib/auth/mfa.ts`); Auth0 policy *Always*, TOTP + recovery code and the post-login Action in `identity/auth0/mfa.tf`, not yet applied (needs a paid plan) | ADR-0024 §3, ADR-0053 |
 | 9.1.1–9.1.3, 9.2.1 | 1 | Verify signature, algorithm allowlist, trusted keys, `nbf`/`exp` on self-contained tokens | n/a | no JWTs yet; bundle manifests already verify signature with known keys (`manifest.py`) | ADR-0023 (assertion), ADR-0027 (registry) |
 | 9.2.3 | 2 | Audience allowlist | n/a | — | ADR-0023 |
 | 6.5.6, 13.1.4, 13.3.4 | 3 (we treat as 2) | Credential revocation, secret rotation | **missing** | rotating the token means reconfiguring every caller | ADR-0023 §6, ADR-0027 §4 |
