@@ -18,6 +18,17 @@ session cookie; no `Origin` check), CC6.1 (people authenticate; tokens and roles
 Still **missing**: 6.3.3 MFA, 7.4.1/7.4.2 (cookie sessions cannot be revoked server-side),
 roles (8.x). Not deployed on `umai-beta` yet: Caddy basic auth stays in front of the console.
 
+**Update 2026-10-30 (revocable console sessions, ADR-0024 §2 amendment, contract
+console-sessions 0.1):** every sign-in has a record in the policy service (`console_sessions`,
+migration 0011; the session id only as a SHA-256). The policy service refuses an ended session on
+every call made for the person (401 `session_ended`, `control_plane/authz.py` `live_session`);
+the console middleware checks the record every 30 s and signs a revoked browser out. A person
+lists their sessions, ends one or all others; sign-out ends the record; at most 10 live sessions
+per person. Rows this moves: 7.4.1 **holds**, 7.1.x concurrent-session limit and 7.4.3–7.4.5
+**partial** (no admin termination of another person's sessions, no automatic end after a factor
+change, no re-authentication). Still **missing**: 7.4.2 (a person blocked at the identity service
+keeps their console sessions until they end; no account disabling in our store), 7.5.x.
+
 **Update 2026-10-30 (audit log, ADR-0045, contract audit 0.1):** every changing policy-service
 route writes an audit event (actor, action, target, before/after of non-secret fields, outcome,
 request id, UTC) to the append-only tenant table `audit_events`; refused attempts (403) are
@@ -65,9 +76,9 @@ Still open: hash chain, SIEM export, 401s, the engine API's control endpoints.
 
 | ID | L | Requirement | Status | Evidence / gap | Closes with |
 |---|---|---|---|---|---|
-| 7.1.1, 7.1.2, 7.3.1, 7.3.2 | 2 | Documented and enforced inactivity timeout, absolute lifetime, concurrent-session limit | **missing** | no sessions | ADR-0024 §2 |
-| 7.4.1, 7.4.2 | 1 | Terminated sessions unusable; all sessions end when an account is disabled | **missing** | — | ADR-0024 §2 |
-| 7.4.3–7.4.5, 7.5.1, 7.5.2 | 2 | End other sessions, visible logout, admin termination, re-auth before sensitive changes | **missing** | — | ADR-0024 §2 |
+| 7.1.1, 7.1.2, 7.3.1, 7.3.2 | 2 | Documented and enforced inactivity timeout, absolute lifetime, concurrent-session limit | **partial** (2026-10-30) | console cookie 60 min / 12 h; session record ends after 70 min idle and 12 h (`db/sessions.py`); at most 10 live sessions per person, the least recently seen ends (`console_session_limit`) | ADR-0024 §2 amendment |
+| 7.4.1, 7.4.2 | 1 | Terminated sessions unusable; all sessions end when an account is disabled | 7.4.1 **holds**, 7.4.2 **missing** (2026-10-30) | an ended record refuses every policy-service call at once and signs the console out within 30 s (`control_plane/sessions.py`, `tests/integration/test_console_sessions.py`); no account disabling, and a block at the identity service does not end console sessions | ADR-0024 §2 amendment; 7.4.2 with the identity mirror |
+| 7.4.3–7.4.5, 7.5.1, 7.5.2 | 2 | End other sessions, visible logout, admin termination, re-auth before sensitive changes | **partial** (2026-10-30) | "Sign out other devices" and ending one session (`/v1/me/sessions…`), sign-out ends the record; no admin ending another person's sessions (member removal drops the organization within 30 s instead), no automatic end after a factor change, no re-authentication | ADR-0024 §2 amendment |
 | 3.3.1–3.3.4 | 1/2 | Cookie `Secure`, `__Host-`, `SameSite`, `HttpOnly` | n/a | no cookies | ADR-0024 §2 |
 | 3.5.1 | 1 | CSRF protection on state-changing requests | **missing** | relay routes accept any origin once sessions exist; today they are simply open | ADR-0024 §2 |
 | 3.4.1 | 1 | HSTS ≥ 1 year | **missing** | no headers configured (`next.config.mjs`) | launch plan S0 |

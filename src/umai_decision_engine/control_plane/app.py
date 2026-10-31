@@ -16,7 +16,7 @@ import uuid
 from collections import defaultdict
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 import httpx
@@ -59,6 +59,7 @@ from umai_decision_engine.contracts.organizations import (
     OrganizationCreate,
     OrganizationUpdate,
 )
+from umai_decision_engine.contracts.sessions import SessionCheck, SessionStart
 from umai_decision_engine.control_plane.actors import load_public_key
 from umai_decision_engine.control_plane.audit import (
     EXPORT_MAX,
@@ -88,6 +89,7 @@ from umai_decision_engine.control_plane.plans import Plans
 from umai_decision_engine.control_plane.records import BadCursor, RecordsReader, retention_loop
 from umai_decision_engine.control_plane.repository import GuardrailRepositories
 from umai_decision_engine.control_plane.service import PolicyService, ServiceError
+from umai_decision_engine.control_plane.sessions import SessionError, SessionService
 from umai_decision_engine.db.migrate import upgrade
 from umai_decision_engine.db.organizations import (
     InvitationRepository,
@@ -103,6 +105,7 @@ from umai_decision_engine.db.repositories import (
     TenantRepository,
 )
 from umai_decision_engine.db.session import make_engine, sqlite_url
+from umai_decision_engine.db.sessions import SessionRepository
 from umai_decision_engine.l0.detector import EntityDetector
 from umai_decision_engine.l0.recognizers.catalog import SPECS_BY_ENTITY, TAG_BY_ENTITY
 from umai_decision_engine.settings import Settings, get_settings
@@ -1412,6 +1415,73 @@ async def accept_invitation(
     return result
 
 
+# ------------------------------------------------- console sessions (ADR-0024 §2 amendment)
+
+
+def _sessions(request: Request) -> SessionService:
+    return request.app.state.sessions
+
+
+def _this_session(request: Request):
+    """The record the assertion's session_id names (verified by ``authorize``); None in
+    ``optional`` mode without one."""
+
+    return getattr(request.state, "console_session", None)
+
+
+@router.post("/me/sessions", status_code=201)
+async def start_session(
+    body: SessionStart, request: Request, actor: Actor = _ALLOW[Action.SESSION_START]
+) -> dict[str, Any]:
+    """At sign-in: records the assertion's session_id (its hash) for the person."""
+
+    user = await _orgs(request).person(actor)
+    return await _sessions(request).start(actor, user, body)
+
+
+@router.get("/me/sessions")
+async def my_sessions(
+    request: Request, actor: Actor = _ALLOW[Action.ME_SESSIONS]
+) -> dict[str, Any]:
+    user = await _orgs(request).person(actor)
+    return {"sessions": await _sessions(request).mine(user, _this_session(request))}
+
+
+@router.delete("/me/sessions/current", status_code=204)
+async def end_current_session(request: Request, actor: Actor = _ALLOW[Action.ME_SESSIONS]) -> None:
+    """Sign-out."""
+
+    user = await _orgs(request).person(actor)
+    await _sessions(request).end_current(user, _this_session(request))
+
+
+@router.delete("/me/sessions/{session_id}", status_code=204)
+async def end_session(
+    session_id: uuid.UUID, request: Request, actor: Actor = _ALLOW[Action.ME_SESSIONS]
+) -> None:
+    user = await _orgs(request).person(actor)
+    await _sessions(request).end(user, session_id, _this_session(request))
+
+
+@router.post("/me/sessions/revoke-others")
+async def end_other_sessions(
+    request: Request, actor: Actor = _ALLOW[Action.ME_SESSIONS]
+) -> dict[str, Any]:
+    """Sign out other devices."""
+
+    user = await _orgs(request).person(actor)
+    return {"revoked": await _sessions(request).end_others(user, _this_session(request))}
+
+
+@router.post("/sessions/check")
+async def check_session(
+    body: SessionCheck, request: Request, actor: Actor = _ALLOW[Action.SESSION_CHECK]
+) -> dict[str, Any]:
+    """The console middleware's check, with the console's service credential (no person)."""
+
+    return (await _sessions(request).check(body)).model_dump(mode="json")
+
+
 def create_app(
     settings: Settings | None = None,
     *,
@@ -1493,6 +1563,18 @@ def create_app(
                 else None
             ),
         )
+        app.state.sessions = SessionService(
+            SessionRepository(
+                db,
+                lifetime=timedelta(hours=cfg.console_session_hours),
+                idle=timedelta(minutes=cfg.console_session_idle_minutes),
+                limit=cfg.console_session_limit,
+            ),
+            tenants,
+            MembershipRepository(db),
+            mode=cfg.console_sessions,
+        )
+        log.info("control_plane.console_sessions mode=%s", cfg.console_sessions)
         app.state.records = RecordsReader(db)
         app.state.audit = AuditLog(db)
         # Billing (ADR-0044): iyzico when configured; plans on offer checked against it.
@@ -1571,6 +1653,12 @@ def create_app(
     async def _billing_error(_request: Request, exc: BillingError) -> JSONResponse:
         return JSONResponse(
             {"detail": {"error": exc.code, "detail": exc.detail}}, status_code=exc.status
+        )
+
+    @app.exception_handler(SessionError)
+    async def _session_error(_request: Request, exc: SessionError) -> JSONResponse:
+        return JSONResponse(
+            {"detail": {"error": exc.code, "detail": str(exc)}}, status_code=exc.status
         )
 
     @app.exception_handler(OrganizationError)

@@ -549,3 +549,29 @@ async def test_repositories_filter_by_tenant_on_sqlite(tmp_path) -> None:
         assert await members.roles(b, ada) == frozenset()
     finally:
         await engine.dispose()
+
+
+# ------------------------------------------------------------ console sessions (ADR-0024 §2)
+
+
+@postgres
+@pytest.mark.asyncio
+async def test_console_sessions_are_global_and_the_application_role_manages_them(pg) -> None:
+    """A person's sign-ins span tenants: no tenant context, no RLS; the application role starts,
+    ends and purges them (migration 0011's grant)."""
+
+    from umai_decision_engine.db.models import ConsoleSessionRow
+    from umai_decision_engine.db.sessions import SessionRepository
+
+    user_id = await _user(pg)
+    repo = SessionRepository(pg, lifetime=timedelta(hours=12), idle=timedelta(minutes=70), limit=10)
+    sid = uuid.uuid4().hex + uuid.uuid4().hex
+    started = await repo.start(user_id, sid, "Firefox on Windows")
+    found = await repo.find(sid)
+    assert found is not None and found.id == started.id and repo.is_live(found)
+    assert [s.id for s in await repo.live(user_id)] == [started.id]
+    assert await repo.revoke(user_id, started.id, "signed_out")
+    async with global_session(pg) as session:  # no tenant set: a global table answers
+        rows = (await session.execute(select(ConsoleSessionRow.revoke_reason))).all()
+        assert ("signed_out",) in rows
+        await session.execute(delete(ConsoleSessionRow).where(ConsoleSessionRow.id == started.id))

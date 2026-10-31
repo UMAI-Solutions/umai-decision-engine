@@ -190,6 +190,28 @@ def test_credentials_examples() -> None:
     ActorAssertion.model_validate_json(assertion)
 
 
+def test_console_sessions_examples() -> None:
+    import re as _re
+
+    from umai_decision_engine.contracts.credentials import ActorAssertion
+    from umai_decision_engine.contracts.sessions import (
+        SESSION_ID_PATTERN,
+        ConsoleSession,
+        SessionCheck,
+        SessionStart,
+        SessionStatus,
+    )
+
+    record, start, check, status = _blocks("contracts/console-sessions.md", "json")
+    assert ConsoleSession.model_validate_json(record).current
+    SessionStart.model_validate_json(start)
+    SessionCheck.model_validate_json(check)
+    assert SessionStatus.model_validate_json(status).state == "active"
+    # The assertion's example session id is one the console would make (credentials 0.8).
+    *_, assertion = _blocks("contracts/credentials.md", "json")
+    assert _re.match(SESSION_ID_PATTERN, ActorAssertion.model_validate_json(assertion).session_id)
+
+
 def test_billing_examples() -> None:
     from umai_decision_engine.contracts.billing import BillingView
 

@@ -49,6 +49,19 @@ log = logging.getLogger("umai.control_plane.audit")
 REQUEST_ID_HEADER = "X-Request-Id"
 _REQUEST_ID = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 CHANGING = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+# Changing routes that are not an organization's configuration and have no tenant to record
+# under: a person's own console sign-ins (contract console-sessions, ADR-0024 §2 amendment; kept
+# in `console_sessions` itself) and the console's session check. Every other changing route
+# declares an audit action (`tests/unit/test_audit_routes.py`).
+NOT_AUDITED: frozenset[str] = frozenset(
+    {
+        "POST /v1/me/sessions",
+        "DELETE /v1/me/sessions/current",
+        "DELETE /v1/me/sessions/{session_id}",
+        "POST /v1/me/sessions/revoke-others",
+        "POST /v1/sessions/check",
+    }
+)
 MAX_DETAILS = 4096  # bytes of JSON; larger details are replaced by {"truncated": true}
 EXPORT_MAX = 50_000  # rows per CSV export, newest first
 _EXPORT_BATCH = 1_000

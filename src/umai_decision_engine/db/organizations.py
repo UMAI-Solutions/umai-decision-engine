@@ -191,6 +191,19 @@ class MembershipRepository:
             )
             return frozenset(row.roles) if row else frozenset()
 
+    async def is_member(self, tenant: TenantInfo, user_id: uuid.UUID) -> bool:
+        """An active membership (the console's session check, ADR-0024 §2 amendment)."""
+
+        async with tenant_session(self.engine, tenant.id) as session:
+            found = await session.scalar(
+                select(Membership.id).where(
+                    Membership.tenant_id == tenant.id,
+                    Membership.user_id == user_id,
+                    Membership.state == "active",
+                )
+            )
+            return found is not None
+
     async def list(self, tenant: TenantInfo) -> list[MemberInfo]:
         async with tenant_session(self.engine, tenant.id) as session:
             rows = await session.execute(

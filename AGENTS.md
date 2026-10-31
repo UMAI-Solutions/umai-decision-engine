@@ -191,6 +191,13 @@ async client with `IYZWSv2` signing, the state machine, reconciliation, `billing
 billing details, hosted checkout confirmed by token, plan change, cancel at period end, 14-day
 grace with retries (`/v1/billing…`), signed webhooks on the public `/hooks/iyzico`; migration 0009.
 Tested against a fake iyzico; the sandbox run waits for keys.
+Console sessions (2026-10-30, ADR-0024 §2 amendment, contract console-sessions 0.1, credentials
+0.8): a record per console sign-in in the global table `console_sessions` (migration 0011; the
+session id only as a hash, a coarse device label, no IP); the policy service refuses an ended
+session on every call made for the person (401 `session_ended`; `UMAI_DE_CONSOLE_SESSIONS`
+`required` in production), the console middleware checks it with `POST /v1/sessions/check` (30 s
+cache, also answers membership of the active organization), and `/v1/me/sessions…` lists and ends
+a person's sessions (`control_plane/sessions.py`, `db/sessions.py`).
 Audit log (2026-10-30, ADR-0045 Proposed, contract audit 0.1): every changing policy-service route
 declares an audit action (`audit: Audit = _AUDIT[...]`) and the router's `AuditRoute`
 (`control_plane/audit.py`) writes one event per call to the append-only tenant table

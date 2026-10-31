@@ -405,6 +405,28 @@ class BillingLinkRow(Base):
     created_at: Mapped[datetime] = mapped_column(UtcDateTime(), default=_now)
 
 
+class ConsoleSessionRow(Base):
+    """Global table (allowlisted, ADR-0024 §2 amendment): one console sign-in of a person. The
+    session id lives in the console's encrypted cookie; this row keeps only its SHA-256, a coarse
+    device label and times. No IP address, no user agent, no content."""
+
+    __tablename__ = "console_sessions"
+    __table_args__ = (Index("ix_console_sessions_expires_at", "expires_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    sid_sha256: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    device: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime(), default=_now)
+    last_seen_at: Mapped[datetime] = mapped_column(UtcDateTime(), default=_now)
+    expires_at: Mapped[datetime] = mapped_column(UtcDateTime(), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(UtcDateTime(), nullable=True)
+    # signed_out | revoked | signed_out_elsewhere | limit (contract console-sessions 0.1)
+    revoke_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+
 # ------------------------------------------------------------------ audit (ADR-0045)
 
 

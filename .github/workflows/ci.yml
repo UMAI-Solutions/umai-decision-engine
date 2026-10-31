@@ -88,4 +88,6 @@ jobs:
             -v app_password=ci-app -f deploy/postgres-init.sql
 
       - name: Isolation tests
-        run: python -m pytest -q tests/db tests/integration/test_organizations.py -ra
+        run: >-
+          python -m pytest -q tests/db tests/integration/test_organizations.py
+          tests/integration/test_console_sessions.py -ra
