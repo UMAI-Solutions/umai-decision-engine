@@ -86,6 +86,24 @@ of the blob download, under the request loop (`runs/summary-restore.json`):
 
 Afterwards 300 818 decision events (the 300 672 plus the loop's own) and every service healthy.
 
+## Restore drill on `umai-beta` (with the operator's go-ahead)
+
+The PR's `umai.sh` and `restore-test.yml` ran from a root-only scratch directory on the VM, not
+over the live deploy files; the live containers kept their ids and `/opt/umai/src` was unchanged.
+
+| Backup | Result | Duration |
+|---|---|---|
+| nightly blob `umai-backup-20261031T023348Z.tar.gz` (old format: no GRANTs, no `a/`, migration 0009), read-only SAS for that blob on stdin | PASSED twice: rows equal, grants repaired, migrated 0009 → 0013, 4 tenants, 7 bundles, 0 load errors | 40 s, 42 s |
+| taken on the spot (new format, 20 tables, 2 application files) | first FAILED loading the dump; PASSED twice after the fix | 34 s, 34 s |
+
+The failure: with `start_interval: 1s` the scratch Postgres was reported healthy over its socket
+while the image's init scripts still ran on a temporary server, and the load hit that server's
+restart (the download had hidden it in the blob run; locally the timing never showed it). The
+health check now uses TCP, which the temporary server does not listen on; the error filter is
+case-insensitive. Beta's public `/healthz` during the drills: 334 of 335 probes answered 200
+(p99 0.26 s); the one miss never reached the VM (11 ms client-side; Caddy logged 334 requests, no
+5xx).
+
 ## Reproduce
 
 ```bash

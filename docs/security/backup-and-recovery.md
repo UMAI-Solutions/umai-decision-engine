@@ -15,7 +15,8 @@ and uploads one archive to the storage account's `backups` container (30-day lif
 | `p/` | the policy volume: bundles, signed versions, key-registry snapshots | ADR-0032 |
 | `a/` | `/opt/umai/applications`: applications, providers, gateway settings | ADR-0052 |
 
-Not in any backup: `secrets.env` (local-file mode) and `config.env`. Key Vault mode keeps the
+Not in any backup: `secrets.env` (local-file mode) and `config.env`. Backups before ADR-0052 also
+lack `a/`: beta's nightly blobs of 2026-10-31 hold none of its two application files. Key Vault mode keeps the
 secrets in the vault; local-file mode keeps them only on the VM disk (below, "VM lost").
 
 ## Restore test
@@ -47,6 +48,14 @@ engine on a 22-core laptop), store filled with synthetic records:
 Report: [`evals/reports/2026-10-31-vm-zero-downtime`](../../evals/reports/2026-10-31-vm-zero-downtime/summary.md).
 A B2s has two burstable vCPUs; the Stage 0 load estimate (2026-10-31) assumes a laptop core is
 1.5–2.5× a B2s vCPU, and fewer cores serialise what ran in parallel here. The objectives below allow a factor of 3 until the drill on `umai-beta` gives the real one.
+
+On `umai-beta` (B2s, 2026-10-31, a 76 KB archive of the beta store): download 3 s, store
+restored 6–7 s, rows and migrations 7–14 s (with the grant repair), policy service and engine 13–14 s,
+checks and removal 5–6 s; 34–42 s in all, the same as locally for a store that small. Beta's public
+`/healthz`, probed twice a second through the drills: 334 of 335 answered 200 (p99 0.26 s); the
+one miss never reached the VM (curl gave up after 11 ms; Caddy logged 334 requests, no 5xx). The
+live containers kept their ids. The factor for a large store on a B2s is still unmeasured: beta's
+store is small, so the objectives keep the factor of 3.
 
 ## Objectives
 
@@ -80,4 +89,5 @@ a decision to keep an encrypted copy of `secrets.env` off the VM; neither is in 
 |---|---|---|---|---|---|
 | 2026-10-31 | local copy of the stack (ADR-0052 validation) | taken on the spot | 328 MB, synthetic | PASSED | 83 s |
 | 2026-10-31 | local copy | old format (no GRANTs, no `a/`) | 328 MB, synthetic | PASSED with grant repair | 87 s |
-| — | `umai-beta` | latest nightly blob | beta store | pending: needs the operator's go-ahead | — |
+| 2026-10-31 | `umai-beta` (operator's go-ahead in the session; scripts from a scratch directory, live stack untouched) | nightly blob `umai-backup-20261031T023348Z` (old format, migration 0009), read-only SAS | 15 tables, 76 KB archive | PASSED: rows equal, GRANTs repaired, migrated 0009 → 0013, 4 tenants, 7 bundles, 0 load errors | 40 s, again 42 s |
+| 2026-10-31 | `umai-beta` | taken on the spot (new format) | 20 tables, 2 application files | first run FAILED (the load raced the scratch Postgres's init restart; fixed: TCP health check), then PASSED twice | 34 s, 34 s |
