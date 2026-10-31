@@ -35,6 +35,7 @@ class AuditAction(StrEnum):
     KEY_PUBLISH = "key.publish"
     ORGANIZATION_CREATE = "organization.create"
     ORGANIZATION_UPDATE = "organization.update"
+    ORGANIZATION_EXPORT = "organization.export"
     MEMBER_UPDATE = "member.update"
     MEMBER_REMOVE = "member.remove"
     MEMBER_LEAVE = "member.leave"

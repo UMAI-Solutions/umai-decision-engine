@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import re
 from pathlib import Path
@@ -41,12 +43,18 @@ from umai_decision_engine.contracts.events import (
     UsageRecord,
     UsageSummary,
 )
+from umai_decision_engine.contracts.exports import (
+    DECISIONS_CSV_COLUMNS,
+    USAGE_CSV_COLUMNS,
+    ArchiveManifest,
+    UsageLine,
+)
 from umai_decision_engine.contracts.policy_tests import GoldenCase, PolicyTestFile
 from umai_decision_engine.policy.manifest import BundleManifest
 from umai_decision_engine.policy.validate import validate_bundle
 
 DOCS = Path(__file__).resolve().parents[2] / "docs"
-_FENCE = re.compile(r"```(json|yaml)\n(.*?)```", re.S)
+_FENCE = re.compile(r"```(json|yaml|csv)\n(.*?)```", re.S)
 
 
 def _blocks(relative: str, kind: str) -> list[str]:
@@ -123,7 +131,7 @@ def test_tagged_action_examples() -> None:
     event, outcome, page, summary = (
         json.loads(b) for b in _blocks("contracts/tagged-action.md", "json")
     )
-    assert DecisionEvent.model_validate(event).contract_version == "0.5"
+    assert DecisionEvent.model_validate(event).contract_version == "0.6"
     assert L1bOutcomeRecord.model_validate(outcome).outcome == "decided"
     assert DecisionEventPage.model_validate(page).events[0].source == "gateway"
     parsed = DecisionEventSummary.model_validate(summary)
@@ -254,6 +262,20 @@ def test_entitlements_examples() -> None:
     shown = EntitlementsView.model_validate_json(view)
     assert shown.limits == parsed.plans["community"].limits()
     assert PlanUpdate.model_validate_json(update).override_values() == {"monthly_requests": 50_000}
+
+
+def test_data_export_examples() -> None:
+    decisions, usage = (
+        list(csv.reader(io.StringIO(b))) for b in _blocks("contracts/data-export.md", "csv")
+    )
+    assert tuple(decisions[0]) == DECISIONS_CSV_COLUMNS
+    assert all(len(row) == len(DECISIONS_CSV_COLUMNS) for row in decisions[1:])
+    assert tuple(usage[0]) == USAGE_CSV_COLUMNS
+    assert all(len(row) == len(USAGE_CSV_COLUMNS) for row in usage[1:])
+    line, manifest, error = (json.loads(b) for b in _blocks("contracts/data-export.md", "json"))
+    assert UsageLine.model_validate(line).meter == "provider_input_tokens"
+    assert ArchiveManifest.model_validate(manifest).files[-1].path == "manifest.json"
+    assert error["detail"]["error"] == "export_too_large"
 
 
 def test_webhooks_examples() -> None:

@@ -106,7 +106,8 @@ accepted; billing provider chosen.
 5. Roles `owner`/`admin`/`viewer` enforced server-side; members page (ADR-0029, Community set).
 6. US region stack (East US 2, DR Central US) from the same IaC module; tenant directory and
    sign-in front door (ADR-0026); provider registry with regions (empty until L1b).
-7. Retention jobs and tenant export/erasure (ADR-0025 §9, ADR-0030 §4).
+7. Retention jobs and tenant export/erasure (ADR-0025 §9, ADR-0030 §4). Built: records retention
+   (ADR-0041 §5) and export (ADR-0047); erasure waits for Q61.
 8. SOC 2 program start: compliance-automation platform connected to cloud, GitHub, Auth0;
    policies written; control owners named. Pentest #1 scoped to authentication, tenancy,
    console.

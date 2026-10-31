@@ -180,6 +180,14 @@ bounded in-memory queue and a batched writer (`events/`; `UMAI_DE_RECORDS_SINK=d
 content, not even redacted. The policy service reads them (`GET /v1/decision-events`,
 `GET /v1/decision-events/summary`, `GET /v1/usage` with `daily`) and deletes them after
 retention (`control_plane/records.py`).
+Data access (2026-10-30, ADR-0047, tagged-action 0.6, data-export 0.1, organizations 0.5): decision
+search by event, request or gateway call id (`q`) and filters `entity_type`, `policy_id` on the
+list and summary; `GET /v1/decision-events/export.csv` (list filters, 100 000 rows) and
+`GET /v1/usage/export.csv` (a month per day and dimension), refused with 422 `export_too_large`
+above the cap, never cut; owner-only `GET /v1/organizations/{id}/export.zip` (ZIP of JSON files,
+250 000 records, built before sending, allow-listed fields, no secret or hash;
+`control_plane/exports.py`). Erasure is not built: billing records have a statutory retention
+period (Q61).
 Plans and quotas (2026-10-30, ADR-0043, contract entitlements 0.1): the policy service reads the
 plans file (`UMAI_DE_PLANS_FILE`, `deploy/plans.yaml`) and writes each tenant's limits, with
 operator overrides (`PUT /v1/tenants/{id}/plan`, migration 0008), into its signed snapshot
@@ -244,6 +252,7 @@ since 2026-10-18 and on `umai-beta` since 2026-10-19).
 | Console structure, applications, how the AI gateway fits | [`docs/architecture/console-information-architecture.md`](docs/architecture/console-information-architecture.md), ADR-0039 |
 | Sign-in, onboarding, organizations, invitations, login branding | [`docs/architecture/sign-in-and-onboarding.md`](docs/architecture/sign-in-and-onboarding.md), ADR-0033, ADR-0024 |
 | UMAI secure gateway, guardrail hooks in other gateways | [`docs/architecture/ai-gateway.md`](docs/architecture/ai-gateway.md), [`docs/contracts/gateway-api.md`](docs/contracts/gateway-api.md), ADR-0034 to ADR-0036, [`docs/reference/ai-gateways.md`](docs/reference/ai-gateways.md) |
+| Search, CSV exports, the organization archive (data portability) | [`docs/contracts/data-export.md`](docs/contracts/data-export.md), ADR-0047 |
 | Webhooks, Slack, outbound calls to customer URLs (SSRF) | [`docs/contracts/webhooks.md`](docs/contracts/webhooks.md), ADR-0048, [`docs/reference/slack-incoming-webhooks.md`](docs/reference/slack-incoming-webhooks.md) |
 | Billing, paid plans, iyzico | [`docs/contracts/billing.md`](docs/contracts/billing.md), ADR-0044, [`docs/reference/iyzico-subscriptions.md`](docs/reference/iyzico-subscriptions.md) |
 | SaaS vs self-hosted, editions, quotas, tenancy | [`docs/architecture/deployment-and-editions.md`](docs/architecture/deployment-and-editions.md), ADR-0018, ADR-0019 |

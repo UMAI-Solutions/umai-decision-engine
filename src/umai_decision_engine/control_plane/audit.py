@@ -82,6 +82,7 @@ TARGET: dict[AuditAction, TargetType] = {
     AuditAction.KEY_PUBLISH: "tenant",
     AuditAction.ORGANIZATION_CREATE: "organization",
     AuditAction.ORGANIZATION_UPDATE: "organization",
+    AuditAction.ORGANIZATION_EXPORT: "organization",
     AuditAction.MEMBER_UPDATE: "member",
     AuditAction.MEMBER_REMOVE: "member",
     AuditAction.MEMBER_LEAVE: "member",

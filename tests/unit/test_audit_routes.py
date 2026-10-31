@@ -45,8 +45,12 @@ def test_the_unaudited_routes_exist_and_are_a_persons_own_sessions() -> None:
 
 
 @pytest.mark.parametrize("route", [r for r in ROUTES if not r.methods & CHANGING], ids=_id)
-def test_reads_record_nothing_but_the_export(route: APIRoute) -> None:
-    expected = AuditAction.AUDIT_EXPORT if route.path == "/v1/audit-events/export" else None
+def test_reads_record_nothing_but_the_exports(route: APIRoute) -> None:
+    recorded = {
+        "/v1/audit-events/export": AuditAction.AUDIT_EXPORT,
+        "/v1/organizations/{org_id}/export.zip": AuditAction.ORGANIZATION_EXPORT,
+    }
+    expected = recorded.get(route.path)
     assert audit_action(route.dependant) == expected
 
 

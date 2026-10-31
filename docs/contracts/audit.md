@@ -7,7 +7,7 @@ policy service read API → console (Organization → Audit log), auditors (CSV)
 An **audit event** says who changed what in a tenant's configuration, when, and whether it
 happened (`success`) or was refused for the caller's rights (`denied`, HTTP 403). The policy
 service writes one for every call of a changing route (`POST`, `PUT`, `PATCH`, `DELETE` under
-`/v1`) and for every CSV export, except a person's own console sign-ins (`/v1/me/sessions…`,
+`/v1`), for every audit CSV export and every organization archive, except a person's own console sign-ins (`/v1/me/sessions…`,
 `/v1/sessions/check`): they belong to no tenant and are kept in their own records
 ([console-sessions](console-sessions.md)). Events are append-only: the application role may insert and
 read them, never change or delete them (ADR-0030 §3); retention deletes them after 400 days.
@@ -118,6 +118,7 @@ action.
 | `webhook.delete` | `DELETE /v1/webhooks/endpoints/{id}` | `webhook_endpoint` | — |
 | `webhook.secret.rotate` | `POST /v1/webhooks/endpoints/{id}/secret` | `webhook_endpoint` | — (the secret never) |
 | `webhook.test` | `POST /v1/webhooks/endpoints/{id}/test` | `webhook_endpoint` | `outcome` |
+| `organization.export` | `GET /v1/organizations/{id}/export.zip` | `organization` | `records`, `bytes` (the archive holds member e-mails; [data-export](data-export.md)) |
 | `audit.export` | `GET /v1/audit-events/export` | `audit_log` | `rows`, and the export's filters |
 
 Without a `{"before", "after"}` pair a field did not change. A denied event names the target from

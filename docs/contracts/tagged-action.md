@@ -1,6 +1,6 @@
 # Contract: tagged action (decision event)
 
-**Version:** 0.5
+**Version:** 0.6
 
 **Implementation status (2026-10-30):** emitted and stored by the engine API and the gateway
 ([ADR-0041](../adr/0041-records-decision-events-and-usage-ledger.md), write path
@@ -20,7 +20,7 @@ tenant-scoped (ADR-0025).
 
 ```json
 {
-  "contract_version": "0.5",
+  "contract_version": "0.6",
   "event_id": "ta-3f2b9c41d6e84a1b9c0d7e5f6a1b2c3d",
   "request_id": "req-01J9X7Z8QK",
   "tenant_id": "tenant-demo",
@@ -137,15 +137,30 @@ with `X-Umai-Tenant`). One tenant per request.
 
 | Route | Returns |
 |---|---|
-| `GET /v1/decision-events` | Newest first. Query: `limit` (1–200, default 50), `cursor` (from the previous page), `since` / `until` (RFC 3339), `action`, `source`, `application_id`, `phase`, `review` (`true` / `false`) |
+| `GET /v1/decision-events` | Newest first. Query: `limit` (1–200, default 50), `cursor` (from the previous page) and the filters below |
 | `GET /v1/decision-events/summary` | Counts for charts over the same filters as the list (default window: the last 30 days): per UTC day and decision, per decision, per source, and the entity types and policies found in the newest events (up to 20 000 scanned; `truncated` says the window held more). Day and decision counts are exact |
+| `GET /v1/decision-events/export.csv` | The same filters as a CSV file, newest first, at most 100 000 rows ([data-export](data-export.md) §1, 0.6) |
 | `GET /v1/decision-events/{event_id}` | `{event, l1b_outcomes}`; 404 when the tenant has no such event (or it is past retention) |
+
+Filters, all optional and combined (AND), the same for the list, the summary and the CSV
+export:
+
+| Filter | Matches |
+|---|---|
+| `since`, `until` | RFC 3339; `since` inclusive, `until` exclusive |
+| `action`, `source`, `application_id`, `phase`, `review` | Equal to the event's value (`review`: `true` / `false`) |
+| `entity_type` | Events in which the type was found (`entities[].type`), 0.6 |
+| `policy_id` | Events whose `matched[]` names the policy: the rules that produced the decision (shadow L1b policies never do; see their outcome records), 0.6 |
+| `q` | Search by id (up to 128 characters, surrounding spaces ignored): events whose `event_id`, `request_id` or `gateway_call_id` equals it exactly. A gateway call id finds every check of the call, 0.6 |
+
+The new filters scan the tenant's window without an index; measured cost and the point to add
+one: ADR-0047 D2.
 
 ```json
 {
   "events": [
     {
-      "contract_version": "0.5",
+      "contract_version": "0.6",
       "event_id": "ta-5d1c0b9a8e7f4a3b2c1d0e9f8a7b6c5d",
       "request_id": "gw-2c4e6a8b0d1f3a5c7e9b1d3f5a7c9e1b",
       "tenant_id": "tenant-demo",
@@ -190,6 +205,8 @@ Records past their retention period are deleted by the policy service's retentio
 
 ## Changelog
 
+- 0.6 (2026-10-30, ADR-0047): filters `entity_type`, `policy_id` and the id search `q` on the
+  list and the summary; `GET /v1/decision-events/export.csv` ([data-export](data-export.md)).
 - 0.5 (2026-10-30): `GET /v1/decision-events/summary` (counts for charts).
 - 0.4 (2026-10-30): the gateway writes records (`source: gateway`, `gateway_call_id`, stream
   window re-checks not recorded); read API in the policy service; retention job.

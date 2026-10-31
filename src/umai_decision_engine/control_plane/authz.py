@@ -53,6 +53,7 @@ class Action(StrEnum):
     MEMBER_LEAVE = "member.leave"
     ORGANIZATION_READ = "organization.read"
     ORGANIZATION_UPDATE = "organization.update"
+    ORGANIZATION_EXPORT = "organization.export"  # the organization archive (ADR-0047): owners
     MEMBER_READ = "member.read"
     MEMBER_UPDATE = "member.update"
     MEMBER_REMOVE = "member.remove"
@@ -132,6 +133,7 @@ MATRIX: dict[Action, Rule] = {
     Action.MEMBER_LEAVE: _SELF,
     Action.ORGANIZATION_READ: _r(_O, _A, _E, _P, _V, _B),
     Action.ORGANIZATION_UPDATE: _r(_O, _A),
+    Action.ORGANIZATION_EXPORT: _r(_O),  # every member's e-mail and the billing account
     Action.MEMBER_READ: _r(_O, _A),
     Action.MEMBER_UPDATE: _r(_O, _A),
     Action.MEMBER_REMOVE: _r(_O, _A),

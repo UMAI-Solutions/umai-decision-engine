@@ -84,6 +84,9 @@ Azure Database for PostgreSQL Flexible Server specifics in
    point-in-time recovery in the DR region is required, ADR-0031 §4). Every tenant-level
    operation — export, erasure, retention — runs through the tenant session and is itself an
    audit event. Erasure = delete rows through RLS + destroy the tenant data key.
+   *Amendment 2026-10-30:* export is built (ADR-0047: CSV exports and the owner's organization
+   archive, through the tenant session); erasure is not, because billing records carry a
+   statutory retention period (Q61).
 
 ## Alternatives considered
 

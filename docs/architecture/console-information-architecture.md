@@ -105,6 +105,7 @@ CONNECT
   Integrations   plug-ins for gateways customers already run (LiteLLM, Kong, Azure APIM): later
 ORGANIZATION
   Members
+  Settings       region, data retention and export, audit log, single sign-on
   Webhooks       endpoints and Slack: blocked requests, quota, billing (ADR-0048)
   Settings       region, data retention, audit log, single sign-on
 ```

@@ -16,12 +16,13 @@ import uuid
 from collections import defaultdict
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 import httpx
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from umai_decision_engine import __version__
@@ -84,6 +85,15 @@ from umai_decision_engine.control_plane.authz import (
     check_tenant,
 )
 from umai_decision_engine.control_plane.authz import allowed as _allowed
+from umai_decision_engine.control_plane.exports import (
+    ExportLimits,
+    ExportRunning,
+    ExportTooLarge,
+    OrganizationExporter,
+    decisions_csv,
+    read_chunks,
+    usage_csv,
+)
 from umai_decision_engine.control_plane.keys import KeyPublisher, KeyService
 from umai_decision_engine.control_plane.organizations import (
     DISPOSABLE_EMAIL_DOMAINS,
@@ -91,7 +101,12 @@ from umai_decision_engine.control_plane.organizations import (
     OrganizationService,
 )
 from umai_decision_engine.control_plane.plans import Plans
-from umai_decision_engine.control_plane.records import BadCursor, RecordsReader, retention_loop
+from umai_decision_engine.control_plane.records import (
+    BadCursor,
+    EventFilters,
+    RecordsReader,
+    retention_loop,
+)
 from umai_decision_engine.control_plane.repository import GuardrailRepositories
 from umai_decision_engine.control_plane.service import PolicyService, ServiceError
 from umai_decision_engine.control_plane.sessions import SessionError, SessionService
@@ -392,13 +407,7 @@ def _utc(value: datetime | None) -> datetime | None:
     return value.replace(tzinfo=UTC) if value is not None and value.tzinfo is None else value
 
 
-@router.get("/decision-events")
-async def list_decision_events(
-    request: Request,
-    tenant: TenantInfo = _TENANT,
-    actor: Actor = _ALLOW[Action.DECISIONS_READ],
-    limit: int = Query(50, ge=1, le=200),
-    cursor: str | None = Query(None, max_length=200),
+def _event_filters(
     since: datetime | None = None,
     until: datetime | None = None,
     action: DecisionAction | None = None,
@@ -406,22 +415,61 @@ async def list_decision_events(
     application_id: str | None = Query(None, max_length=64),
     phase: Phase | None = None,
     review: bool | None = None,
+    entity_type: str | None = Query(None, min_length=1, max_length=64),
+    policy_id: str | None = Query(None, min_length=1, max_length=128),
+    q: str | None = Query(None, max_length=128),
+) -> EventFilters:
+    """The filters of the decision-event list, summary and CSV export (tagged-action 0.6)."""
+
+    return EventFilters(
+        since=_utc(since),
+        until=_utc(until),
+        action=action,
+        source=source,
+        application_id=application_id,
+        phase=phase,
+        review=review,
+        entity_type=entity_type,
+        policy_id=policy_id,
+        q=(q or "").strip() or None,
+    )
+
+
+_EVENT_FILTERS = Depends(_event_filters)
+
+
+def _too_large(what: str, limit: int, hint: str) -> HTTPException:
+    return HTTPException(
+        422,
+        {
+            "error": "export_too_large",
+            "detail": f"more than {limit} {what} match; {hint}",
+            "limit": limit,
+        },
+    )
+
+
+def _attachment(name: str) -> dict[str, str]:
+    return {"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store"}
+
+
+def _stamp(at: datetime) -> str:
+    return at.strftime("%Y%m%dT%H%MZ")
+
+
+@router.get("/decision-events")
+async def list_decision_events(
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.DECISIONS_READ],
+    filters: EventFilters = _EVENT_FILTERS,
+    limit: int = Query(50, ge=1, le=200),
+    cursor: str | None = Query(None, max_length=200),
 ) -> dict[str, Any]:
-    """Decision events of the tenant, newest first (tagged-action 0.4)."""
+    """Decision events of the tenant, newest first (tagged-action 0.6)."""
 
     try:
-        page = await request.app.state.records.events(
-            tenant,
-            limit=limit,
-            cursor=cursor,
-            since=_utc(since),
-            until=_utc(until),
-            action=action,
-            source=source,
-            application_id=application_id,
-            phase=phase,
-            review=review,
-        )
+        page = await request.app.state.records.events(tenant, filters, limit=limit, cursor=cursor)
     except BadCursor as exc:
         raise HTTPException(400, {"error": "bad_cursor", "detail": str(exc)}) from exc
     return page.model_dump(mode="json", by_alias=True, exclude_none=True)
@@ -432,28 +480,44 @@ async def summarize_decision_events(
     request: Request,
     tenant: TenantInfo = _TENANT,
     actor: Actor = _ALLOW[Action.DECISIONS_READ],
-    since: datetime | None = None,
-    until: datetime | None = None,
-    action: DecisionAction | None = None,
-    source: Literal["api", "gateway"] | None = None,
-    application_id: str | None = Query(None, max_length=64),
-    phase: Phase | None = None,
-    review: bool | None = None,
+    filters: EventFilters = _EVENT_FILTERS,
 ) -> dict[str, Any]:
     """Counts for charts over the same filters as the list (tagged-action 0.5). Declared before
     ``/decision-events/{event_id}`` so ``summary`` is not taken for an event id."""
 
-    summary = await request.app.state.records.summary(
-        tenant,
-        since=_utc(since),
-        until=_utc(until),
-        action=action,
-        source=source,
-        application_id=application_id,
-        phase=phase,
-        review=review,
-    )
+    summary = await request.app.state.records.summary(tenant, filters)
     return summary.model_dump(mode="json", by_alias=True)
+
+
+@router.get("/decision-events/export.csv")
+async def export_decision_events(
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.DECISIONS_READ],
+    filters: EventFilters = _EVENT_FILTERS,
+) -> StreamingResponse:
+    """The decisions CSV for the list's filters, newest first (data-export 0.1). Refused before
+    anything is sent when more rows match than the cap; ``until`` defaults to now, so the count
+    and the file cover the same events."""
+
+    now = datetime.now(UTC)
+    filters = replace(filters, until=filters.until or now)
+    cap = request.app.state.export_limits.decisions_csv
+    records: RecordsReader = request.app.state.records
+    rows = await records.count_events(tenant, filters, up_to=cap + 1)
+    if rows > cap:
+        raise _too_large("decisions", cap, "choose a shorter period or add filters")
+    log.info(
+        "records.exported kind=decisions tenant=%s actor=%s rows=%d", tenant.slug, actor.label, rows
+    )
+    return StreamingResponse(
+        decisions_csv(records, tenant, filters, max_rows=cap),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            **_attachment(f"umai-decisions-{tenant.slug}-{_stamp(now)}.csv"),
+            "X-Umai-Export-Rows": str(rows),
+        },
+    )
 
 
 @router.get("/decision-events/{event_id}")
@@ -480,6 +544,38 @@ async def get_usage(
 
     summary = await request.app.state.records.usage(tenant, month)
     return summary.model_dump(mode="json", by_alias=True)
+
+
+@router.get("/usage/export.csv")
+async def export_usage(
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.USAGE_READ],
+    month: str | None = Query(None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$"),
+) -> Response:
+    """One calendar month (UTC) of the usage ledger per day and dimension, as CSV
+    (data-export 0.1)."""
+
+    month, start, end = month_bounds(month)
+    cap = request.app.state.export_limits.usage_csv
+    lines = await request.app.state.records.usage_lines(tenant, start, end, up_to=cap + 1)
+    if len(lines) > cap:
+        raise _too_large("usage lines", cap, "contact support for this month's ledger")
+    log.info(
+        "records.exported kind=usage tenant=%s actor=%s month=%s rows=%d",
+        tenant.slug,
+        actor.label,
+        month,
+        len(lines),
+    )
+    return Response(
+        usage_csv(lines),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            **_attachment(f"umai-usage-{tenant.slug}-{month}.csv"),
+            "X-Umai-Export-Rows": str(len(lines)),
+        },
+    )
 
 
 def _entitlements_view(request: Request, tenant: TenantInfo, used: dict) -> EntitlementsView:
@@ -1141,6 +1237,31 @@ def _content(data: dict[str, Any], request: Request) -> ApplicationFile:
         ) from None
 
 
+async def _applications_export(settings: Settings, tenant: TenantInfo) -> dict[str, Any]:
+    """The organization archive's ``applications.json``: gateway defaults, providers (the
+    built-in one included; a provider names a deployment key at most, never holds one) and
+    applications. A file the gateway would refuse is exported as stored."""
+
+    data = await asyncio.to_thread(read_application_file, settings.applications_dir, tenant.slug)
+    try:
+        content = validate_application_file(data, AllowList(settings.gateway_upstream_allowlist))
+    except (ValueError, ValidationError):
+        return {
+            "valid": False,
+            "gateway": data.get("gateway"),
+            "providers": _entries(data, "providers"),
+            "applications": _entries(data, "applications"),
+        }
+    return {
+        "valid": True,
+        "gateway": content.gateway.model_dump(mode="json"),
+        "providers": _provider_view(content),
+        "applications": [
+            a.model_dump(mode="json", exclude_none=True) for a in content.applications
+        ],
+    }
+
+
 @router.get("/applications")
 async def list_applications(
     request: Request,
@@ -1473,6 +1594,46 @@ async def update_organization(
     return result
 
 
+@router.get("/organizations/{org_id}/export.zip")
+async def export_organization(
+    org_id: str,
+    request: Request,
+    actor: Actor = _ALLOW[Action.ORGANIZATION_EXPORT],
+    audit: Audit = _AUDIT[AuditAction.ORGANIZATION_EXPORT],
+) -> StreamingResponse:
+    """The organization archive (data-export 0.1, ADR-0047): owners only, built before the first
+    byte is sent, refused above the record limit, one at a time per organization."""
+
+    tenant = await _org(request, org_id, actor)
+    exporter: OrganizationExporter = request.app.state.exports
+    try:
+        file, size, records = await exporter.export(tenant, actor.record())
+    except ExportRunning as exc:
+        raise HTTPException(
+            409, {"error": "export_running", "detail": "an export of this organization is running"}
+        ) from exc
+    except ExportTooLarge as exc:
+        raise _too_large(
+            "records", exc.limit, "export decisions per period as CSV and contact support"
+        ) from exc
+    audit.set(tenant.slug, records=records, bytes=size)  # the archive holds member e-mails
+    log.info(
+        "organization.exported tenant=%s actor=%s records=%d bytes=%d",
+        tenant.slug,
+        actor.label,
+        records,
+        size,
+    )
+    return StreamingResponse(
+        read_chunks(file),
+        media_type="application/zip",
+        headers={
+            **_attachment(f"umai-{tenant.slug}-export-{_stamp(datetime.now(UTC))}.zip"),
+            "Content-Length": str(size),
+        },
+    )
+
+
 @router.get("/organizations/{org_id}/members")
 async def list_members(
     org_id: str, request: Request, actor: Actor = _ALLOW[Action.MEMBER_READ]
@@ -1760,6 +1921,21 @@ def create_app(
         )
         log.info("control_plane.console_sessions mode=%s", cfg.console_sessions)
         app.state.records = RecordsReader(db)
+        app.state.export_limits = ExportLimits()
+        app.state.exports = OrganizationExporter(
+            db,
+            app.state.records,
+            app.state.organizations,
+            app.state.keys,
+            service.guardrails,
+            service.drafts,
+            lambda tenant: _applications_export(cfg, tenant),
+            retention_days={
+                "decision_events": cfg.records_decision_retention_days,
+                "l1b_outcomes": cfg.records_decision_retention_days,
+                "usage": cfg.records_usage_retention_days,
+            },
+        )
         app.state.audit = AuditLog(db)
         # Billing (ADR-0044): iyzico when configured; plans on offer checked against it.
         client = None
