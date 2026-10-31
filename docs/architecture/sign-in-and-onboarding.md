@@ -88,15 +88,13 @@ stateDiagram-v2
     SignUp --> SignIn
     SignIn --> Reset: forgot password, E3
     Reset --> SignIn: password changed, E4
-    SignIn --> Mfa: factor needed
-    Mfa --> Callback
-    SignIn --> Callback: credentials ok
-    SignUp --> Callback: account created, E1
-    Callback --> AuthError: state, denied, blocked E7
+    SignIn --> Mfa: every sign-in (ADR-0053)
+    SignUp --> Mfa: enrol, account created, E1
+    Mfa --> Callback: amr mfa
+    Callback --> AuthError: state, denied, blocked E7, no amr mfa
     AuthError --> SignIn: try again
     Callback --> Verify: e-mail not verified
     Verify --> SignIn: link in E1
-    Callback --> Mfa: role needs MFA
     Callback --> Accept: invitation in this sign-in
     Callback --> NoOrg: no membership
     Callback --> Picker: several memberships
@@ -107,7 +105,6 @@ stateDiagram-v2
     Accept --> InOrg: accepted, E9
     NoOrg --> Create
     Create --> Provisioning: submitted
-    Provisioning --> Mfa: owner without MFA
     Provisioning --> GetStarted: ready
     GetStarted --> InOrg: key created, first call made
     Picker --> InOrg
@@ -172,10 +169,10 @@ identity service's page, styled by our tokens (§8); "console" means a page in
 
 | | |
 |---|---|
-| When | Required for `owner` and `admin` (ADR-0024 §3). The console requests it when the active membership needs it and the token's `amr` has no MFA entry: at organization creation (the creator becomes owner) and when someone is promoted |
-| Factors | Authenticator app (TOTP) by default; security key or device biometrics (WebAuthn) as a second option; a recovery code shown once at enrolment, which the person confirms they have stored. Auth0's Free plan has no "Pro" MFA factors and the factor-to-tier mapping is *unverified*, so MFA is built on a paid tenant (§11 point 3). Passkeys as a first factor are a later option once the login domain is final (they bind to it) |
-| States | Enrol (scan or type the secret → enter a code → recovery code) → challenge at later sign-ins → callback |
-| Errors | Wrong or reused code; too many attempts; lost device → recovery code; lost recovery code → another owner or admin resets the person's factors in the members page (broker call); a sole owner → support, with identity checks outside the product |
+| When | **Every person, every console sign-in** (ADR-0053, amending ADR-0024 §3, which named `owner` and `admin`). The console sends `acr_values` for multi-factor on every authorization request and starts no session without `amr` `mfa`; Auth0's policy is *Always*, so a person without a factor enrols at their first sign-in (right after sign-up, or when accepting an invitation) |
+| Factors | Authenticator app (TOTP); a recovery code shown once at enrolment and replaced after use; security key or device biometrics (WebAuthn) once the paid plan's tier is confirmed to include them. No e-mail, SMS, voice or push. Auth0's Free plan lists no MFA factors (§11 point 3). Passkeys as a first factor are a later option once the login domain is final (they bind to it); Auth0 still asks for the second factor after one |
+| States | Enrol (scan or type the secret → enter a code → recovery code) → challenge at every later sign-in (a post-login Action sets `allowRememberBrowser: false`, so no "remember this browser") → callback |
+| Errors | Wrong or reused code; too many attempts; lost device → recovery code; lost device and recovery code → UMAI support resets the person's factors after checking who they are outside the product (another owner of the organization confirms; a sole owner: the contact in the beta agreement). Organization admins cannot reset factors: the account spans all the person's organizations. A token without `amr` `mfa` → `/auth/signed-out?error=mfa` |
 
 ### S6 Invitation acceptance (e-mail E5 → console landing → hosted → console)
 
@@ -192,7 +189,7 @@ identity service's page, styled by our tokens (§8); "console" means a page in
 |---|---|
 | Entry | "No organization yet" after the first verified sign-in; "Create organization" in the switcher (when the person may own another) |
 | Fields | Organization name (2–100 characters); identifier (derived from the name, editable, 3–40 of `a–z 0–9 -`, unique, not reserved; becomes the tenant slug and the identity organization's name); region (select with one option, EU, and the sentence "Your organization's data stays in this region. It cannot be changed later."); acceptance of the customer terms and the data processing terms, with links |
-| States | Form → submitting → **Setting up** (steps shown: organization, entitlements, sign-in, starter guardrail) → MFA enrolment if needed (S5) → Get started (S8) |
+| States | Form → submitting → **Setting up** (steps shown: organization, entitlements, sign-in, starter guardrail) → Get started (S8); MFA is already enrolled at sign-up (S5, ADR-0053) |
 | Errors | Identifier taken or reserved; e-mail domain is disposable; Community organization limit reached ("contact us for Enterprise"); terms not accepted; setting up takes longer than 30 s (the page keeps polling; the reconcile job retries; after 5 min it shows a correlation id and the support address) |
 
 ### S8 Get started (console)
@@ -210,7 +207,7 @@ identity service's page, styled by our tokens (§8); "console" means a page in
 | Entry | The organization name in the top bar opens the switcher: the person's memberships from our store (ADR-0033 §2), the current one marked, "Create organization" when allowed |
 | States | Choose → `/auth/login?organization=<org id>` → authorization request for that organization, silent (`prompt=none`) when the identity-service session is alive → new console session bound to that organization → home of that organization. The last organization is remembered in a cookie, so a person with several memberships lands in the last one |
 | Errors | The identity-service session has expired (`login_required`: full sign-in); the membership ended in the meantime (**Access removed**); the organization is suspended |
-| To test first | Silent switching with `prompt=none` is *unverified* at Auth0 (spike, ADR-0033 Consequences). Auth0 omits `amr` after silent authentication, so the console carries the MFA time of the last interactive sign-in with the same `sid` (§5) |
+| To test first | Silent switching with `prompt=none` is *unverified* at Auth0 (spike, ADR-0033 Consequences). Since the store-first amendment the switch stays inside the console session, which proved MFA at its callback (ADR-0053), so no new authorization request and no `amr` are needed |
 
 ### S10 Sign-out (console → hosted → console)
 
@@ -279,11 +276,11 @@ In order; the first failing check decides the page.
 4. With an `org_id` claim: tenant by `idp_org_id` in our store, active membership required
    (`not_member` otherwise). Without one: no membership → S7; one → silent authorization with
    that organization; several → the remembered one, or the picker.
-5. The active membership's roles need MFA and neither the token's `amr` nor the session's
-   recorded MFA time for the same `sid` shows one → authorization request with `acr_values`
-   for multi-factor (S5). Auth0 drops `amr` after silent authentication, hence the recorded
-   time.
-6. Bind the session: subject, tenant id, organization id, `sid`, MFA time, `auth_time`. Roles are not
+5. The token's `amr` contains `mfa`, for every person (ADR-0053; the authorization request
+   carried `acr_values` for multi-factor). Otherwise no session: `/auth/signed-out?error=mfa`.
+   Built: `umai-control-center` `src/lib/auth/mfa.ts`, `/auth/callback`. (Moved before steps
+   2–4 in the code: the check runs before the session record is written.)
+6. Bind the session: subject, tenant id, organization id, `sid`, `auth_time`. Roles are not
    frozen into the session: the console reads them from the policy service for every
    mutating call (cache at most 60 s), so a removal or demotion takes effect within a minute.
 
@@ -479,7 +476,7 @@ so a hand edit to one surface cannot drift from the others.
 
 | Id | Journey | Passes when |
 |---|---|---|
-| J1 | Founder (en): sign up → E1 captured → verify → create organization → MFA enrolment (TOTP from the enrolment page's text secret) → Get started → create key → `POST /v1/evaluate` with that key through Playwright's request context | HTTP 200 with a decision; the page shows "First call received"; E8 captured |
+| J1 | Founder (en): sign up → MFA enrolment (TOTP from the enrolment page's text secret, ADR-0053) → E1 captured → verify → create organization → Get started → create key → `POST /v1/evaluate` with that key through Playwright's request context | HTTP 200 with a decision; the page shows "First call received"; E8 captured |
 | J2 | Invitation (tr): founder invites a second synthetic address → E5 captured → fresh browser context → sign up from the link → lands in the organization with the invited role | Membership in our store and in the identity organization; E9 to the founder |
 | J3 | Second user's first call: the invited member (role permitting) creates a key or uses one an admin created, and evaluates | 200; the key's tenant is the founder's organization |
 | J4 | Several organizations: the second user creates their own organization → switcher shows two → switch | Each view shows only its organization's guardrails, keys and members |
