@@ -28,6 +28,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from umai_decision_engine.contracts.common import Phase
 from umai_decision_engine.contracts.evaluation import AgentAction
+from umai_decision_engine.gateway import openapi
 from umai_decision_engine.gateway.chat import (
     Call,
     _admit,
@@ -272,7 +273,7 @@ def _refuse(call: Call, check: Check, *, model: str, stream: bool) -> Response:
 # ------------------------------------------------------------------ the call
 
 
-@router.post("/v1/responses")
+@router.post("/v1/responses", tags=["AI gateway"], **openapi.RESPONSES)
 async def create_response(request: Request) -> Response:
     started = time.perf_counter()
     request_id = (request.headers.get("x-umai-request-id") or "")[:128] or f"gw-{uuid.uuid4().hex}"

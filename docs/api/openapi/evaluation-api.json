@@ -1,0 +1,1736 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "UMAI evaluation API",
+    "description": "Check content against your organization's guardrail before it goes to a model,\nafter the model answers, and around an agent's tool calls. One call per check; the answer is the\ndecision to act on.\n\nGuides, limits and the error catalogue: the API documentation at `/docs/` on your UMAI address.",
+    "version": "0.14"
+  },
+  "paths": {
+    "/v1/evaluate": {
+      "post": {
+        "tags": [
+          "Evaluation"
+        ],
+        "summary": "Evaluate content against a guardrail",
+        "description": "Check one piece of content: a prompt (`PRE_LLM`), a model's answer\n(`POST_LLM`), or an agent's tool call or tool result (`TOOL_INPUT`, `TOOL_OUTPUT`). Send the\nconversation in `content.messages`; the guardrail decides which part it scans.\n\nThe answer is a decision: go on (`ALLOW`, `ALLOW_WITH_WARNINGS`), go on with the masked text in\n`output_modifications.redacted_text` (`ALLOW_WITH_MODIFICATIONS`), or stop (`BLOCK`,\n`STEP_UP_APPROVAL`). A key that belongs to an application is evaluated with the application's\nguardrail; leave `bundle` out. The answer never contains the values it found.\n\nRequires the `evaluate` scope.",
+        "operationId": "evaluate_v1_evaluate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EvaluationRequest"
+              },
+              "examples": {
+                "prompt": {
+                  "summary": "Check a prompt before it goes to a model",
+                  "value": {
+                    "contract_version": "0.12",
+                    "request_id": "req-7d2c41",
+                    "timestamp": "2026-10-31T09:30:00Z",
+                    "phase": "PRE_LLM",
+                    "content": {
+                      "messages": [
+                        {
+                          "role": "user",
+                          "content": "10000000146 numaralı müşterinin kredi limitini özetle."
+                        }
+                      ],
+                      "focus": "LAST_USER_MESSAGE",
+                      "language": "tr"
+                    },
+                    "subject": {
+                      "user_id": "u-5b81",
+                      "session_id": "s-0192"
+                    },
+                    "destination": {
+                      "app": "support-assistant",
+                      "class": "external_llm"
+                    }
+                  }
+                },
+                "answer": {
+                  "summary": "Check a model's answer before you show it",
+                  "value": {
+                    "contract_version": "0.12",
+                    "request_id": "req-7d2c41",
+                    "timestamp": "2026-10-31T09:30:00Z",
+                    "phase": "POST_LLM",
+                    "content": {
+                      "messages": [
+                        {
+                          "role": "user",
+                          "content": "Kart numarası nasıl görünür?"
+                        },
+                        {
+                          "role": "assistant",
+                          "content": "Örnek bir kart numarası: 4242424242424242"
+                        }
+                      ],
+                      "focus": "LAST_ASSISTANT_MESSAGE",
+                      "language": "tr"
+                    },
+                    "subject": {
+                      "user_id": "u-5b81",
+                      "session_id": "s-0192"
+                    },
+                    "destination": {
+                      "app": "support-assistant",
+                      "class": "external_llm"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The decision. Every request that passed admission gets one, including when a part of the evaluation failed (`degraded: true`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvaluationResponse"
+                },
+                "examples": {
+                  "blocked": {
+                    "summary": "Blocked: an identity number",
+                    "value": {
+                      "contract_version": "0.12",
+                      "request_id": "req-7d2c41",
+                      "tenant_id": "org-3f9a",
+                      "bundle": {
+                        "id": "gr-demo-data-protection",
+                        "version": 4,
+                        "mode": "ENFORCE",
+                        "sha256": "70f8e248132ea25c5a7496e6c2e5d3bbad7d354d088fa9478e6a228795b161a2"
+                      },
+                      "phase": "PRE_LLM",
+                      "decision": {
+                        "action": "BLOCK",
+                        "allowed": false,
+                        "severity": "HIGH",
+                        "reason": "L0: TR_TCKN detected by policy Kimlik verileri v2",
+                        "decided_by": "L0",
+                        "matched": [
+                          {
+                            "kind": "l0_policy",
+                            "id": "identity-data",
+                            "version": 2,
+                            "name": "Kimlik verileri",
+                            "action": "BLOCK",
+                            "entities": [
+                              "TR_TCKN"
+                            ]
+                          }
+                        ]
+                      },
+                      "degraded": false,
+                      "tags": [
+                        {
+                          "code": "data.pii.tr_tckn",
+                          "layer": "L0",
+                          "score": 0.6
+                        }
+                      ],
+                      "entities": [
+                        {
+                          "type": "TR_TCKN",
+                          "count": 1,
+                          "distinct": 1
+                        }
+                      ],
+                      "event_id": "ta-195c97496f4748b88442e60f6ed6e1b9",
+                      "review_queued": false,
+                      "latency_ms": {
+                        "total": 5.5,
+                        "l0": 5.3
+                      },
+                      "errors": []
+                    }
+                  },
+                  "masked": {
+                    "summary": "Allowed with an e-mail address masked",
+                    "value": {
+                      "contract_version": "0.12",
+                      "request_id": "req-7d2c41",
+                      "tenant_id": "org-3f9a",
+                      "bundle": {
+                        "id": "gr-demo-data-protection",
+                        "version": 4,
+                        "mode": "ENFORCE",
+                        "sha256": "70f8e248132ea25c5a7496e6c2e5d3bbad7d354d088fa9478e6a228795b161a2"
+                      },
+                      "phase": "PRE_LLM",
+                      "decision": {
+                        "action": "ALLOW_WITH_MODIFICATIONS",
+                        "allowed": true,
+                        "severity": "MEDIUM",
+                        "reason": "L0: EMAIL_ADDRESS detected by policy İletişim bilgileri v1",
+                        "decided_by": "L0",
+                        "matched": [
+                          {
+                            "kind": "l0_policy",
+                            "id": "contact-data",
+                            "version": 1,
+                            "name": "İletişim bilgileri",
+                            "action": "ALLOW_WITH_MODIFICATIONS",
+                            "entities": [
+                              "EMAIL_ADDRESS"
+                            ]
+                          }
+                        ]
+                      },
+                      "degraded": false,
+                      "tags": [
+                        {
+                          "code": "data.pii.email",
+                          "layer": "L0",
+                          "score": 0.9
+                        }
+                      ],
+                      "entities": [
+                        {
+                          "type": "EMAIL_ADDRESS",
+                          "count": 1,
+                          "distinct": 1
+                        }
+                      ],
+                      "event_id": "ta-195c97496f4748b88442e60f6ed6e1b9",
+                      "review_queued": false,
+                      "latency_ms": {
+                        "total": 5.5,
+                        "l0": 5.3
+                      },
+                      "errors": [],
+                      "output_modifications": {
+                        "redacted_text": "Bu e-postayı <EMAIL_ADDRESS_1> adresine gönder.",
+                        "entities": [
+                          "EMAIL_ADDRESS"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`tenant_required`: only for the self-hosted operator token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`invalid_credential`: missing, unknown, expired or revoked key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "examples": {
+                  "invalid_credential": {
+                    "value": {
+                      "detail": {
+                        "error": "invalid_credential",
+                        "detail": "missing or invalid API credential"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`ip_not_allowed`, `insufficient_scope`, `tenant_mismatch`, `guardrail_mismatch` or `unknown_application`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "examples": {
+                  "ip_not_allowed": {
+                    "value": {
+                      "detail": {
+                        "error": "ip_not_allowed",
+                        "detail": "this key may not be used from this address"
+                      }
+                    }
+                  },
+                  "insufficient_scope": {
+                    "value": {
+                      "detail": {
+                        "error": "insufficient_scope",
+                        "detail": "scope evaluate is required"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "`input_too_large`: the content is longer than your limit. Nothing was evaluated and nothing was cut.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InputTooLargeBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`invalid_request`: the body does not match the contract (where and how, never what it said); `bundle_required`: a key without an application must name the guardrail.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ValidationErrorBody"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ErrorBody"
+                    }
+                  ],
+                  "title": "Response 422 Evaluate V1 Evaluate Post"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited`, `too_many_failed_attempts` or `quota_exceeded`. Wait for `Retry-After` seconds.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before the next attempt.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/QuotaExceededBody"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ErrorBody"
+                    }
+                  ],
+                  "title": "Response 429 Evaluate V1 Evaluate Post"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The service is starting; retry shortly."
+          }
+        },
+        "security": [
+          {
+            "UmaiKey": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Action": {
+        "type": "string",
+        "enum": [
+          "ALLOW",
+          "ALLOW_WITH_WARNINGS",
+          "ALLOW_WITH_MODIFICATIONS",
+          "STEP_UP_APPROVAL",
+          "BLOCK"
+        ],
+        "title": "Action"
+      },
+      "AgentAction": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "description": "The action's name. Required for `TOOL_INPUT`, `MCP_REQUEST` and `MEMORY_WRITE`."
+          },
+          "tool_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Name",
+            "description": "The tool called; required for `TOOL_INPUT`."
+          },
+          "server_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Server Name",
+            "description": "The MCP server; required for `MCP_REQUEST`."
+          },
+          "method": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Method",
+            "description": "The MCP method; required for `MCP_REQUEST`."
+          },
+          "memory_scope": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memory Scope",
+            "description": "The memory written to; required for `MEMORY_WRITE`."
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metadata",
+            "description": "Your own key-value pairs; never interpreted."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "AgentAction"
+      },
+      "Artifact": {
+        "properties": {
+          "artifact_type": {
+            "type": "string",
+            "enum": [
+              "TOOL_INPUT",
+              "TOOL_OUTPUT",
+              "MCP_REQUEST",
+              "MCP_RESPONSE",
+              "MEMORY_WRITE",
+              "CUSTOM"
+            ],
+            "title": "Artifact Type",
+            "description": "What the artifact is: a tool call, a tool result, ...",
+            "default": "CUSTOM"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "description": "The artifact's name, e.g. a file or tool name."
+          },
+          "payload_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payload Summary",
+            "description": "A short text summary of the artifact; scanned like content."
+          },
+          "content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content",
+            "description": "The artifact's text; scanned."
+          },
+          "content_type": {
+            "type": "string",
+            "enum": [
+              "text",
+              "markdown",
+              "json"
+            ],
+            "title": "Content Type",
+            "description": "Format of `content`.",
+            "default": "text"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metadata",
+            "description": "Your own key-value pairs; never interpreted."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "Artifact"
+      },
+      "BundleInfo": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "The guardrail's id."
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version",
+            "description": "The guardrail version that decided."
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Mode"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`ENFORCE`, or `MONITOR` (decisions are recorded, never enforced)."
+          },
+          "sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sha256",
+            "description": "Hash of that exact guardrail version."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "title": "BundleInfo"
+      },
+      "BundleRef": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Id",
+            "description": "The guardrail's id."
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version",
+            "description": "A published version; omitted: the active version. Not allowed with an application's key."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "title": "BundleRef"
+      },
+      "ChatMessage": {
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "system",
+              "user",
+              "assistant"
+            ],
+            "title": "Role",
+            "description": "Who wrote the message."
+          },
+          "content": {
+            "type": "string",
+            "title": "Content",
+            "description": "The message text."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "role",
+          "content"
+        ],
+        "title": "ChatMessage"
+      },
+      "Content": {
+        "properties": {
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/ChatMessage"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Messages",
+            "description": "The conversation, oldest first. The guardrail decides which part is scanned; by default the last message."
+          },
+          "focus": {
+            "type": "string",
+            "enum": [
+              "LAST_USER_MESSAGE",
+              "LAST_ASSISTANT_MESSAGE"
+            ],
+            "title": "Focus",
+            "description": "The message being checked: the prompt (`LAST_USER_MESSAGE`) or the model's answer (`LAST_ASSISTANT_MESSAGE`)."
+          },
+          "artifacts": {
+            "items": {
+              "$ref": "#/components/schemas/Artifact"
+            },
+            "type": "array",
+            "title": "Artifacts",
+            "description": "Tool calls, tool results, files or memory writes."
+          },
+          "content_type": {
+            "type": "string",
+            "enum": [
+              "text",
+              "markdown",
+              "json"
+            ],
+            "title": "Content Type",
+            "description": "Format of the messages.",
+            "default": "text"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 8
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language",
+            "description": "ISO 639-1 language hint, e.g. `tr` or `en`; detected when absent."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "messages",
+          "focus"
+        ],
+        "title": "Content"
+      },
+      "Decision": {
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/Action",
+            "description": "What to do; see acting on a decision."
+          },
+          "allowed": {
+            "type": "boolean",
+            "title": "Allowed",
+            "description": "`true` when the content may go on (perhaps masked)."
+          },
+          "severity": {
+            "$ref": "#/components/schemas/Severity",
+            "description": "How serious the finding is."
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason",
+            "description": "Short explanation with entity types and ids, never the content."
+          },
+          "decided_by": {
+            "type": "string",
+            "enum": [
+              "L0",
+              "L1a",
+              "L1b",
+              "pipeline"
+            ],
+            "title": "Decided By",
+            "description": "Which layer decided: `L0` data protection, `L1a` rules, `L1b` decision model, `pipeline` the guardrail's failure policy."
+          },
+          "matched": {
+            "items": {
+              "$ref": "#/components/schemas/MatchedRule"
+            },
+            "type": "array",
+            "title": "Matched",
+            "description": "What produced the decision, strictest first."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "action",
+          "allowed",
+          "severity",
+          "reason",
+          "decided_by"
+        ],
+        "title": "Decision"
+      },
+      "Destination": {
+        "properties": {
+          "app": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "App",
+            "description": "Where the content goes, e.g. `chatgpt.com`."
+          },
+          "class": {
+            "$ref": "#/components/schemas/DestinationClass",
+            "description": "The kind of destination.",
+            "default": "unknown"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "Destination"
+      },
+      "DestinationClass": {
+        "type": "string",
+        "enum": [
+          "external_llm",
+          "internal_llm",
+          "internal_app",
+          "external_app",
+          "agent_tool",
+          "unknown"
+        ],
+        "title": "DestinationClass"
+      },
+      "EntitySummary": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "title": "Type",
+            "description": "Entity type, e.g. `TR_TCKN`."
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Count",
+            "description": "How often it occurs."
+          },
+          "distinct": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Distinct",
+            "description": "How many different values occur."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "type",
+          "count",
+          "distinct"
+        ],
+        "title": "EntitySummary"
+      },
+      "ErrorBody": {
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/ErrorDetail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "ErrorBody",
+        "description": "Admission and request refusals (evaluation API 0.6): the shape every 4xx shares;\n413, 422 ``invalid_request`` and 429 ``quota_exceeded`` add fields (models below)."
+      },
+      "ErrorDetail": {
+        "properties": {
+          "error": {
+            "type": "string",
+            "title": "Error",
+            "description": "Stable error code; see the error catalogue."
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail",
+            "description": "Explanation; never contains request content."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "error",
+          "detail"
+        ],
+        "title": "ErrorDetail"
+      },
+      "ErrorInfo": {
+        "properties": {
+          "layer": {
+            "$ref": "#/components/schemas/Layer",
+            "description": "Where the failure happened."
+          },
+          "type": {
+            "type": "string",
+            "title": "Type",
+            "description": "Failure type, e.g. `L1B_TIMEOUT`; see the error catalogue."
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message",
+            "description": "Explanation; never contains content."
+          },
+          "retryable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retryable",
+            "description": "A retry may succeed."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "layer",
+          "type"
+        ],
+        "title": "ErrorInfo"
+      },
+      "EvaluationRequest": {
+        "properties": {
+          "contract_version": {
+            "type": "string",
+            "enum": [
+              "0.2",
+              "0.3",
+              "0.4",
+              "0.5",
+              "0.6",
+              "0.7",
+              "0.8",
+              "0.9",
+              "0.10",
+              "0.11",
+              "0.12"
+            ],
+            "title": "Contract Version",
+            "description": "Version of the request shape; send `0.12`."
+          },
+          "request_id": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Request Id",
+            "description": "Your id for this call; echoed in the answer."
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Timestamp",
+            "description": "When you made the call (RFC 3339)."
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id",
+            "description": "Leave it out: the key says whose request it is. If sent, it must be the key's organization."
+          },
+          "bundle": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BundleRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The guardrail to evaluate against. Leave it out with an application's key: the application's guardrail applies."
+          },
+          "phase": {
+            "$ref": "#/components/schemas/Phase",
+            "description": "What is being checked; see the phases table."
+          },
+          "content": {
+            "$ref": "#/components/schemas/Content",
+            "description": "The content to check."
+          },
+          "subject": {
+            "$ref": "#/components/schemas/Subject",
+            "description": "Who acts; facts the guardrail's policies can use."
+          },
+          "destination": {
+            "$ref": "#/components/schemas/Destination",
+            "description": "Where the content goes."
+          },
+          "action": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentAction"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The agent's action, for the agent phases."
+          },
+          "timeout_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 60000.0,
+                "minimum": 50.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timeout Ms",
+            "description": "Time budget for the whole evaluation in milliseconds; capped by the service."
+          },
+          "flags": {
+            "$ref": "#/components/schemas/Flags",
+            "description": "Options for this call."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "contract_version",
+          "request_id",
+          "timestamp",
+          "phase",
+          "content"
+        ],
+        "title": "EvaluationRequest"
+      },
+      "EvaluationResponse": {
+        "properties": {
+          "contract_version": {
+            "type": "string",
+            "enum": [
+              "0.2",
+              "0.3",
+              "0.4",
+              "0.5",
+              "0.6",
+              "0.7",
+              "0.8",
+              "0.9",
+              "0.10",
+              "0.11",
+              "0.12"
+            ],
+            "title": "Contract Version",
+            "description": "Version of the answer's shape.",
+            "default": "0.12"
+          },
+          "request_id": {
+            "type": "string",
+            "title": "Request Id",
+            "description": "Your `request_id`."
+          },
+          "tenant_id": {
+            "type": "string",
+            "title": "Tenant Id",
+            "description": "Your organization's id."
+          },
+          "bundle": {
+            "$ref": "#/components/schemas/BundleInfo",
+            "description": "The exact guardrail version that decided."
+          },
+          "phase": {
+            "$ref": "#/components/schemas/Phase",
+            "description": "The phase you sent."
+          },
+          "decision": {
+            "$ref": "#/components/schemas/Decision",
+            "description": "The decision to act on."
+          },
+          "would_have": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Decision"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "In `MONITOR` mode: what `ENFORCE` would have decided; `decision` is then `ALLOW`."
+          },
+          "degraded": {
+            "type": "boolean",
+            "title": "Degraded",
+            "description": "A part of the evaluation failed and the guardrail's failure policy was applied; details in `errors`.",
+            "default": false
+          },
+          "tags": {
+            "items": {
+              "$ref": "#/components/schemas/Tag"
+            },
+            "type": "array",
+            "title": "Tags",
+            "description": "What was found."
+          },
+          "entities": {
+            "items": {
+              "$ref": "#/components/schemas/EntitySummary"
+            },
+            "type": "array",
+            "title": "Entities",
+            "description": "Entity types found with counts; never values."
+          },
+          "output_modifications": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OutputModifications"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The masked text, when the action is `ALLOW_WITH_MODIFICATIONS`."
+          },
+          "event_id": {
+            "type": "string",
+            "title": "Event Id",
+            "description": "Id of the recorded decision; quote it when you contact support."
+          },
+          "review_queued": {
+            "type": "boolean",
+            "title": "Review Queued",
+            "description": "Reserved; always `false`.",
+            "default": false
+          },
+          "latency_ms": {
+            "$ref": "#/components/schemas/LatencyMs",
+            "description": "Time spent, in milliseconds."
+          },
+          "trace": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/TraceEntry"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trace",
+            "description": "Per-layer trace, when you sent `flags.trace`."
+          },
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/ErrorInfo"
+            },
+            "type": "array",
+            "title": "Errors",
+            "description": "Failures inside the evaluation; empty normally."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "tenant_id",
+          "bundle",
+          "phase",
+          "decision",
+          "event_id",
+          "latency_ms"
+        ],
+        "title": "EvaluationResponse"
+      },
+      "Flags": {
+        "properties": {
+          "allow_model_calls": {
+            "type": "boolean",
+            "title": "Allow Model Calls",
+            "description": "`false` skips decision-model policies (faster); the answer is then `degraded` if one applied.",
+            "default": true
+          },
+          "trace": {
+            "type": "boolean",
+            "title": "Trace",
+            "description": "Include the per-layer `trace` in the answer.",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "Flags"
+      },
+      "InputTooLargeBody": {
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/InputTooLargeDetail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "InputTooLargeBody",
+        "description": "HTTP 413 body (evaluation API 0.9): nothing was evaluated, nothing was truncated."
+      },
+      "InputTooLargeDetail": {
+        "properties": {
+          "error": {
+            "type": "string",
+            "const": "input_too_large",
+            "title": "Error",
+            "default": "input_too_large"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "size": {
+            "type": "integer",
+            "title": "Size"
+          },
+          "unit": {
+            "type": "string",
+            "const": "characters",
+            "title": "Unit",
+            "default": "characters"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "detail",
+          "limit",
+          "size"
+        ],
+        "title": "InputTooLargeDetail"
+      },
+      "LatencyMs": {
+        "properties": {
+          "total": {
+            "type": "number",
+            "title": "Total",
+            "description": "Time spent in UMAI for this call, in milliseconds."
+          },
+          "l0": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "L0",
+            "description": "Data protection (entity detection)."
+          },
+          "l1a": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "L1A",
+            "description": "Rules."
+          },
+          "l1b": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "L1B",
+            "description": "Decision-model policies."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "total"
+        ],
+        "title": "LatencyMs"
+      },
+      "Layer": {
+        "type": "string",
+        "enum": [
+          "L0",
+          "L1a",
+          "L1b",
+          "L2",
+          "pipeline"
+        ],
+        "title": "Layer"
+      },
+      "MatchedRule": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "l0_policy",
+              "l0_on_detect",
+              "l0_exception",
+              "l1a_rule",
+              "l1b_policy"
+            ],
+            "title": "Kind",
+            "description": "What matched: a data-protection policy (`l0_policy`), an exception (`l0_exception`), a rule (`l1a_rule`) or a decision-model policy (`l1b_policy`)."
+          },
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "The policy's, exception's or rule's id."
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version",
+            "description": "The policy's version, when it has one."
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "description": "The policy's display name."
+          },
+          "action": {
+            "$ref": "#/components/schemas/Action",
+            "description": "The action this match asked for."
+          },
+          "entities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Entities",
+            "description": "Entity types involved, e.g. `TR_TCKN`."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "id",
+          "action"
+        ],
+        "title": "MatchedRule",
+        "description": "What produced (part of) a decision: a guardrail policy, the legacy per-type action, an\nL0 exception, an L1a rule or an L1b decision policy (0.12). Ids and versions only, never\ncontent."
+      },
+      "Mode": {
+        "type": "string",
+        "enum": [
+          "ENFORCE",
+          "MONITOR"
+        ],
+        "title": "Mode"
+      },
+      "OutputModifications": {
+        "properties": {
+          "redacted_text": {
+            "type": "string",
+            "title": "Redacted Text",
+            "description": "The scanned text with the listed entity types replaced by placeholders such as `<TR_TCKN_1>`; send this instead of the original."
+          },
+          "entities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Entities",
+            "description": "The entity types that were replaced."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "redacted_text",
+          "entities"
+        ],
+        "title": "OutputModifications"
+      },
+      "Phase": {
+        "type": "string",
+        "enum": [
+          "PRE_LLM",
+          "POST_LLM",
+          "TOOL_INPUT",
+          "TOOL_OUTPUT",
+          "MCP_REQUEST",
+          "MCP_RESPONSE",
+          "MEMORY_WRITE"
+        ],
+        "title": "Phase"
+      },
+      "QuotaExceededBody": {
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/QuotaExceededDetail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "QuotaExceededBody",
+        "description": "HTTP 429 body (evaluation API 0.13, ADR-0043): the month's requests are used; nothing was\nevaluated."
+      },
+      "QuotaExceededDetail": {
+        "properties": {
+          "error": {
+            "type": "string",
+            "const": "quota_exceeded",
+            "title": "Error",
+            "default": "quota_exceeded"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "used": {
+            "type": "integer",
+            "title": "Used"
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "live",
+              "test"
+            ],
+            "title": "Environment"
+          },
+          "resets_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Resets At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "detail",
+          "limit",
+          "used",
+          "environment",
+          "resets_at"
+        ],
+        "title": "QuotaExceededDetail"
+      },
+      "Severity": {
+        "type": "string",
+        "enum": [
+          "LOW",
+          "MEDIUM",
+          "HIGH",
+          "CRITICAL"
+        ],
+        "title": "Severity"
+      },
+      "Subject": {
+        "properties": {
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id",
+            "description": "Your id for the person; use a pseudonym, not an e-mail address."
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role",
+            "description": "The person's role, e.g. `sales`."
+          },
+          "department": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Department",
+            "description": "The person's department."
+          },
+          "agent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id",
+            "description": "Your id for the AI agent acting."
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id",
+            "description": "Your id for the conversation."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "Subject"
+      },
+      "Tag": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code",
+            "description": "What was found, e.g. `data.pii.tr_tckn`."
+          },
+          "layer": {
+            "$ref": "#/components/schemas/Layer",
+            "description": "The layer that found it."
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score",
+            "description": "Detection confidence (0–1), for `L0`."
+          },
+          "probability": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Probability",
+            "description": "The decision model's probability (0–1), for `L1b`."
+          },
+          "policy_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Policy Id",
+            "description": "The policy that produced the tag."
+          },
+          "policy_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Policy Version",
+            "description": "That policy's version."
+          },
+          "rule_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule Id",
+            "description": "The rule that produced the tag."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "layer"
+        ],
+        "title": "Tag"
+      },
+      "TraceEntry": {
+        "properties": {
+          "layer": {
+            "$ref": "#/components/schemas/Layer",
+            "description": "The layer."
+          },
+          "outcome": {
+            "type": "string",
+            "title": "Outcome",
+            "description": "What the layer concluded."
+          },
+          "latency_ms": {
+            "type": "number",
+            "title": "Latency Ms",
+            "description": "Time the layer took, in milliseconds."
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider",
+            "description": "Decision-model provider, for `L1b`."
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model",
+            "description": "Decision model, for `L1b`."
+          },
+          "prompt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt",
+            "description": "Reserved."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "layer",
+          "outcome",
+          "latency_ms"
+        ],
+        "title": "TraceEntry"
+      },
+      "ValidationErrorBody": {
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/ValidationErrorDetail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "ValidationErrorBody",
+        "description": "HTTP 422 body (evaluation API 0.8): the admission error shape plus `problems`."
+      },
+      "ValidationErrorDetail": {
+        "properties": {
+          "error": {
+            "type": "string",
+            "const": "invalid_request",
+            "title": "Error",
+            "default": "invalid_request"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          },
+          "problems": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationProblem"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "title": "Problems"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "detail",
+          "problems"
+        ],
+        "title": "ValidationErrorDetail"
+      },
+      "ValidationProblem": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Loc"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "loc",
+          "type"
+        ],
+        "title": "ValidationProblem",
+        "description": "Where a malformed request is malformed and how; never the value (0.8, ADR-0005)."
+      }
+    },
+    "securitySchemes": {
+      "UmaiKey": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "An API key from the console: `umai_<env>_<region>_<key_id>_<secret>`. Server side only; never in a browser or a mobile app."
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Evaluation",
+      "description": "Decide whether content may go on."
+    }
+  ],
+  "servers": [
+    {
+      "url": "https://{host}",
+      "description": "Your UMAI address; the console shows it under API & SDKs.",
+      "variables": {
+        "host": {
+          "default": "umai.example"
+        }
+      }
+    }
+  ]
+}

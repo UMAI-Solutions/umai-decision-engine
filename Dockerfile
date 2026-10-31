@@ -12,6 +12,16 @@ COPY src ./src
 RUN python -m venv /opt/venv \
     && /opt/venv/bin/pip install .
 
+# The customer API documentation (ADR-0054), built from the committed pages and OpenAPI documents.
+# The renderer is pinned like the `docs` extra in pyproject.toml: the site's bytes depend on it.
+FROM python:3.12-slim@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159 AS docs
+ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+WORKDIR /src
+RUN pip install markdown-it-py==4.2.0
+COPY dev/api_docs.py dev/
+COPY docs/api docs/api
+RUN python dev/api_docs.py build --out /site
+
 FROM python:3.12-slim@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159
 
 ENV PATH=/opt/venv/bin:$PATH \
@@ -24,13 +34,15 @@ ENV PATH=/opt/venv/bin:$PATH \
     UMAI_DE_CONTROL_DB_PATH=/data/control/control.sqlite
 
 RUN useradd --system --uid 10001 --home-dir /app umai \
-    && mkdir -p /data/policies /data/control \
+    && mkdir -p /data/policies /data/control /data/docs \
     && chown -R umai /data
 COPY --from=build /opt/venv /opt/venv
 # Seed bundles for an empty policy volume (deploy/vm/seed-policies.sh); never read in place.
 COPY --chown=umai policies /app/seed-policies
 # The product's plans (contract entitlements, ADR-0043); used when UMAI_DE_PLANS_FILE names it.
 COPY --chown=umai deploy/plans.yaml /app/plans.yaml
+# The API documentation site; the seed copies it to the volume Caddy serves (deploy/vm).
+COPY --from=docs --chown=umai /site /app/docs-site
 WORKDIR /app
 USER umai
 

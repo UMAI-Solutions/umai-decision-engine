@@ -103,6 +103,8 @@ python -m evals.run --suite l0-latency --tag <label>             # L0 by input s
 python -m evals.run --suite revocation --tag <label>             # local stack: revoked key refused after (S0-2)
 python -m evals.run --suite load --tag <label>                   # local stack: throughput, p50/p95/p99 (S0-3)
 python -m evals.run --suite l1-cold-start --tag <label>          # live: first L1b calls of a new process (also: l1-latency)
+python dev/api_docs.py openapi [--check]                         # published OpenAPI documents (ADR-0054)
+python dev/api_docs.py build --out site/docs                     # customer API documentation site
 docker build -t umai-decision-engine .                            # one image: engine API, policy service, gateway
 az deployment group create -g <rg> -f deploy/azure/main.bicep -p deploy/azure/main.bicepparam  # starter VM (ADR-0032)
 deploy/vm/ship.sh <user@host>                                    # build locally, ship images to the VM
@@ -252,6 +254,11 @@ request, the B2s estimate; the beta plan is `docs/workflow/load-test-beta.md`), 
 admission step by step, and the `leak` suite's error paths over every refusal of the three
 services (also a CI test). The policy service's 422 no longer repeats the input
 (`control_plane/errors.py`, organizations 0.6).
+Customer API documentation (2026-10-31, ADR-0054, Proposed): `docs/api/` holds the pages in English
+and Turkish and the published OpenAPI documents, generated from the apps through an allow-list
+(`api/openapi.py` `PUBLIC_OPERATIONS`: `/v1/evaluate` and the gateway's four routes; nothing
+internal); `dev/api_docs.py` builds the static site served at `/docs/`; `tests/unit/test_api_docs.py`
+holds code, contract versions (`API_VERSION` in each app), error catalogue and examples together.
 Tenants are organizations created in the console; API keys, bundles and HMAC keys are per tenant.
 The console signs people in with OIDC (Auth0 development tenant, `umai-control-center`, locally
 since 2026-10-18 and on `umai-beta` since 2026-10-19).
@@ -265,6 +272,7 @@ since 2026-10-18 and on `umai-beta` since 2026-10-19).
 | Work on L1 rules or decision models | [`docs/architecture/l1-policy-decision.md`](docs/architecture/l1-policy-decision.md), skill `add-decision-provider` |
 | Work on L2 | [`docs/architecture/l2-llm-analyst.md`](docs/architecture/l2-llm-analyst.md) |
 | Change a request/response/tag shape | [`docs/contracts/`](docs/contracts/), skill `change-contract` |
+| Customer-facing API documentation, published OpenAPI, error catalogue | [`docs/api/README.md`](docs/api/README.md), ADR-0054 |
 | Console structure, applications, how the AI gateway fits | [`docs/architecture/console-information-architecture.md`](docs/architecture/console-information-architecture.md), ADR-0039 |
 | Sign-in, onboarding, organizations, invitations, login branding | [`docs/architecture/sign-in-and-onboarding.md`](docs/architecture/sign-in-and-onboarding.md), ADR-0033, ADR-0024 |
 | UMAI secure gateway, guardrail hooks in other gateways | [`docs/architecture/ai-gateway.md`](docs/architecture/ai-gateway.md), [`docs/contracts/gateway-api.md`](docs/contracts/gateway-api.md), ADR-0034 to ADR-0036, [`docs/reference/ai-gateways.md`](docs/reference/ai-gateways.md) |

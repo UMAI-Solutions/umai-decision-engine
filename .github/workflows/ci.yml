@@ -51,6 +51,23 @@ jobs:
       - name: Policy golden tests
         run: python -m umai_decision_engine.policy.cli test policies --require-tests
 
+      # Customer API documentation (ADR-0054): the published OpenAPI documents are current, and
+      # the site builds to the same bytes twice (on Linux and Windows alike).
+      - name: API documentation
+        run: |
+          python dev/api_docs.py openapi --check
+          python dev/api_docs.py build --out site-a/docs
+          python dev/api_docs.py build --out site-b/docs
+          diff -r site-a site-b
+
+      - name: Upload the API documentation
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: api-docs
+          path: site-a
+          retention-days: 30
+
   isolation:
     name: tenant isolation (PostgreSQL)
     runs-on: ubuntu-latest

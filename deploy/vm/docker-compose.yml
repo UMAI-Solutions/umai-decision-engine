@@ -39,15 +39,18 @@ x-engine-env: &engine-env
 
 services:
   seed:
-    # One-shot: fills an empty policy volume from the image and signs it with the deployment key.
+    # One-shot: fills an empty policy volume from the image and signs it with the deployment key,
+    # and copies the image's API documentation to the volume Caddy serves (ADR-0054).
     build: { context: ../.., dockerfile: Dockerfile }
     image: umai-decision-engine:current
-    command: ["sh", "/app/deploy/seed-policies.sh"]
+    command: ["sh", "-c", "sh /app/deploy/seed-docs.sh && exec sh /app/deploy/seed-policies.sh"]
     environment:
       UMAI_SIGNING_KEY_ID: ${UMAI_SIGNING_KEY_ID:?set in config.env}
     volumes:
       - policies:/data/policies
+      - docs:/data/docs
       - ./seed-policies.sh:/app/deploy/seed-policies.sh:ro
+      - ./seed-docs.sh:/app/deploy/seed-docs.sh:ro
       - "${UMAI_RUN_DIR:-/run/umai}/signing.key:/run/secrets/signing.key:ro"
     restart: "no"
     logging: *logging
@@ -220,6 +223,7 @@ services:
       - "${UMAI_RUN_DIR:-/run/umai}/caddy:/etc/caddy:ro"
       - caddy_data:/data
       - caddy_config:/config
+      - docs:/srv/docs:ro  # the API documentation (ADR-0054), written by the seed
     networks:
       default:
         ipv4_address: 172.30.240.2  # the trusted proxy (UMAI_DE_TRUSTED_PROXIES above)
@@ -244,6 +248,7 @@ networks:
 
 volumes:
   policies:
+  docs:
   postgres:
   caddy_data:
   caddy_config:

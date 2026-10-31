@@ -59,10 +59,18 @@
 		max_size 512KB
 	}
 
-	# OpenAPI and docs are development aids (gap analysis 13.4.5); not served here.
-	@docs path /docs /docs/* /redoc /openapi.json
-	handle @docs {
+	# Customer API documentation (ADR-0054): static files of the running release, copied by the
+	# seed. FastAPI's own documentation stays closed: it lists internal routes (gap 13.4.5).
+	@fastapi_docs path /redoc /openapi.json
+	handle @fastapi_docs {
 		respond 404
+	}
+	redir /docs /docs/ 308
+	handle_path /docs/* {
+		root * /srv/docs
+		header Cache-Control "public, max-age=300"
+		header Content-Security-Policy "default-src 'none'; style-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+		file_server
 	}
 
 	# UMAI gateway (ADR-0034; Compose profile "gateway"): the OpenAI-compatible paths. Before
