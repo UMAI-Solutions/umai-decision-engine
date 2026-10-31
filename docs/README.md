@@ -40,7 +40,7 @@ docs/
 │   └── openapi/                  published OpenAPI documents, generated from the apps
 ├── adr/                          architecture decision records
 ├── reference/                    external facts: vendors, libraries, algorithms (dated)
-├── security/                     threat model, gap analysis, launch plan, verification plan (SaaS readiness)
+├── security/                     threat model, gap analysis, launch plan, verification plan, incident response (SaaS readiness)
 ├── platform-context/             background: what umai-engine (the engine this may replace) does
 ├── evals/                        eval strategy, datasets, metrics
 └── workflow/                     how to develop, test and ship changes here

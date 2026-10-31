@@ -107,6 +107,8 @@ python dev/api_docs.py openapi [--check]                         # published Ope
 python dev/api_docs.py build --out site/docs                     # customer API documentation site
 docker build -t umai-decision-engine .                            # one image: engine API, policy service, gateway
 az deployment group create -g <rg> -f deploy/azure/main.bicep -p deploy/azure/main.bicepparam  # starter VM (ADR-0032)
+az deployment group what-if -g UMAI -f deploy/azure/main.bicep -p deploy/azure/prod.bicepparam  # umai-prod (ADR-0050); runbook deploy/azure/README.md
+az deployment group what-if -g UMAI -f deploy/azure/monitoring.bicep -p deploy/azure/monitoring.bicepparam  # alerts, availability tests (ADR-0051)
 deploy/vm/ship.sh <user@host>                                    # build locally, ship images to the VM
 deploy/vm/umai.sh init | up [--recreate] | backup | restore-test [ARCHIVE|BLOB] | status  # on the VM; runbook: deploy/vm/README.md
 ```
