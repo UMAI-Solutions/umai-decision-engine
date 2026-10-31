@@ -104,6 +104,25 @@ case-insensitive. Beta's public `/healthz` during the drills: 334 of 335 probes 
 (p99 0.26 s); the one miss never reached the VM (11 ms client-side; Caddy logged 334 requests, no
 5xx).
 
+## First rolling deploy on `umai-beta` (2026-10-31)
+
+After the one-time `umai.sh up --recreate` (32 s, Caddy 2.11.7 and the fixed network), `ship.sh`
+shipped engine `3e3e7e4` with a plain `umai.sh up`: policy, engine and gateway were each replaced
+by a second container (12:53:09–12:53:30 VM time); the console image was unchanged and kept its
+container. A probe on the operator's laptop called beta through Caddy every ~0.5 s for 126 s
+across the whole roll: engine `/readyz`, console `/auth/signed-out`, `/docs/` and the gateway's
+`/v1/models` (400 `provider_key_required` expected, no provider key sent).
+
+| Route | Answers | Unexpected |
+|---|---|---|
+| engine `/readyz` | 233 × 200 | 0 |
+| console `/auth/signed-out` | 233 × 200 | 0 |
+| `/docs/` | 233 × 200 | 0 |
+| gateway `/v1/models` | 233 × 400 | 0 |
+
+No evaluate calls (no quota used); transport errors would have been counted apart, and there
+were none.
+
 ## Reproduce
 
 ```bash
