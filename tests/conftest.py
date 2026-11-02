@@ -13,6 +13,9 @@ from umai_decision_engine.l0.detector import EntityDetector
 
 CORE = ["TR_TCKN", "TR_IBAN", "IBAN_CODE", "TR_PHONE", "CREDIT_CARD", "EMAIL_ADDRESS"]
 
+# Exponential on "1…1!" yet accepted by the bundle-load check (ADR-0056's ReDoS measurements).
+CATASTROPHIC_PATTERNS = (r"(\w|\d)+$", r"([a-z0-9]{1,20})+$")
+
 
 def bundle_yaml(
     bundle_id: str = "gr-test",
@@ -40,6 +43,19 @@ def bundle_yaml(
     )
     extra = textwrap.indent(textwrap.dedent(l0_extra).strip("\n"), "  ") + "\n" if l0_extra else ""
     return base + extra + f"l1a:\n  rules: {l1a_rules}\n"
+
+
+def custom_recognizer_bundle_yaml(pattern: str, **kwargs) -> str:
+    """A 0.5 bundle whose only entity is the custom CUSTOMER_NO with one pattern, ``greedy``."""
+
+    custom = f"""\
+        custom_recognizers:
+          - entity: CUSTOMER_NO
+            patterns: [{{name: greedy, regex: '{pattern}', score: 0.9}}]
+        """
+    return bundle_yaml(entities=["CUSTOMER_NO"], l0_extra=custom, **kwargs).replace(
+        'contract_version: "0.4"', 'contract_version: "0.5"', 1
+    )
 
 
 @pytest.fixture

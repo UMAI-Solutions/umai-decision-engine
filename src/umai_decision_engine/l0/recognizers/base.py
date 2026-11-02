@@ -8,7 +8,9 @@ Presidio's "valid → 1.0" rule (docs/reference/presidio.md).
 
 from __future__ import annotations
 
+import logging
 import os
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
@@ -17,11 +19,32 @@ from presidio_analyzer import LocalRecognizer, RecognizerResult
 
 from umai_decision_engine.l0.context import has_context
 
+logger = logging.getLogger("umai.de.l0")
+
 # Presidio reads REGEX_TIMEOUT_SECONDS as an int; we use the same variable for our matching.
 _REGEX_TIMEOUT_S = float(os.getenv("REGEX_TIMEOUT_SECONDS", "1") or 1)
 
 META_VALIDATED = "umai_validated"
 META_PATTERN = "umai_pattern"
+
+
+class PatternMatchError(RuntimeError):
+    """A pattern's matching timed out or failed. Raised out of L0, never skipped (AGENTS.md
+    rule 4): the evaluation fails with ``L0_ERROR`` under the guardrail's
+    ``on_evaluation_failure``. Names and timing only, never content (ADR-0005)."""
+
+    def __init__(
+        self, *, recognizer: str, entity: str, pattern: str, reason: str, elapsed_ms: float
+    ) -> None:
+        self.recognizer = recognizer
+        self.entity = entity
+        self.pattern = pattern
+        self.reason = reason  # "timeout" or the failing exception's class name
+        self.elapsed_ms = elapsed_ms
+        super().__init__(
+            f"pattern {pattern} of recognizer {recognizer} ({entity}) failed: {reason} "
+            f"after {elapsed_ms} ms"
+        )
 
 
 @dataclass(frozen=True)
@@ -92,41 +115,76 @@ class SpecRecognizer(LocalRecognizer):
         results: list[RecognizerResult] = []
         seen: set[tuple[int, int]] = set()
         for pattern, compiled in self._compiled:
+            started = time.perf_counter()
+            reason: str | None = None
             try:
-                matches = list(compiled.finditer(text, timeout=_REGEX_TIMEOUT_S))
+                self._match(text, pattern, compiled, results, seen)
             except TimeoutError:
-                continue
-            for match in matches:
-                m_start, m_end = match.span()
-                if pattern.requires_context and not has_context(
-                    text, m_start, m_end, self.spec.context
-                ):
-                    continue
-                fragment = text[m_start:m_end]
-                candidates = (
-                    self.spec.refine(fragment)
-                    if self.spec.refine
-                    else [Candidate(0, len(fragment), None)]
-                )
-                for cand in candidates:
-                    start, end = m_start + cand.start, m_start + cand.end
-                    if (start, end) in seen or end <= start:
-                        continue
-                    if self.spec.canonical(text[start:end]) in self.spec.known_non_pii:
-                        continue
-                    seen.add((start, end))
-                    results.append(
-                        RecognizerResult(
-                            entity_type=self.spec.entity,
-                            start=start,
-                            end=end,
-                            score=pattern.score if cand.score is None else cand.score,
-                            recognition_metadata={
-                                RecognizerResult.RECOGNIZER_NAME_KEY: self.name,
-                                RecognizerResult.RECOGNIZER_IDENTIFIER_KEY: self.id,
-                                META_VALIDATED: cand.validated,
-                                META_PATTERN: pattern.name,
-                            },
-                        )
-                    )
+                reason = "timeout"
+            except Exception as exc:
+                reason = type(exc).__name__
+            if reason is not None:
+                # Raised outside the handlers, so the cause (whose message may quote the text)
+                # is not chained to it.
+                raise self._failure(pattern, reason, started)
         return results
+
+    def _match(
+        self,
+        text: str,
+        pattern: PatternSpec,
+        compiled: regex.Pattern,
+        results: list[RecognizerResult],
+        seen: set[tuple[int, int]],
+    ) -> None:
+        for match in list(compiled.finditer(text, timeout=_REGEX_TIMEOUT_S)):
+            m_start, m_end = match.span()
+            if pattern.requires_context and not has_context(
+                text, m_start, m_end, self.spec.context
+            ):
+                continue
+            fragment = text[m_start:m_end]
+            candidates = (
+                self.spec.refine(fragment)
+                if self.spec.refine
+                else [Candidate(0, len(fragment), None)]
+            )
+            for cand in candidates:
+                start, end = m_start + cand.start, m_start + cand.end
+                if (start, end) in seen or end <= start:
+                    continue
+                if self.spec.canonical(text[start:end]) in self.spec.known_non_pii:
+                    continue
+                seen.add((start, end))
+                results.append(
+                    RecognizerResult(
+                        entity_type=self.spec.entity,
+                        start=start,
+                        end=end,
+                        score=pattern.score if cand.score is None else cand.score,
+                        recognition_metadata={
+                            RecognizerResult.RECOGNIZER_NAME_KEY: self.name,
+                            RecognizerResult.RECOGNIZER_IDENTIFIER_KEY: self.id,
+                            META_VALIDATED: cand.validated,
+                            META_PATTERN: pattern.name,
+                        },
+                    )
+                )
+
+    def _failure(self, pattern: PatternSpec, reason: str, started: float) -> PatternMatchError:
+        elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
+        logger.warning(
+            "l0.pattern_failed recognizer=%s entity=%s pattern=%s reason=%s elapsed_ms=%s",
+            self.name,
+            self.spec.entity,
+            pattern.name,
+            reason,
+            elapsed_ms,
+        )
+        return PatternMatchError(
+            recognizer=self.name,
+            entity=self.spec.entity,
+            pattern=pattern.name,
+            reason=reason,
+            elapsed_ms=elapsed_ms,
+        )

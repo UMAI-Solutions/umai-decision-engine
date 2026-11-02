@@ -25,7 +25,7 @@ roll back: move the pointer to v6 → engines return to v6
 | Draft | control plane DB | Mutable; never seen by engines |
 | Validate | control plane (engine library) | Same validation code the engine runs at load: schema, fact paths, question/option references, provider capabilities, regex safety |
 | Test | control plane + engine | Golden cases in the version's `tests/` ([policy-tests](../contracts/policy-tests.md), ADR-0015), run by the same runner as `cli test` and CI today; playground = single input evaluated with an inline bundle (dev/test engines only, synthetic data) |
-| Preview impact | engine replay job | Re-evaluate the last N stored decision events with the candidate: "38 of 1 240 decisions would change", with diffs. The L0 gate (`on_detect`, exceptions) and L1 only use entity types/counts, facts and redacted text, which events keep. Recognizer changes cannot be replayed (need raw content) → synthetic cases only |
+| Preview impact | engine replay job | Re-evaluate the last N stored decision events with the candidate: "38 of 1 240 decisions would change", with diffs. The L0 gate (`on_detect`, exceptions) and L1 only use entity types/counts, facts and redacted text. Since ADR-0041 decision events keep no text, not even redacted, so at most changes of L0 gate actions could be replayed; recognizer and L1b changes are shown by golden cases and the dataset evaluation of ADR-0057 instead (ADR-0056 §10) |
 | Approve | control plane | Roles: editor, approver; four-eyes for production; diff between versions |
 | Publish | control plane | Build `bundle.yaml` + `manifest.json` (hash, Ed25519 signature) at the current bundle contract version, whatever version the draft started from; version becomes immutable |
 | Activate | control plane | Move the active pointer per bundle id (and later per environment / tenant / traffic share) |
@@ -45,6 +45,10 @@ Policies are versioned in the library and **pinned** into each guardrail version
 editing a policy never changes a published guardrail (ADR-0021).
 
 ## Policy service API (ADR-0022)
+
+The guardrail routes are specified in the [guardrails](../contracts/guardrails.md) contract (draft
+0.1), with the routes [ADR-0056](../adr/0056-guardrail-and-policy-authoring-in-the-console.md)
+proposes for creating guardrails, writing cases and adding decision policies.
 
 Bearer token `UMAI_DE_CONTROL_API_TOKEN` on everything but `/healthz`. The console's guardrail
 pages are built on these answers; field additions are backwards compatible.

@@ -113,7 +113,7 @@ E elevation of privilege. "Today" is what the code does; "Control" is the ADR or
 | | **R** no decision event stored; logs have request id only | Accepted | ADR-0030: decision events and audit events per tenant |
 | L0 (TB2) | **I** raw content in logs/traces/metrics | Prevented (leak suite, C1) | Keep: CI leak test extended to traces and metrics when they exist |
 | | **I** hash brute force if a tenant key leaks | Keys in env JSON | ADR-0027/0031: per-tenant keys wrapped by Key Vault Premium, rotatable |
-| | **D** ReDoS | Regex timeout 1 s per pattern | Keep; add a latency SLO alert |
+| | **D** ReDoS | Regex timeout 1 s per pattern; a timeout fails the evaluation (`L0_ERROR`, fail-closed by default) since 2026-11-02, before it skipped the pattern | Keep; add a latency SLO alert; RE2 for tenant patterns (ADR-0056) |
 | Bundle store (TB5) | **T** unsigned or re-signed bundle | Signature required outside development | ADR-0027/0031: signing key in Key Vault Premium (ECDSA P-256 in cloud, Ed25519 self-hosted); public-key registry, not env |
 | | **T** tampered `active` pointer on disk | Anyone with filesystem access | ADR-0025: bundles in Postgres per tenant; SaaS engines pull signed artifacts (`http_pull`), no shared disk |
 | Policy service | **S** shared token, no human identity | Accepted | ADR-0024 (humans via OIDC) + ADR-0023 (service credential names the acting user) |

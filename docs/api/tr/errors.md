@@ -114,7 +114,7 @@ geçidinde çağrı o kararın söylediği gibi devam eder ya da reddedilir), `d
 | `CONFIG_MISSING` | Guardrail (ya da belirtilen sürüm) kullanılamıyor | Guardrail kimliğini ve bir sürümün yayınlanıp etkin olduğunu kontrol edin |
 | `CONFIG_INVALID` | Guardrail bu aşamayı etkinleştirmiyor ya da yüklenemiyor | Aşamayı guardrail'de etkinleştirin ya da etkinleştirdiği bir aşamayla çağırın |
 | `TIMEOUT` | Varlık tespiti süre bütçesi içinde bitmedi | Yeniden deneyin; `timeout_ms` değerini artırın; daha az içerik gönderin |
-| `L0_ERROR` | Varlık tespiti başarısız oldu | Yeniden deneyin; sürerse `event_id` ile bize ulaşın |
+| `L0_ERROR` | Varlık tespiti başarısız oldu, örneğin bir tespit deseni bu içerikte tamamlanamadı | Yeniden deneyin; sürerse `event_id` ile bize ulaşın |
 | `TENANT_KEY_MISSING` | Kuruluşunuzun anahtar malzemesi bu hizmette mevcut değil | Bize ulaşın |
 | `L1_NOT_IMPLEMENTED` | Guardrail'de UMAI'nin bu sürümünün henüz değerlendiremediği kurallar var | Bize ulaşın |
 | `L1B_TIMEOUT` | Bir karar modeli politikası zamanında yanıt vermedi | Yeniden deneyin ya da guardrail'in karar modeli zaman aşımını artırın |
