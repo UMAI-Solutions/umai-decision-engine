@@ -201,7 +201,8 @@ seconds per 1 000 cases on the VM. Wall time is L1b's round trip: p50 414 ms, p9
    (caught, missed, false block, passed) and exact-action accuracy where rows ask for an action,
    p50 / p95 latency (total, L0, L1b), robustness per converter (catch rate on variants and its
    change from the originals), degraded rate, what each shadow policy would have caught and
-   falsely blocked (evidence for moving a policy from shadow to enforce, Q60), the wrong cases
+   falsely blocked (evidence for moving a policy from shadow to enforce: Q60, and ADR-0056's Q68
+   on whether a passed evaluation is required first), the wrong cases
    (redacted, D3), and with two targets the flips between them. Rates carry a Wilson 95 %
    interval and their `n`, because a 50-case dataset cannot tell 0.90 from 0.95.
    **Grade `grade-v1`**, computed by the policy service, never the console:
