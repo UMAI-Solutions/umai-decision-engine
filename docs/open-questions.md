@@ -92,3 +92,13 @@ to the ADR or report. Mark questions that block a phase.
 | A31 | Four-eyes activation (was Q82) | Built alongside authoring; required before Enterprise customers enforce their own exceptions and L1b policies | 2026-11-02 | ADR-0056 (product owner) |
 | A32 | Archived guardrails (was Q83) | Restorable by owner or approver (audited, counted against `max_guardrails` again); versions kept until the organization is deleted | 2026-11-02 | ADR-0056 (product owner) |
 | A33 | YAML view of a guardrail (was Q84) | Structured forms only; operators edit the rest through Git | 2026-11-02 | ADR-0056 (product owner) |
+| A34 | Evaluation dataset retention (was Q70) | 30 days from upload or earlier on delete, no per-organization choice yet; redacted text of wrong cases until the dataset expires; report cards 400 days | 2026-11-02 | ADR-0057 (product owner) |
+| A35 | Report card grade (was Q71) | `grade-v1` as proposed: 0.5 catch, 0.3 benign pass (five points per point of false blocks), 0.2 robustness, A–F bands, caps, 50 + 50 minimum | 2026-11-02 | ADR-0057 (product owner) |
+| A36 | Evaluation plan values (was Q72) | Community 1 000 / 500 / 3, Pro 20 000 / 5 000 / 20, Enterprise unlimited / 5 000 / 100 (`monthly_evaluation_cases` / `max_evaluation_dataset_cases` / `max_evaluation_datasets`); Community gets evaluations | 2026-11-02 | ADR-0057 (product owner) |
+| A37 | Evaluation gate bypass (was Q73) | An approver other than the last editor and publisher when approval is required, otherwise the owner with a reason; audited, no separate notification yet | 2026-11-02 | ADR-0057 (product owner) |
+| A38 | Third-party built-in sets (was Q74) | MIT, Apache and CC BY sets with attribution after a legal look; XL-SafetyBench left out for now | 2026-11-02 | ADR-0057 (product owner) |
+| A39 | Report card as KVKK evidence (was Q75) | Console-printed card with `report_sha256`; a signed server PDF only when an auditor asks | 2026-11-02 | ADR-0057 (product owner) |
+| A40 | Evaluation datasets under the DPA (was Q76) | Same processing purpose as live traffic; redacted prompts go to the guardrail's L1b provider; legal confirmation before uploads ship | 2026-11-02 | ADR-0057 (product owner) |
+| A41 | Multi-turn attacks on the gateway (was Q77) | Later, separate worker image and ADR | 2026-11-02 | ADR-0057 (product owner) |
+| A42 | Evaluation gate on rollback (was Q78) | Publishing only | 2026-11-02 | ADR-0057 (product owner) |
+| A43 | Evaluation worker placement (was Q79) | Same VM as live traffic, lowest CPU priority, four cases in flight, after the load measurement; self-hosted with its own L1b key | 2026-11-02 | ADR-0057 (product owner) |

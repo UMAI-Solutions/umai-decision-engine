@@ -25,6 +25,7 @@ in the same commit (skill `change-contract`).
 | [data-export](data-export.md) | 0.1 | policy service → console → people: decisions CSV, usage CSV, organization archive (ADR-0047) |
 | [console-sessions](console-sessions.md) | 0.1 | console ↔ policy service: a record per sign-in, list, end one, end others, sign-out, the middleware's check (ADR-0024 §2 amendment) |
 | [audit](audit.md) | 0.1 (draft 0.2) | policy service → tenant store → console, auditors: who changed what, when, refused attempts; list and CSV export (ADR-0045) |
+| [evaluations](evaluations.md) | draft 0.1 | console ↔ policy service: datasets, built-in sets, runs, cases, report cards, the evaluation gate; evaluation worker → tenant store (ADR-0057, Proposed; not built) |
 | [guardrails](guardrails.md) | draft 0.1 | console ↔ policy service: guardrails, drafts, golden cases, templates, the decision-policy library, publish, activate, archive (ADR-0022, ADR-0056) |
 
 ## Versioning rules
