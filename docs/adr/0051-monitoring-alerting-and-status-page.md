@@ -84,13 +84,14 @@ outside need a third party.
 4. **External checks and the status page: a hosted service, outside Azure. Recommended: Better
    Stack** (one Responder seat, about $29–34 a month):
    - its probes run on Hetzner, Akamai and its own addresses, not on Azure;
-   - one status page on `status.<company domain>` switches between English and Turkish;
+   - one status page on `status.umaisolutions.com` (proposed, Q62) switches between English and
+     Turkish;
    - the page's state follows the monitors, incidents are posted by hand, and subscribers get
      e-mail;
    - data is stored in the EU by default, with a DPA and SOC 2 Type 2.
 
-   It checks prod's `/readyz` (with a certificate-expiry warning), the console's sign-in page and
-   the gateway's `/v1/models` every minute. The page shows three components: API, AI gateway and
+   It checks prod's `/readyz` on `platform.umaisolutions.com` (with a certificate-expiry
+   warning), the console's sign-in page and the gateway's `/v1/models` every minute. The page shows three components: API, AI gateway and
    console. It shows prod only, never beta. Before buying, confirm in writing which features the
    seat unlocks and in which language subscriber e-mails go out. The runner-up is UptimeRobot
    Team (an EU company whose terms allow commercial use; English and Turkish need two pages).

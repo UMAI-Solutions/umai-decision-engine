@@ -11,7 +11,7 @@ gateway, L1b) is in [`deploy/vm/README.md`](../vm/README.md). Incidents:
 | Purpose | Demos, pilots with synthetic data, experiments, every merge the same day | Stage 0 design partners under a beta agreement; nothing else |
 | Parameters | `main.bicepparam` | `prod.bicepparam` |
 | Resources | `umaibeta-*`, storage `umaibetae46trud7sdv2e` | `umaiprod-*`, storage `umaiprode46trud7sdv2e` |
-| Hostname | `umai-beta.westeurope.cloudapp.azure.com` | the company subdomain (CNAME, §2); until then `umai-prod.westeurope.cloudapp.azure.com` |
+| Hostname | `umai-beta.westeurope.cloudapp.azure.com` | `platform.umaisolutions.com`, a CNAME to `umai-prod.westeurope.cloudapp.azure.com` (§2) |
 | VM | `Standard_B2s` (2 vCPU, 4 GiB) | `Standard_B2ms` (2 vCPU, 8 GiB), a parameter (ADR-0050 §3) |
 | SSH key | `~/.ssh/umai_beta_ed25519` | `~/.ssh/umai_prod_ed25519`, operators only |
 | Auth0 | development tenant (`dev-zqxuqnql6vid3wcf.us.auth0.com`) | its own EU tenant, sign-ups off (`umai-control-center/identity/auth0/production.md`) |
@@ -19,7 +19,7 @@ gateway, L1b) is in [`deploy/vm/README.md`](../vm/README.md). Incidents:
 | Releases | any merged `main` commit | only commits that ran ≥ 24 h on beta, in a change window (§3) |
 | Backups | nightly, 30 days | nightly + before every deploy, 35 days, 14-day soft delete |
 | Alerts | severity 3, every 15 min | severity 1–2, every 5 min (§5) |
-| Status page | not shown | `status.<company domain>` (§6) |
+| Status page | not shown | `status.umaisolutions.com`, proposed (§6) |
 
 The resource group also holds `umai-single` and other resources that belong to neither
 environment: never touch them. The account is Contributor on the resource group only (no role
@@ -44,14 +44,28 @@ changes. Quota: the B-series family has 10 vCPUs in West Europe, 2 in use by bet
 more. Never pass `main.bicepparam` with `-n umai-prod` or the reverse: the prefix decides which VM
 a deployment touches.
 
-## 2. First-time setup and hostname
+## 2. Hostname and first-time setup
 
-Follow [`deploy/vm/README.md`](../vm/README.md) §2–§3 with the prod key
+**DNS first.** The hostname is `platform.umaisolutions.com` (product owner, 2026-11-02): console,
+API and gateway on one name. Right after §1, at Cloudflare (DNS of `umaisolutions.com`):
+
+- type `CNAME`, name `platform`, target `umai-prod.westeurope.cloudapp.azure.com`;
+- proxy status **DNS only** (grey cloud). A proxied record would send partners' prompts and
+  answers through Cloudflare, a third party on a content path (ADR-0005, ADR-0031 §5). The
+  engine would also see Cloudflare's addresses instead of the caller's, which breaks key IP
+  allow-lists and the failed-attempt throttle (ADR-0046).
+
+`nslookup platform.umaisolutions.com` must return prod's public IP (Bicep output `publicIp`)
+before the first `umai.sh up`. Caddy then obtains the certificate for that name from Let's
+Encrypt. The Azure DNS label stays as the CNAME target and gets no certificate. SSH and `ship.sh`
+use `platform.umaisolutions.com` as well, since DNS only resolves straight to the VM.
+
+Then follow [`deploy/vm/README.md`](../vm/README.md) §2–§3 with the prod key
 (`SSH_KEY=~/.ssh/umai_prod_ed25519`) and these values in `/opt/umai/config.env`:
 
 | Key | umai-prod |
 |---|---|
-| `UMAI_HOSTNAME` | `umai-prod.westeurope.cloudapp.azure.com`, later the company subdomain |
+| `UMAI_HOSTNAME` | `platform.umaisolutions.com` |
 | `UMAI_BACKUP_ACCOUNT` | `umaiprode46trud7sdv2e` (Bicep output `backupStorageAccount`) |
 | `UMAI_REGION` | `eu` (stamped into the API keys minted here, ADR-0023) |
 | `UMAI_OIDC_ISSUER`, `UMAI_OIDC_CLIENT_ID` | from the prod Auth0 tenant (`umai-control-center/identity/auth0/production.md` §4) |
@@ -72,18 +86,6 @@ Then:
 - **Checks:** `deploy/vm/README.md` §5 against the prod hostname, then one backup by hand
   (`umai.sh backup`).
 
-**Company hostname.** Create a CNAME at the domain's DNS provider:
-`<subdomain>` → `umai-prod.westeurope.cloudapp.azure.com`. Then, in this order:
-
-1. Set `UMAI_HOSTNAME=<subdomain>` and run `umai.sh up`; Caddy fetches the certificate on the
-   first request.
-2. Change `console_url` and `brand_base_url` in the prod tfvars and apply
-   (`production.md` §6).
-3. Set `hostname` of the prod entry in `monitoring.bicepparam` and redeploy monitoring (§5).
-4. Update the status-page monitors (§6).
-
-The Azure DNS label stays as the CNAME target.
-
 ## 3. Releases: beta first, then prod
 
 1. Merge to `main`. Build from a clean detached worktree of `origin/main` in both repositories
@@ -103,7 +105,7 @@ The Azure DNS label stays as the CNAME target.
    2. Alerts of `umai-prod` muted for the window (§5, "change windows").
    3. On the prod VM: `sudo /opt/umai/src/umai-decision-engine/deploy/vm/umai.sh backup`.
    4. From the **same** two worktrees:
-      `SSH_KEY=~/.ssh/umai_prod_ed25519 ../rel-engine/deploy/vm/ship.sh umaiops@<prod hostname> ../rel-console`.
+      `SSH_KEY=~/.ssh/umai_prod_ed25519 ../rel-engine/deploy/vm/ship.sh umaiops@platform.umaisolutions.com ../rel-console`.
       The build hits the layer cache, so the image ids printed by
       `docker image inspect -f '{{.Id}}' umai-decision-engine:current umai-control-center:current`
       on the workstation match beta's (`sudo docker image inspect …` on the VM). A different
@@ -125,7 +127,7 @@ Partners are onboarded by hand (launch plan S0 exit):
 2. **The first person:** in the prod Auth0 tenant, User Management → Users → Create user
    (`Username-Password-Authentication`, their business address), then **Send reset password**
    (`production.md` §5).
-3. They sign in at `https://<prod hostname>/` and create their organization; it gets the
+3. They sign in at `https://platform.umaisolutions.com/` and create their organization; it gets the
    starter guardrail signed with prod's key (ADR-0033). They create an application and a key on
    Get started.
 4. **Plan:** Community allows 10 000 requests a month. For a pilot, give the organization
@@ -176,8 +178,9 @@ Per environment (`monitoring/environment.bicep`) it adds:
 Thresholds are the `thresholds` parameter of `monitoring.bicep`. The queries match log lines by
 text; `tests/unit/test_monitoring_alerts.py` fails when one of those lines changes.
 
-**Deploy** (after both VMs exist; with only beta, deploy with the prod entry removed from the
-parameter file and add it later):
+**Deploy** after both VMs exist and `https://platform.umaisolutions.com/readyz` answers 200
+(otherwise prod's `availability` rule fires at once). With only beta, deploy with the prod entry
+removed from the parameter file and add it later:
 
 ```bash
 az deployment group what-if -g UMAI -n umai-monitoring -f deploy/azure/monitoring.bicep \
@@ -234,14 +237,15 @@ Configure:
 
 | Monitor (outside Azure) | URL | Expect | Interval | Notes |
 |---|---|---|---|---|
-| prod API | `https://<prod hostname>/readyz` | 200 | 1 min | SSL expiry warning 14 days; regions EU + US |
-| prod console | `https://<prod hostname>/auth/signed-out` | 200 | 1 min | the console renders without a session |
-| prod gateway | `https://<prod hostname>/v1/models` | 401 without a key | 3 min | only if the gateway is on; a 502 means the gateway is down |
+| prod API | `https://platform.umaisolutions.com/readyz` | 200 | 1 min | SSL expiry warning 14 days; regions EU + US |
+| prod console | `https://platform.umaisolutions.com/auth/signed-out` | 200 | 1 min | the console renders without a session |
+| prod gateway | `https://platform.umaisolutions.com/v1/models` | 401 without a key | 3 min | only if the gateway is on; a 502 means the gateway is down |
 | beta API (optional) | `https://umai-beta.westeurope.cloudapp.azure.com/readyz` | 200 | 5 min | e-mail only, not on the page |
 
 Set up the page:
 
-- **Hostname:** `status.<company domain>`, a CNAME to the vendor.
+- **Hostname:** `status.umaisolutions.com` (proposed, Q62), a CNAME to the vendor, DNS only at
+  Cloudflare.
 - **Languages:** English and Turkish.
 - **Components:** "API" (prod API monitor), "AI gateway", "Console".
 - **Subscribers:** e-mail subscriptions on.

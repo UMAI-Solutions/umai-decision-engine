@@ -133,7 +133,7 @@ prunes dangling images), so a rollback rebuilds the previous tag.
 git fetch --tags
 git worktree add --detach ../rb-engine prod-<previous>
 git -C ../umai-control-center worktree add --detach ../rb-console <console commit of that release>
-SSH_KEY=~/.ssh/umai_prod_ed25519 ../rb-engine/deploy/vm/ship.sh umaiops@<prod hostname> ../rb-console
+SSH_KEY=~/.ssh/umai_prod_ed25519 ../rb-engine/deploy/vm/ship.sh umaiops@platform.umaisolutions.com ../rb-console
 ```
 
 Then the checks of `deploy/vm/README.md` §5. The release notes (PR list) say whether a release
