@@ -76,6 +76,7 @@ log's first entry (`{"action": "create", "from": {"template": "tpl-kvkk-data-pro
   "bundle_id": "gr-ik-asistani-korumasi",
   "base_version": null,
   "revision": 7,
+  "sha256": "5d2f8e1a0c9b7d6e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e",
   "bundle": { "id": "gr-ik-asistani-korumasi", "name": "İK asistanı koruması", "contract_version": "0.10" },
   "tests": [
     {
@@ -104,6 +105,7 @@ log's first entry (`{"action": "create", "from": {"template": "tpl-kvkk-data-pro
 |---|---|
 | `base_version` | null for a guardrail that was never published (created by `POST /v1/guardrails`); its first publish is version 1 |
 | `revision` | Incremented by every change to `bundle` or `tests`. Changing calls may send `If-Match: "<revision>"`; a stale one → 412 `draft_changed` with `{"revision": <current>}`. Optional in 0.1 |
+| `sha256` | SHA-256 (hex) of the canonical JSON of `bundle` (keys sorted, no whitespace, UTF-8). Changes with every bundle change, not with case changes (cases do not change decisions). It names the draft in ADR-0057's evaluation runs and evaluation gate; it is not the published version's manifest `sha256`, which covers the `bundle.yaml` bytes written at publish |
 | `tests` | The draft's golden-case files, each a [policy-tests](policy-tests.md) file plus its `file` path under `tests/`. Start as the base version's, the template's or the source guardrail's; publish writes them as the version's `tests/` |
 | `problems` | As today, plus plan problems: more L1b policies than `max_decision_policies` (`l1b.policies: 4 decision policies, the plan allows 3`) |
 
@@ -303,11 +305,12 @@ errors never repeat the input ([organizations](organizations.md) 0.6).
 | 412 | `draft_changed` | *(ADR-0056)* `If-Match` names an older revision |
 | 422 | `invalid_case`, `text_too_long` | *(ADR-0056)* case or sample text refused |
 | 422 | (publish) | the draft is not valid (`problems`), cases fail unaccepted (`unaccepted`, `report`), *(ADR-0056)* coverage is missing (`coverage`) |
+| 422 | `evaluation_gate_failed` | *(ADR-0057)* the guardrail's evaluation gate is on and no passing run exists for the draft's `sha256`; the gate, its bypass route and its settings are specified in the evaluations contract of ADR-0057 |
 
 ## Changelog
 
 - 0.1 — draft (2026-11-02, ADR-0056, not implemented): first version. Records the guardrail routes
   built by ADR-0022 and proposes creating guardrails from templates or copies, archive, the template
   and library listings, adding decision policies (library or form), drafts without a base version,
-  with cases and a revision, case routes, coverage in the test report, the recognizer test and
-  catalog examples.
+  with cases, a revision and a `sha256` (the draft's identity for ADR-0057's runs and gate), case
+  routes, coverage in the test report, the recognizer test and catalog examples.
