@@ -409,10 +409,13 @@ def _utc(value: datetime | None) -> datetime | None:
     return value.replace(tzinfo=UTC) if value is not None and value.tzinfo is None else value
 
 
+_ACTIONS = Query(None)  # repeatable: any of the decisions (tagged-action 0.7)
+
+
 def _event_filters(
     since: datetime | None = None,
     until: datetime | None = None,
-    action: DecisionAction | None = None,
+    action: list[DecisionAction] | None = _ACTIONS,
     source: Literal["api", "gateway"] | None = None,
     application_id: str | None = Query(None, max_length=64),
     phase: Phase | None = None,
@@ -420,13 +423,14 @@ def _event_filters(
     entity_type: str | None = Query(None, min_length=1, max_length=64),
     policy_id: str | None = Query(None, min_length=1, max_length=128),
     q: str | None = Query(None, max_length=128),
+    playground: bool | None = None,
 ) -> EventFilters:
-    """The filters of the decision-event list, summary and CSV export (tagged-action 0.6)."""
+    """The filters of the decision-event list, summary and CSV export (tagged-action 0.7)."""
 
     return EventFilters(
         since=_utc(since),
         until=_utc(until),
-        action=action,
+        action=tuple(dict.fromkeys(action)) if action else None,  # repeated: any of them
         source=source,
         application_id=application_id,
         phase=phase,
@@ -434,6 +438,7 @@ def _event_filters(
         entity_type=entity_type,
         policy_id=policy_id,
         q=(q or "").strip() or None,
+        playground=playground,
     )
 
 
@@ -484,7 +489,7 @@ async def summarize_decision_events(
     actor: Actor = _ALLOW[Action.DECISIONS_READ],
     filters: EventFilters = _EVENT_FILTERS,
 ) -> dict[str, Any]:
-    """Counts for charts over the same filters as the list (tagged-action 0.5). Declared before
+    """Counts for charts over the same filters as the list (tagged-action 0.7). Declared before
     ``/decision-events/{event_id}`` so ``summary`` is not taken for an event id."""
 
     summary = await request.app.state.records.summary(tenant, filters)
