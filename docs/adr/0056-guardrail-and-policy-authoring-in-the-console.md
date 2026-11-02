@@ -1,9 +1,9 @@
 # ADR-0056 — Guardrail and policy authoring in the console: templates, the full L0 editor, L1b policies, golden cases
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-02)
 - **Date:** 2026-11-02
-- **Deciders:** product owner (direction and working assumptions 1–6 below, 2026-11-02);
-  engineering proposal for everything else
+- **Deciders:** product owner (direction and working assumptions 1–6 below; on 2026-11-02 the
+  product owner accepted this proposal and its answers to Q66–Q69 and Q80–Q84, below)
 - **Builds on:** ADR-0005 (no raw PII beyond L0), ADR-0012 (signed bundles), ADR-0013 (dashboard
   editing), ADR-0014 (L0 gate, exceptions), ADR-0015 (golden tests), ADR-0017 (entity catalog),
   ADR-0021 (policies pinned into guardrails), ADR-0022 (policy service), ADR-0029 (roles,
@@ -128,8 +128,8 @@ shows L1b policies today.
 - **Archive:** `POST /v1/guardrails/{id}/archive` hides a guardrail from the list and the count and
   removes its active pointer, so engines stop serving it. It is refused with 409 `guardrail_in_use`
   while an application uses it. Versions and the change log stay: decision events and the
-  organization archive refer to them. Deleting versions is not offered; restoring an archived
-  guardrail and how long its versions are kept is Q83.
+  organization archive refer to them. Deleting versions is not offered. An archived guardrail can be
+  restored, and its versions are kept until the organization is deleted (Q83, answered).
 
 ### 3. Templates and the policy library are signed bundles in a catalog tenant
 
@@ -332,6 +332,23 @@ can run in `MONITOR` mode. Past traffic is not replayed (Context).
 - **Publish.** *Review* → change summary, test results and coverage → accept changed cases → note →
   *Publish* → *Activate* (by the same person where approval is not required; otherwise by an
   approver).
+
+## Answers to the open points (2026-11-02)
+
+The product owner accepted the proposals; the questions moved to *Answered* in
+[`../open-questions.md`](../open-questions.md) (A25–A33).
+
+| Question | Answer |
+|---|---|
+| Q66 plan values | `max_guardrails`: Community 3, Pro 10, Enterprise none. `max_decision_policies` per guardrail, shadow included: Community 2, Pro 5, Enterprise 12. Latency at 12 is confirmed with `l1-latency` before the value ships |
+| Q67 first templates | KVKK data protection, prompt attack, malicious use, blank; names and descriptions in Turkish and English. The KVKK template is **L0 only**: the L1b policies have their own templates, cost tokens even in shadow, and the decision to send content to a provider (Q59) stays with the customer |
+| Q68 before an L1b policy enforces | Its golden cases (§6) and an explicit confirmation of its threshold; a dataset evaluation (ADR-0057) is shown when one exists, not required |
+| Q69 policies that need the customer's words | Written with the simple form (§5) in the first version; parameterized library entries later, with a contract change |
+| Q80 content in golden cases | Customer configuration under the DPA, with the "synthetic data only" warning and *Insert a test value*; no attempt to detect real data. Accepted pending a legal confirmation before the case editor ships |
+| Q81 custom detectors by edition | Every edition, Community included: the measured cost is negligible, and no feature entitlement is needed |
+| Q82 four-eyes activation | Built alongside the authoring work; required before Enterprise customers enforce their own exceptions and L1b policies |
+| Q83 archived guardrails | Can be restored by owner or approver (audited `guardrail.restore`, counted against `max_guardrails` again); their versions are kept until the organization is deleted, because decision events and archives refer to them |
+| Q84 YAML view | Structured forms only; operators edit the rest through Git |
 
 ## Alternatives considered
 
