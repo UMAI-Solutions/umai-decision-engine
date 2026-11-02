@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import base64
+import logging
 import os
 
 import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-from tests.conftest import bundle_yaml
+from tests.conftest import CATASTROPHIC_PATTERNS, bundle_yaml, custom_recognizer_bundle_yaml
 from umai_decision_engine.api.app import create_app
 from umai_decision_engine.contracts.evaluation import InputTooLargeBody, ValidationErrorBody
+from umai_decision_engine.l0.recognizers import base
 from umai_decision_engine.settings import Settings
 
 PII_TEXT = "TC kimlik 10000000146 ve IBAN TR33 0006 1005 1978 6457 8413 26"
@@ -287,6 +289,60 @@ def test_l1_logic_not_silently_allowed(write_bundle, make_client, failure, phase
     assert body["decision"]["action"] == expected
     assert body["degraded"] is True
     assert body["errors"][0]["type"] == "L1_NOT_IMPLEMENTED"
+
+
+# ------------------------------------------------------------------ L0 pattern failures (rule 4)
+
+CANARY = "kanarya"
+REDOS_TEXT = CANARY + "1" * 16_000 + "!"  # exponential for CATASTROPHIC_PATTERNS
+
+
+@pytest.fixture
+def fast_regex_timeout(monkeypatch) -> None:
+    # REGEX_TIMEOUT_SECONDS is read at import (default 1 s); patched to keep the tests fast.
+    monkeypatch.setattr(base, "_REGEX_TIMEOUT_S", 0.05)
+
+
+@pytest.fixture
+def debug_logs(caplog):
+    # Every line, whatever level an earlier test left on "umai.de" (the golden CLI sets ERROR).
+    caplog.set_level(logging.DEBUG)
+    caplog.set_level(logging.DEBUG, logger="umai.de")
+    return caplog
+
+
+@pytest.mark.parametrize(
+    "failure, expected",
+    [
+        ("fail_closed", "BLOCK"),
+        ("step_up", "STEP_UP_APPROVAL"),
+        ("fail_open", "ALLOW"),  # configured: degraded and recorded, never silent
+    ],
+)
+def test_a_pattern_timeout_is_an_l0_error_under_the_failure_policy(
+    write_bundle, make_client, fast_regex_timeout, debug_logs, failure, expected
+) -> None:
+    write_bundle(custom_recognizer_bundle_yaml(CATASTROPHIC_PATTERNS[0], failure=failure), active=1)
+    response = make_client().post("/v1/evaluate", json=_request(REDOS_TEXT))
+    body = response.json()
+    assert body["decision"]["action"] == expected
+    assert body["decision"]["decided_by"] == "pipeline"
+    assert body["degraded"] is True
+    assert [(e["layer"], e["type"]) for e in body["errors"]] == [("L0", "L0_ERROR")]
+    assert "pattern=greedy reason=timeout" in debug_logs.text
+    assert "kind=L0_ERROR" in debug_logs.text
+    assert CANARY not in debug_logs.text and CANARY not in response.text
+
+
+def test_detect_endpoint_fails_when_a_pattern_fails(
+    write_bundle, make_client, fast_regex_timeout, debug_logs
+) -> None:
+    write_bundle(custom_recognizer_bundle_yaml(CATASTROPHIC_PATTERNS[1]), active=1)
+    client = TestClient(make_client().app, raise_server_exceptions=False)
+    response = client.post("/v1/detect", json=_request(REDOS_TEXT))
+    assert response.status_code == 500  # no partial result
+    assert "pattern=greedy reason=timeout" in debug_logs.text
+    assert CANARY not in debug_logs.text and CANARY not in response.text
 
 
 # ------------------------------------------------------------------ configuration paths

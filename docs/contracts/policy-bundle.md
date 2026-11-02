@@ -142,7 +142,7 @@ l2:                                # asynchronous review (ADR-0010); never affec
 | `l0.on_detect` | `{default, severity, actions{TYPE: action}}` | `{default: BLOCK, severity: HIGH}` | Action of the L0 gate per detected type. `ALLOW` / `ALLOW_WITH_WARNINGS` are rejected (ADR-0014) |
 | `l0.exceptions[]` | `{id, description?, when, entities[], action}` | `[]` | Deterministic relaxations; `when` uses the L1a condition language; `entities` ⊆ `l0.entities` (empty = all) |
 | `l0.entities[]` | entity type[] | — | Built-in types from the [entity catalog](../architecture/l0-entity-catalog.md) plus the bundle's own custom types |
-| `l0.custom_recognizers[]` | `{entity, patterns[{name, regex, score}], context[], validator?}` | `[]` | Customer-defined types, run like built-in recognizers (score + context boost 0.25 ≥ `min_score`). `entity` must not be a built-in type and must be listed in `l0.entities`. `validator`: `luhn`, `iban_mod97`, `tckn`, `vkn`, `us_ssn`, `uk_nino`, `de_tax_id`, `fr_nir`, `es_nif`, `es_nie`, `it_fiscal_code`, `nl_bsn`, `pl_pesel`. Patterns that do not compile, match the empty string or contain nested unbounded quantifiers are rejected; matching runs with a timeout |
+| `l0.custom_recognizers[]` | `{entity, patterns[{name, regex, score}], context[], validator?}` | `[]` | Customer-defined types, run like built-in recognizers (score + context boost 0.25 ≥ `min_score`). `entity` must not be a built-in type and must be listed in `l0.entities`. `validator`: `luhn`, `iban_mod97`, `tckn`, `vkn`, `us_ssn`, `uk_nino`, `de_tax_id`, `fr_nir`, `es_nif`, `es_nie`, `it_fiscal_code`, `nl_bsn`, `pl_pesel`. Patterns that do not compile, match the empty string or contain nested unbounded quantifiers are rejected. Matching runs with a timeout (`REGEX_TIMEOUT_SECONDS`, default 1 s); a pattern whose matching times out or fails is never skipped: the evaluation fails with `L0_ERROR` under `on_evaluation_failure` |
 | `l0.allowed_domains[]` | lowercase domain[] | `[]` | `UNKNOWN_LINK` is not reported for URLs whose registrable domain is listed (subdomains included), in addition to the engine's popular-domain list (Lakera's "allowed domains") |
 | `l1a.rules[]` | `{id, when, effect, severity, tags[], final, force_review, redact[]}` | `[]` | Facts and operators in [L1](../architecture/l1-policy-decision.md) |
 | `l1a.legacy_preflight` | `umai-engine` HeuristicConfig | null | Compatibility; converted to L1a rules at load |
@@ -217,6 +217,9 @@ The loader rejects a bundle when:
   `enforcement`, `name`, `description`, `source` and probability thresholds (`p_gte`) in
   `decide` (decision-questions 0.4). `redact` in an L1b `decide` rule is refused at load (not
   supported yet).
+  - 2026-11-02 (ADR-0056 build step E1; shape and version unchanged): a pattern whose matching
+    times out or fails, custom or built-in, is no longer skipped without a record; the
+    evaluation fails with `L0_ERROR` under `on_evaluation_failure`.
 - 0.8 (2026-10-19): tenant-owned bundles: `tenants/<tenant_id>/` layout, signed
   `manifest.tenant_id`, unowned bundles belong to the default tenant (ADR-0019 §2). Manifests
   without `tenant_id` verify unchanged.

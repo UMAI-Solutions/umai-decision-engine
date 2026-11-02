@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.conftest import bundle_yaml
+from tests.conftest import CATASTROPHIC_PATTERNS, bundle_yaml, custom_recognizer_bundle_yaml
 from umai_decision_engine.contracts.common import Action, Layer, Phase, Severity
 from umai_decision_engine.contracts.entities import EntitySummary
 from umai_decision_engine.contracts.evaluation import (
@@ -23,6 +23,7 @@ from umai_decision_engine.contracts.evaluation import (
 )
 from umai_decision_engine.contracts.policy_tests import Expectation
 from umai_decision_engine.golden.runner import compare, format_report, run_golden
+from umai_decision_engine.l0.recognizers import base
 from umai_decision_engine.policy import cli
 
 REPO_POLICIES = Path(__file__).resolve().parents[2] / "policies"
@@ -135,6 +136,28 @@ async def test_l1_not_implemented_is_assertable(write_bundle, detector) -> None:
     )
     report = await _run(directory, detector)
     assert report.ok(), format_report(report)
+
+
+async def test_a_pattern_failure_is_assertable(write_bundle, detector, monkeypatch) -> None:
+    monkeypatch.setattr(base, "_REGEX_TIMEOUT_S", 0.05)  # read at import; default 1 s
+    directory = write_bundle(custom_recognizer_bundle_yaml(CATASTROPHIC_PATTERNS[0]), active=1)
+    attack = "1" * 16_000 + "!"
+    _tests(
+        directory,
+        _cases(f"""
+            - id: redos-fails-closed
+              input: {{ text: "{attack}" }}
+              expect: {{ action: BLOCK, decided_by: pipeline, errors: [L0_ERROR], degraded: true }}
+            - id: redos-never-allowed
+              input: {{ text: "{attack}" }}
+              expect: {{ action: ALLOW }}
+        """),
+    )
+    report = await _run(directory, detector)
+    passed, failed = report.cases
+    assert passed.passed, format_report(report)
+    assert failed.failures == ("action: expected ALLOW, got BLOCK",)
+    assert attack not in "\n".join(format_report(report))
 
 
 async def test_messages_and_assistant_focus(gated, write_bundle, detector) -> None:
