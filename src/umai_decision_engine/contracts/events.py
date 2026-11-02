@@ -21,7 +21,7 @@ from umai_decision_engine.contracts.common import (
 from umai_decision_engine.contracts.entities import EntitySummary
 from umai_decision_engine.contracts.evaluation import Destination, Tag
 
-CONTRACT_VERSION = "0.6"  # tagged-action
+CONTRACT_VERSION = "0.7"  # tagged-action
 USAGE_CONTRACT_VERSION = "0.3"  # usage
 
 Source = Literal["api", "gateway"]
@@ -104,7 +104,7 @@ class EventLatency(ContractModel):
 
 
 class DecisionEvent(ContractModel):
-    contract_version: Literal["0.3", "0.4", "0.5", "0.6"] = CONTRACT_VERSION
+    contract_version: Literal["0.3", "0.4", "0.5", "0.6", "0.7"] = CONTRACT_VERSION
     event_id: str = Field(min_length=1, max_length=64)
     request_id: str = Field(max_length=128)
     tenant_id: str
@@ -135,7 +135,7 @@ class L1bOutcomeRecord(ContractModel):
     """One L1b policy's outcome for one evaluation. A shadow outcome is written when its
     background call finishes, after the decision event (ADR-0041 §1)."""
 
-    contract_version: Literal["0.3", "0.4", "0.5", "0.6"] = CONTRACT_VERSION
+    contract_version: Literal["0.3", "0.4", "0.5", "0.6", "0.7"] = CONTRACT_VERSION
     event_id: str = Field(min_length=1, max_length=64)
     tenant_id: str
     occurred_at: datetime
@@ -252,10 +252,34 @@ class PolicyCount(ContractModel):
     decisions: int = Field(ge=0)  # events the policy took part in deciding
 
 
+class ApplicationCount(ContractModel):
+    """One application's events in the window (0.7)."""
+
+    application_id: str | None = None  # None: no application (operator token, unbound keys)
+    actions: dict[str, int] = Field(default_factory=dict)  # decision → events
+    last_event_at: datetime  # its newest event in the window
+
+
+class LatencyStat(ContractModel):
+    """Percentiles of one latency over the window's events that recorded it (0.7): the nearest
+    rank, a value an event really took, the same on PostgreSQL and SQLite."""
+
+    events: int = Field(0, ge=0)
+    p50: float | None = None
+    p95: float | None = None
+
+
+class SummaryLatency(ContractModel):
+    total: LatencyStat = Field(default_factory=LatencyStat)
+    l0: LatencyStat = Field(default_factory=LatencyStat)
+    l1b: LatencyStat = Field(default_factory=LatencyStat)  # events whose enforcing L1b call ran
+
+
 class DecisionEventSummary(ContractModel):
     """``GET /v1/decision-events/summary`` (0.5): counts for charts over the same filters as the
     list. ``top_entities`` and ``top_policies`` come from the newest ``scanned`` events;
-    ``truncated`` says the window held more than the scan limit."""
+    ``truncated`` says the window held more than the scan limit. Per application and latency
+    percentiles (0.7) are exact."""
 
     since: datetime
     until: datetime
@@ -267,3 +291,5 @@ class DecisionEventSummary(ContractModel):
     top_policies: list[PolicyCount] = Field(default_factory=list)
     scanned: int = Field(0, ge=0)
     truncated: bool = False
+    by_application: list[ApplicationCount] = Field(default_factory=list)  # most events first
+    latency_ms: SummaryLatency = Field(default_factory=SummaryLatency)

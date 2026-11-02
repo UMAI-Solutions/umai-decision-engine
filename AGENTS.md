@@ -196,6 +196,12 @@ above the cap, never cut; owner-only `GET /v1/organizations/{id}/export.zip` (ZI
 250 000 records, built before sending, allow-listed fields, no secret or hash;
 `control_plane/exports.py`). Erasure is not built: billing records have a statutory retention
 period (Q61).
+Overview figures (2026-11-02, ADR-0055, tagged-action 0.7): the decision-event summary also counts
+per application (`by_application`: decisions and newest event) and gives latency percentiles
+(`latency_ms`: p50, p95 of total, L0, L1b; `percentile_disc`, the same nearest rank on SQLite), in
+custom-planned queries; filter `playground` (the console's Playground runs: operator token, request
+id `console-…`; a view filter, usage and quotas still count them) and a repeatable `action`. The
+console's Overview is built on them; `dev/bench_summary.py` measures the summary.
 Plans and quotas (2026-10-30, ADR-0043, contract entitlements 0.1): the policy service reads the
 plans file (`UMAI_DE_PLANS_FILE`, `deploy/plans.yaml`) and writes each tenant's limits, with
 operator overrides (`PUT /v1/tenants/{id}/plan`, migration 0008), into its signed snapshot

@@ -1,6 +1,6 @@
 # Contract: tagged action (decision event)
 
-**Version:** 0.6
+**Version:** 0.7
 
 **Implementation status (2026-10-30):** emitted and stored by the engine API and the gateway
 ([ADR-0041](../adr/0041-records-decision-events-and-usage-ledger.md), write path
@@ -20,7 +20,7 @@ tenant-scoped (ADR-0025).
 
 ```json
 {
-  "contract_version": "0.6",
+  "contract_version": "0.7",
   "event_id": "ta-3f2b9c41d6e84a1b9c0d7e5f6a1b2c3d",
   "request_id": "req-01J9X7Z8QK",
   "tenant_id": "tenant-demo",
@@ -138,7 +138,7 @@ with `X-Umai-Tenant`). One tenant per request.
 | Route | Returns |
 |---|---|
 | `GET /v1/decision-events` | Newest first. Query: `limit` (1–200, default 50), `cursor` (from the previous page) and the filters below |
-| `GET /v1/decision-events/summary` | Counts for charts over the same filters as the list (default window: the last 30 days): per UTC day and decision, per decision, per source, and the entity types and policies found in the newest events (up to 20 000 scanned; `truncated` says the window held more). Day and decision counts are exact |
+| `GET /v1/decision-events/summary` | Counts for charts over the same filters as the list (default window: the last 30 days): per UTC day and decision, per decision, per source, per application (0.7), latency percentiles (0.7), and the entity types and policies found in the newest events (up to 20 000 scanned; `truncated` says the window held more). Day, decision, application and latency figures are exact |
 | `GET /v1/decision-events/export.csv` | The same filters as a CSV file, newest first, at most 100 000 rows ([data-export](data-export.md) §1, 0.6) |
 | `GET /v1/decision-events/{event_id}` | `{event, l1b_outcomes}`; 404 when the tenant has no such event (or it is past retention) |
 
@@ -148,10 +148,11 @@ export:
 | Filter | Matches |
 |---|---|
 | `since`, `until` | RFC 3339; `since` inclusive, `until` exclusive |
-| `action`, `source`, `application_id`, `phase`, `review` | Equal to the event's value (`review`: `true` / `false`) |
+| `action`, `source`, `application_id`, `phase`, `review` | Equal to the event's value (`review`: `true` / `false`). `action` may be repeated: any of the decisions (`action=BLOCK&action=ALLOW_WITH_MODIFICATIONS`), 0.7 |
 | `entity_type` | Events in which the type was found (`entities[].type`), 0.6 |
 | `policy_id` | Events whose `matched[]` names the policy: the rules that produced the decision (shadow L1b policies never do; see their outcome records), 0.6 |
 | `q` | Search by id (up to 128 characters, surrounding spaces ignored): events whose `event_id`, `request_id` or `gateway_call_id` equals it exactly. A gateway call id finds every check of the call, 0.6 |
+| `playground` | `true`: the console's Playground runs only; `false`: everything else. A Playground run is an event of the evaluation API (`source: api`) admitted with the operator token (`key_id: null`) whose `request_id` starts with `console-`, the id the console gives each run. An API key's events are never Playground runs, whatever request id the caller sends. A view filter only: usage, quotas and invoices read the usage ledger, where Playground runs count as live (ADR-0043 D6), 0.7 |
 
 The new filters scan the tenant's window without an index; measured cost and the point to add
 one: ADR-0047 D2.
@@ -195,9 +196,25 @@ one: ADR-0047 D2.
   "top_entities": [ { "type": "EMAIL_ADDRESS", "decisions": 7 }, { "type": "TR_TCKN", "decisions": 3 } ],
   "top_policies": [ { "kind": "l0_policy", "id": "contact-data", "decisions": 7 }, { "kind": "l1b_policy", "id": "prompt-attack", "decisions": 2 } ],
   "scanned": 42,
-  "truncated": false
+  "truncated": false,
+  "by_application": [
+    { "application_id": "main", "actions": { "ALLOW": 30, "ALLOW_WITH_MODIFICATIONS": 7, "BLOCK": 3 }, "last_event_at": "2026-10-30T17:42:10Z" },
+    { "application_id": null, "actions": { "BLOCK": 2 }, "last_event_at": "2026-10-29T11:05:00Z" }
+  ],
+  "latency_ms": {
+    "total": { "events": 42, "p50": 3.4, "p95": 301.2 },
+    "l0": { "events": 42, "p50": 3.1, "p95": 9.8 },
+    "l1b": { "events": 12, "p50": 280.5, "p95": 395.4 }
+  }
 }
 ```
+
+Summary fields added in 0.7:
+
+| Field | Notes |
+|---|---|
+| `by_application[]` | One entry per `application_id` in the window, most events first; `application_id: null` collects the events without an application (operator token, keys without one) and comes last among entries with as many events. `actions`: decision → events, exact; `last_event_at`: the application's newest event in the window |
+| `latency_ms` | `total`, `l0` and `l1b`, each over the window's events that recorded it (`l1b`: the events in which L1b ran before the decision): `events`, and `p50` / `p95` in milliseconds, `null` without events. A percentile is the nearest rank: the latency of the event at that rank, as PostgreSQL's `percentile_disc` (the same value on SQLite) |
 
 Records past their retention period are deleted by the policy service's retention job (ADR-0041
 §5): decision events and L1b outcomes after `UMAI_DE_RECORDS_DECISION_RETENTION_DAYS` (default
@@ -205,6 +222,10 @@ Records past their retention period are deleted by the policy service's retentio
 
 ## Changelog
 
+- 0.7 (2026-11-02): the summary counts per application (`by_application`) and gives latency
+  percentiles (`latency_ms`: p50, p95 of total, L0, L1b); filter `playground` on the list,
+  the summary and the CSV export (the console's Overview leaves Playground runs out);
+  `action` may be repeated (any of the decisions).
 - 0.6 (2026-10-30, ADR-0047): filters `entity_type`, `policy_id` and the id search `q` on the
   list and the summary; `GET /v1/decision-events/export.csv` ([data-export](data-export.md)).
 - 0.5 (2026-10-30): `GET /v1/decision-events/summary` (counts for charts).

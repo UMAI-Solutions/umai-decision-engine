@@ -1,19 +1,21 @@
-"""Records queries on PostgreSQL (tagged-action 0.6, data-export 0.1): the entity-type and policy
+"""Records queries on PostgreSQL (tagged-action 0.7, data-export 0.1): the entity-type and policy
 filters read JSON arrays with the dialect's own functions, the id search and the usage lines run
 through row-level security with the application role. Needs the test Postgres of
 tests/db/test_isolation.py; the SQLite twins are in tests/integration/test_data_access.py."""
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import timedelta
 
 import pytest
 
 from tests.db.test_isolation import migrated, pg, postgres  # noqa: F401
-from tests.integration.test_records_api import T0, event, usage
+from tests.integration.test_records_api import T0, event, overview_events, usage
 from umai_decision_engine.control_plane.exports import decisions_csv
 from umai_decision_engine.control_plane.records import EventFilters, RecordsReader
 from umai_decision_engine.db.repositories import TenantRepository
+from umai_decision_engine.db.session import tenant_session
 from umai_decision_engine.events.database import DatabaseRecordWriter
 
 pytestmark = [postgres, pytest.mark.asyncio]
@@ -67,6 +69,7 @@ async def test_search_and_json_filters_on_postgres(pg) -> None:  # noqa: F811
     assert await _ids(reader, mine, entity_type="TR_TCKN") == [1]
     assert await _ids(reader, mine, entity_type="EMAIL_ADDRESS", q="gc-1") == [2]
     assert await _ids(reader, mine, policy_id="identity-data") == [1]
+    assert await _ids(reader, mine, action=("BLOCK", "ALLOW_WITH_WARNINGS")) == [1]
     assert await _ids(reader, theirs, policy_id="identity-data") == []
     summary = await reader.summary(
         mine, EventFilters(since=T0 - timedelta(days=1), entity_type="TR_TCKN")
@@ -83,3 +86,47 @@ async def test_usage_lines_on_postgres(pg) -> None:  # noqa: F811
     assert [(line.date, line.meter, line.quantity, line.records) for line in lines] == [
         ("2026-10-30", "evaluations", 2, 2)
     ]
+
+
+async def test_summary_per_application_latency_and_playground_on_postgres(pg) -> None:  # noqa: F811
+    """tagged-action 0.7 under RLS: the same figures as on SQLite (percentile_disc there,
+    offsets here), only the caller's tenant, and a query naming another tenant sees nothing."""
+
+    repo = TenantRepository(pg)
+    mine = await repo.get_or_create("overview-a", "eu")
+    theirs = await repo.get_or_create("overview-b", "eu")
+    await DatabaseRecordWriter(pg).write(
+        [
+            *overview_events("overview-a"),
+            event(
+                40,
+                tenant="overview-b",
+                application_id="theirs",
+                key_id="ZyXw9876",
+                latency_ms={"total": 7.0, "l0": 7.0, "l1b": 7.0},
+            ),
+        ]
+    )
+    reader = RecordsReader(pg)
+    window = EventFilters(since=T0 - timedelta(days=1), until=T0 + timedelta(days=1))
+    summary = await reader.summary(mine, replace(window, playground=False))
+    assert [(a.application_id, sum(a.actions.values())) for a in summary.by_application] == [
+        ("main", 12),
+        ("hr", 6),
+        (None, 2),
+    ]
+    assert summary.by_application[0].last_event_at == T0 + timedelta(minutes=12)
+    latency = summary.latency_ms
+    assert (latency.total.events, latency.total.p50, latency.total.p95) == (20, 10.0, 19.0)
+    assert (latency.l0.events, latency.l0.p50, latency.l0.p95) == (10, 1.0, 2.0)
+    assert (latency.l1b.events, latency.l1b.p50, latency.l1b.p95) == (4, 100.0, 200.0)
+    playground = await reader.summary(mine, replace(window, playground=True))
+    assert playground.total == 1 and playground.latency_ms.total.p95 == 999.0
+    other = await reader.summary(theirs, window)
+    assert [a.application_id for a in other.by_application] == ["theirs"]
+    assert other.latency_ms.total.p50 == 7.0
+    # Row-level security, not only the query's own tenant filter: in their session, a query
+    # naming my tenant finds none of my events.
+    async with tenant_session(pg, theirs.id) as session:
+        leaked = await reader._latency(session, mine, window)
+    assert leaked.total.events == 0 and leaked.total.p50 is None

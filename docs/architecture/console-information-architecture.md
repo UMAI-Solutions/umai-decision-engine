@@ -159,6 +159,16 @@ error".** The marked parts are drawn so that WP6 is designed for them: detection
 carry the application, the key, the connection (gateway or API), the provider and the entity
 types.
 
+**Since 2026-11-02 ([ADR-0055](../adr/0055-overview-figures-and-playground-runs.md)) Overview is
+the dashboard W1 planned:** a period (24 h, 7 d, 30 d); tiles for requests checked, blocked,
+masked, flagged (each against the previous period) and the p95 latency; decisions per day by
+decision; what was found and the policies that decided; a table per application (requests,
+blocked, last activity); recent detections that open in Detections. Its figures leave the
+Playground's runs out. With no application yet, a *Create your first application* card replaces
+the three steps; with applications but no decision recorded yet, *Send your first request*
+points to the application's snippet. All from the decision-event summary (tagged-action 0.7)
+and list.
+
 ## 4. Object model
 
 | Object | What it is to the user | Key attributes | Relations | Actions |
@@ -270,7 +280,8 @@ dashed bars mark what needs detection records (WP6).
 
 **W1 Overview.** The home page is the security posture. (1) Until an application is connected,
 the three steps sit on top; step 1 is the guardrail, already done. The tiles and charts below
-need WP6 and are hidden until then.
+need WP6 and are hidden until then. (Built 2026-11-02 with one *Create your first application*
+card instead of the three steps; §3.4.)
 
 ![W2 Guardrails](img/console/w2-guardrails.svg)
 

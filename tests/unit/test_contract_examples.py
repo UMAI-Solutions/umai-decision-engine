@@ -131,12 +131,14 @@ def test_tagged_action_examples() -> None:
     event, outcome, page, summary = (
         json.loads(b) for b in _blocks("contracts/tagged-action.md", "json")
     )
-    assert DecisionEvent.model_validate(event).contract_version == "0.6"
+    assert DecisionEvent.model_validate(event).contract_version == "0.7"
     assert L1bOutcomeRecord.model_validate(outcome).outcome == "decided"
     assert DecisionEventPage.model_validate(page).events[0].source == "gateway"
     parsed = DecisionEventSummary.model_validate(summary)
     assert parsed.total == sum(parsed.by_action.values()) == sum(parsed.by_source.values())
     assert parsed.total == sum(sum(d.actions.values()) for d in parsed.by_day)
+    assert parsed.total == sum(sum(a.actions.values()) for a in parsed.by_application)
+    assert parsed.latency_ms.total.events == parsed.total
 
 
 def test_usage_examples() -> None:

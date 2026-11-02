@@ -9,15 +9,17 @@ import asyncio
 import base64
 import binascii
 import logging
+import math
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import Row, and_, delete, exists, func, literal, or_, select
+from sqlalchemy import Row, and_, delete, exists, func, literal, not_, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from umai_decision_engine.contracts.events import (
+    ApplicationCount,
     DecisionDay,
     DecisionEvent,
     DecisionEventDetail,
@@ -25,7 +27,9 @@ from umai_decision_engine.contracts.events import (
     DecisionEventSummary,
     EntityCount,
     L1bOutcomeRecord,
+    LatencyStat,
     PolicyCount,
+    SummaryLatency,
     UsageDay,
     UsageGroup,
     UsageSummary,
@@ -70,6 +74,12 @@ def _decode_cursor(cursor: str) -> tuple[datetime, uuid.UUID]:
 SUMMARY_SCAN = 20_000
 SUMMARY_TOP = 10
 SUMMARY_DEFAULT_DAYS = 30
+PERCENTILES = (0.5, 0.95)
+
+# The request id the console gives each Playground run (umai-control-center, route
+# /api/engine/evaluate). Only the operator token's events can be Playground runs: an API key's
+# events never are, whatever request id the caller sends (tagged-action 0.7).
+PLAYGROUND_REQUEST_PREFIX = "console-"
 
 
 @dataclass(frozen=True)
@@ -79,7 +89,7 @@ class EventFilters:
 
     since: datetime | None = None
     until: datetime | None = None
-    action: str | None = None
+    action: str | tuple[str, ...] | None = None  # one decision, or any of several (0.7)
     source: str | None = None
     application_id: str | None = None
     phase: str | None = None
@@ -87,9 +97,10 @@ class EventFilters:
     entity_type: str | None = None  # found in the event (``entities[].type``)
     policy_id: str | None = None  # took part in deciding (``matched[].id``)
     q: str | None = None
+    playground: bool | None = None  # the console's Playground runs only / all but them (0.7)
 
 
-_COLUMNS = ("action", "source", "application_id", "phase", "review")
+_COLUMNS = ("source", "application_id", "phase", "review")
 ALL_EVENTS = EventFilters()
 
 
@@ -103,6 +114,26 @@ def _outcomes(rows: list[Row], slug: str) -> list[L1bOutcomeRecord]:
 
 def _columns(model):
     return model.__table__.columns
+
+
+def _playground():
+    """A Playground run: the evaluation API, the operator token (no key), the console's request
+    id."""
+
+    row = DecisionEventRow
+    prefix = PLAYGROUND_REQUEST_PREFIX
+    return and_(  # substr, not LIKE: SQLite's LIKE ignores case
+        row.source == "api",
+        row.key_id.is_(None),
+        func.substr(row.request_id, 1, len(prefix)) == prefix,
+    )
+
+
+def _rank(share: float, events: int) -> int:
+    """The 0-based position of the nearest-rank percentile among ``events`` sorted values, as
+    PostgreSQL's ``percentile_disc`` takes it."""
+
+    return max(0, math.ceil(share * events) - 1)
 
 
 def _after(query, model, after: tuple[datetime, uuid.UUID] | None):
@@ -149,6 +180,9 @@ class RecordsReader:
             query = query.where(row.occurred_at >= filters.since)
         if filters.until is not None:
             query = query.where(row.occurred_at < filters.until)
+        if filters.action:
+            actions = (filters.action,) if isinstance(filters.action, str) else filters.action
+            query = query.where(row.action.in_(actions))
         for name in _COLUMNS:
             value = getattr(filters, name)
             if value is not None:
@@ -165,6 +199,8 @@ class RecordsReader:
                     row.gateway_call_id == filters.q,
                 )
             )
+        if filters.playground is not None:
+            query = query.where(_playground() if filters.playground else not_(_playground()))
         return query
 
     async def events(
@@ -254,34 +290,51 @@ class RecordsReader:
     async def summary(
         self, tenant: TenantInfo, filters: EventFilters = ALL_EVENTS
     ) -> DecisionEventSummary:
-        """Counts for charts (tagged-action 0.5): per UTC day and decision, per source, and the
-        entity types and policies of the newest events. Default window: the last 30 days."""
+        """Counts for charts (tagged-action 0.5): per UTC day and decision, per source, per
+        application (0.7), latency percentiles (0.7), and the entity types and policies of the
+        newest events. Default window: the last 30 days."""
 
         until = filters.until or datetime.now(UTC)
         since = filters.since or until - timedelta(days=SUMMARY_DEFAULT_DAYS)
         filters = replace(filters, since=since, until=until)
         row = DecisionEventRow
         day = self._day(row.occurred_at)
-        # One pass for every exact count: per day, decision and source.
+        # One pass for every exact count: per day, decision, source and application.
+        groups = (day, row.action, row.source, row.application_id)
         counts_query = self._where(
-            select(day, row.action, row.source, func.count()), tenant, filters
-        ).group_by(day, row.action, row.source)
+            select(*groups, func.count(), func.max(row.occurred_at)), tenant, filters
+        ).group_by(*groups)
         sample_query = (
             self._where(select(row.entities, row.matched), tenant, filters)
             .order_by(row.occurred_at.desc())
             .limit(self._summary_scan + 1)
         )
         async with tenant_session(self._engine, tenant.id) as session:
+            if is_postgres(self._engine):
+                # A pooled connection's prepared statements switch to a generic plan after five
+                # runs: an index scan sized for ~2 000 rows, slow over a large window. Planning
+                # for the actual window takes ~0.3 ms a query (measured, ADR-0055 D3).
+                await session.execute(text("SET LOCAL plan_cache_mode = force_custom_plan"))
             count_rows = (await session.execute(counts_query)).all()
+            latency = await self._latency(session, tenant, filters)
             sample = (await session.execute(sample_query)).all()
         days: dict[str, dict[str, int]] = {}
         by_action: dict[str, int] = {}
         by_source: dict[str, int] = {}
-        for date, action_, source, count in count_rows:
+        apps: dict[str | None, dict[str, int]] = {}
+        last: dict[str | None, datetime] = {}
+        for date, action_, source, application_id, count, newest in count_rows:
             actions = days.setdefault(date, {})
             actions[action_] = actions.get(action_, 0) + int(count)
             by_action[action_] = by_action.get(action_, 0) + int(count)
             by_source[source] = by_source.get(source, 0) + int(count)
+            app = apps.setdefault(application_id, {})
+            app[action_] = app.get(action_, 0) + int(count)
+            last[application_id] = max(newest, last.get(application_id, newest))
+        # Most events first; the events without an application after the applications.
+        by_application = sorted(
+            apps.items(), key=lambda kv: (-sum(kv[1].values()), kv[0] is None, kv[0] or "")
+        )
         truncated = len(sample) > self._summary_scan
         sample = sample[: self._summary_scan]
         entities: dict[str, int] = {}
@@ -306,7 +359,49 @@ class RecordsReader:
             top_policies=[PolicyCount(kind=k, id=i, decisions=n) for (k, i), n in top_policies],
             scanned=len(sample),
             truncated=truncated,
+            by_application=[
+                ApplicationCount(application_id=a, actions=n, last_event_at=last[a])
+                for a, n in by_application
+            ],
+            latency_ms=latency,
         )
+
+    async def _latency(self, session, tenant: TenantInfo, filters: EventFilters) -> SummaryLatency:
+        """p50 and p95 of the total, L0 and L1b latencies over the window, each over the events
+        that recorded it: ``percentile_disc`` on PostgreSQL; on SQLite (development), which has
+        no ordered-set aggregates, the same nearest rank by offset."""
+
+        row = DecisionEventRow
+        columns = {
+            "total": row.latency_total_ms,
+            "l0": row.latency_l0_ms,
+            "l1b": row.latency_l1b_ms,
+        }
+        stats: dict[str, LatencyStat] = {}
+        if is_postgres(self._engine):
+            aggregates = []
+            for column in columns.values():
+                aggregates.append(func.count(column))
+                aggregates += [func.percentile_disc(p).within_group(column) for p in PERCENTILES]
+            query = self._where(select(*aggregates), tenant, filters)
+            values = (await session.execute(query)).one()
+            for i, name in enumerate(columns):
+                events, p50, p95 = values[3 * i : 3 * i + 3]
+                stats[name] = LatencyStat(events=int(events), p50=p50, p95=p95)
+            return SummaryLatency(**stats)
+        counts = (
+            await session.execute(
+                self._where(select(*(func.count(c) for c in columns.values())), tenant, filters)
+            )
+        ).one()
+        for (name, column), events in zip(columns.items(), counts, strict=True):
+            found = {}
+            for key, share in zip(("p50", "p95"), PERCENTILES if events else (), strict=False):
+                at = self._where(select(column), tenant, filters).where(column.is_not(None))
+                at = at.order_by(column).offset(_rank(share, int(events))).limit(1)
+                found[key] = await session.scalar(at)
+            stats[name] = LatencyStat(events=int(events), **found)
+        return SummaryLatency(**stats)
 
     async def event(self, tenant: TenantInfo, event_id: str) -> DecisionEventDetail | None:
         async with tenant_session(self._engine, tenant.id) as session:
