@@ -1,0 +1,29 @@
+# Misses found in manual testing, reproduced with synthetic values. A case stays here forever:
+# the same miss can never come back unnoticed.
+contract_version: "0.1"
+defaults:
+  destination: { app: chatgpt.com, class: external_llm }
+cases:
+  - id: colloquial-id-context-with-mistyped-id
+    description: "'kimlik nom' + an 11-digit number failing the checksum is still an ID (2026-10-16)"
+    input:
+      text: "kimlik nom 10000000147"
+    expect:
+      action: BLOCK
+      entities: [TR_TCKN]
+
+  - id: bare-mobile-number-alone
+    description: A message that is only a mobile number, no prefix, no context (2026-10-16)
+    input:
+      text: "5321234567"
+    expect:
+      action: ALLOW_WITH_MODIFICATIONS
+      masked: [TR_PHONE]
+      redacted_text: "<TR_PHONE_1>"
+
+  - id: spaced-uppercase-id-context
+    input:
+      text: "KİMLİK NO: 100 000 001 46"
+    expect:
+      action: BLOCK
+      entities: [TR_TCKN]

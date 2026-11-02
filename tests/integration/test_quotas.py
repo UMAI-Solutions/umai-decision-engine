@@ -149,7 +149,7 @@ def test_the_plan_reaches_the_snapshot_and_the_quota_refuses_at_the_limit(quota_
     view = used.json()
     assert (view["edition"], view["used"], view["limits"]["monthly_requests"]) == (
         "community",
-        {"requests": 3, "test_requests": 1},
+        {"requests": 3, "test_requests": 1, "guardrails": 0},
         3,
     )
 
@@ -216,4 +216,6 @@ def test_without_a_plans_file_nothing_is_limited(write_bundle, detector, tmp_pat
         "monthly_requests": None,
         "monthly_test_requests": None,
         "max_input_chars": None,
+        "max_guardrails": None,
+        "max_decision_policies": None,
     }

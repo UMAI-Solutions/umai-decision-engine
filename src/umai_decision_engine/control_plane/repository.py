@@ -25,6 +25,7 @@ from umai_decision_engine.contracts.bundle import CONTRACT_VERSION, PolicyBundle
 from umai_decision_engine.policy.manifest import BundleManifest, sha256_hex, sign_manifest
 from umai_decision_engine.policy.sources import (
     ACTIVE_FILE,
+    ARCHIVED,
     BUNDLE_FILE,
     MANIFEST_FILE,
     TENANTS_DIR,
@@ -115,6 +116,18 @@ class GuardrailRepository:
             return []
         return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
 
+    @staticmethod
+    def is_archived(history: list[dict]) -> bool:
+        """Archived (ADR-0056 §2) unless a later entry restored it."""
+
+        for entry in reversed(history):
+            if entry.get("action") in ("archive", "restore"):
+                return entry["action"] == "archive"
+        return False
+
+    def archived(self, bundle_id: str) -> bool:
+        return self.is_archived(self.changelog(bundle_id))
+
     # ----------------------------------------------------------- writing
 
     def _log(self, bundle_id: str, entry: dict, actor: dict | None) -> None:
@@ -126,23 +139,27 @@ class GuardrailRepository:
         self,
         bundle: PolicyBundle,
         *,
-        base_version: int,
+        base_version: int | None,
         tests_dir: Path | None,
         note: str | None,
         signing_key: tuple[str, str] | None,
         actor: dict | None = None,
+        created_from: dict | None = None,
     ) -> int:
         """Write ``bundle`` as the next version of its guardrail; returns the version number.
         The bundle is written from the model, so it is stamped with the current contract
-        version whatever version it was loaded from."""
+        version whatever version it was loaded from. ``base_version`` None: the first version
+        of a guardrail created in the console, whose origin ``created_from`` opens its change
+        log (ADR-0056 §2)."""
 
         bundle_id = bundle.id
         version = max(self.versions(bundle_id), default=0) + 1
         final = bundle.model_copy(update={"version": version, "contract_version": CONTRACT_VERSION})
         stamp = datetime.now(UTC).replace(microsecond=0)
+        origin = f"v{base_version}" if base_version is not None else "a new guardrail"
         header = (
             f"# Published by the policy service (ADR-0022) on {stamp.isoformat()}\n"
-            f"# from v{base_version}" + (f": {note}" if note else "") + "\n"
+            f"# from {origin}" + (f": {note}" if note else "") + "\n"
         )
         data = bundle_to_yaml(parse_bundle(bundle_to_yaml(final, "")), header)
         parse_bundle(data)  # the written bytes must load exactly as the engine will load them
@@ -176,6 +193,8 @@ class GuardrailRepository:
         finally:
             if staging.exists():
                 shutil.rmtree(staging, ignore_errors=True)
+        if created_from is not None and version == 1:
+            self._log(bundle_id, {"action": "create", "from": created_from}, actor)
         self._log(
             bundle_id,
             {
@@ -204,6 +223,22 @@ class GuardrailRepository:
             bundle_id,
             {"action": "activate", "version": version, "previous": previous, "note": note},
             actor,
+        )
+        return previous
+
+    def archive(self, bundle_id: str, note: str | None, actor: dict | None) -> int | None:
+        """Point the guardrail at no version, so engines stop serving it, and log it archived;
+        versions and the change log stay (ADR-0056 §2). Returns the previous active version."""
+
+        previous = self.active(bundle_id)
+        # "archived", not a removed pointer: engines keep the last version when a pointer goes
+        # missing (a fault) but serve none for an archived guardrail
+        pointer = self.root / bundle_id / ACTIVE_FILE
+        temporary = pointer.with_name(f".{ACTIVE_FILE}-{uuid.uuid4().hex}")
+        temporary.write_bytes(f"{ARCHIVED}\n".encode())
+        os.replace(temporary, pointer)
+        self._log(
+            bundle_id, {"action": "archive", "previous_active": previous, "note": note}, actor
         )
         return previous
 

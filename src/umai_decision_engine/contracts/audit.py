@@ -13,7 +13,7 @@ from pydantic import Field
 
 from umai_decision_engine.contracts.common import ContractModel
 
-CONTRACT_VERSION = "0.1"
+CONTRACT_VERSION = "0.2"  # 0.2: guardrail.create, guardrail.archive (ADR-0056)
 
 
 class AuditAction(StrEnum):
@@ -27,6 +27,8 @@ class AuditAction(StrEnum):
     DRAFT_TEST = "guardrail.draft.test"
     GUARDRAIL_PUBLISH = "guardrail.publish"
     GUARDRAIL_ACTIVATE = "guardrail.activate"
+    GUARDRAIL_CREATE = "guardrail.create"
+    GUARDRAIL_ARCHIVE = "guardrail.archive"
     TENANT_CREATE = "tenant.create"
     TENANT_PLAN = "tenant.plan"
     KEY_CREATE = "key.create"
@@ -97,7 +99,7 @@ class AuditTarget(ContractModel):
 
 
 class AuditEvent(ContractModel):
-    contract_version: Literal["0.1"] = CONTRACT_VERSION
+    contract_version: Literal["0.1", "0.2"] = CONTRACT_VERSION
     event_id: str = Field(pattern=r"^au-[0-9a-f]{32}$")
     occurred_at: datetime
     tenant_id: str

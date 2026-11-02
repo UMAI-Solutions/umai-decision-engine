@@ -220,8 +220,13 @@ class BundleStore:
             (owner or self.default_tenant, bundle_id): version
             for (owner, bundle_id), version in snapshot.active.items()
         }
+        # An archived guardrail is served by no version: a missing pointer keeps the last one
+        # (a fault), an archived one keeps none (a decision, ADR-0056 §2).
+        archived = {
+            (owner or self.default_tenant, bundle_id) for owner, bundle_id in snapshot.archived
+        }
         active: dict[tuple[str, str], int] = {}
-        for pointer in set(wanted_active) | set(previous.active):
+        for pointer in (set(wanted_active) | set(previous.active)) - archived:
             tenant, bundle_id = pointer
             wanted = wanted_active.get(pointer)
             fallback = previous.active.get(pointer)

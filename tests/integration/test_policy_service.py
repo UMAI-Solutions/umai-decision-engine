@@ -110,6 +110,7 @@ def test_list_summary_and_catalog(service) -> None:
             "policies_on": 0,
             "detectors": 6,
             "last_change": None,
+            "created_from": None,
         }
     ]
     summary = client.get("/v1/guardrails/gr-test").json()

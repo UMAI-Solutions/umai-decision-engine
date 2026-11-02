@@ -46,19 +46,23 @@ editing a policy never changes a published guardrail (ADR-0021).
 
 ## Policy service API (ADR-0022)
 
-The guardrail routes are specified in the [guardrails](../contracts/guardrails.md) contract (draft
-0.1), with the routes [ADR-0056](../adr/0056-guardrail-and-policy-authoring-in-the-console.md)
-proposes for creating guardrails, writing cases and adding decision policies.
+The guardrail routes are specified in the [guardrails](../contracts/guardrails.md) contract 0.1,
+with the routes [ADR-0056](../adr/0056-guardrail-and-policy-authoring-in-the-console.md) adds:
+creating guardrails from templates or copies, archive and draft revisions are built; writing cases
+and adding decision policies are planned.
 
 Bearer token `UMAI_DE_CONTROL_API_TOKEN` on everything but `/healthz`. The console's guardrail
 pages are built on these answers; field additions are backwards compatible.
 
 | Endpoint | Answer |
 |---|---|
-| `GET /v1/guardrails` | Per guardrail: `id`, `name`, `description`, `mode`, `active_version`, `versions`, `has_draft`, `policies`, `policies_on` (0 for bundles without policies), `detectors`, `last_change` (latest change-log entry) |
-| `GET /v1/guardrails/{id}` | `active_version`, `versions[]` (`version`, `name`, `mode`, `contract_version`, `policies`, `signed`, `published_at`, `base_version`, `note`, `valid`, `error`), open `draft`, `history` (change log, last 50) |
+| `GET /v1/guardrails` | Per guardrail: `id`, `name`, `description`, `mode`, `active_version`, `versions`, `has_draft`, `policies`, `policies_on` (0 for bundles without policies), `detectors`, `last_change` (latest change-log entry), `created_from`; archived ones left out, never-published ones listed |
+| `POST /v1/guardrails` | `{name, description?, id?, from: {template} or {guardrail, version?}}` → 201 draft without a base version, with the source's cases; 409 `guardrail_limit_reached` at `max_guardrails` |
+| `GET /v1/guardrail-templates` | The catalog tenant's templates (`UMAI_DE_GUARDRAIL_TEMPLATES`): id, version, name, description, policy names, case count |
+| `POST /v1/guardrails/{id}/archive` | `{note?}`: removes the active pointer and hides the guardrail; 409 while an application uses it or a draft is open |
+| `GET /v1/guardrails/{id}` | `active_version`, `versions[]` (`version`, `name`, `mode`, `contract_version`, `policies`, `signed`, `published_at`, `base_version`, `note`, `valid`, `error`), `archived`, `created_from`, open `draft`, `history` (change log, last 50) |
 | `GET /v1/catalog` | Detector types with their tag and group (Türkiye, Europe, Global, Secrets, …) |
-| `POST/GET/PUT/DELETE /v1/guardrails/{id}/draft` | Start (from `base_version`, default active), read, save (saved even when invalid, returns `problems`), discard |
+| `POST/GET/PUT/DELETE /v1/guardrails/{id}/draft` | Start (from `base_version`, default active), read, save (saved even when invalid, returns `problems`; `If-Match: "<revision>"`, 412 `draft_changed` when stale), discard |
 | `POST /v1/guardrails/{id}/draft/test` | Golden-case report of the draft |
 | `POST /v1/guardrails/{id}/draft/publish` | `{activate, accept[], note}` → new version; 422 with `problems` or `unaccepted` cases |
 | `POST /v1/guardrails/{id}/activate` | `{version, note}` → moves the active pointer (rollback) |

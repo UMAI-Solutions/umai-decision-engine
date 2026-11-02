@@ -55,4 +55,4 @@ class Plans:
 
         if self.file is None:
             return None
-        return TenantEntitlements(edition=tenant.edition, **self.limits(tenant).model_dump())
+        return TenantEntitlements(edition=tenant.edition, **self.limits(tenant).request_limits())

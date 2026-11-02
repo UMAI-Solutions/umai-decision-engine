@@ -13,13 +13,14 @@ from pydantic import Field
 from umai_decision_engine.contracts.common import ContractModel
 from umai_decision_engine.contracts.organizations import Edition
 
-CONTRACT_VERSION = "0.2"  # 0.2: edition pro, a plan's billing block (ADR-0044)
+CONTRACT_VERSION = "0.3"  # 0.2: edition pro, billing (ADR-0044); 0.3: authoring limits
 
 QuotaEnvironment = Literal["live", "test"]
 
 
-class Limits(ContractModel):
-    """Null means no limit: counted but never refused, or for the size the deployment's."""
+class RequestLimits(ContractModel):
+    """What engines enforce, sent in the snapshot. Null means no limit: counted but never
+    refused, or for the size the deployment's."""
 
     monthly_requests: int | None = Field(None, ge=0)
     monthly_test_requests: int | None = Field(None, ge=0)
@@ -27,6 +28,17 @@ class Limits(ContractModel):
 
     def monthly(self, environment: QuotaEnvironment) -> int | None:
         return self.monthly_test_requests if environment == "test" else self.monthly_requests
+
+
+class Limits(RequestLimits):
+    """A plan's limits. The authoring limits (0.3, ADR-0056 §9) are the policy service's alone
+    and never reach an engine's snapshot."""
+
+    max_guardrails: int | None = Field(None, ge=1)
+    max_decision_policies: int | None = Field(None, ge=0)
+
+    def request_limits(self) -> dict:
+        return self.model_dump(include=set(RequestLimits.model_fields))
 
     def overridden(self, overrides: dict) -> Limits:
         """These limits with the fields an operator set for one tenant (null: no limit)."""
@@ -55,11 +67,11 @@ class Plan(Limits):
 class PlansFile(ContractModel):
     """``UMAI_DE_PLANS_FILE``: limits per edition; an edition it does not name has none."""
 
-    contract_version: Literal["0.1", "0.2"] = CONTRACT_VERSION
+    contract_version: Literal["0.1", "0.2", "0.3"] = CONTRACT_VERSION
     plans: dict[Edition, Plan]
 
 
-class TenantEntitlements(Limits):
+class TenantEntitlements(RequestLimits):
     """The ``entitlements`` block of a key-registry snapshot (credentials 0.7)."""
 
     edition: Edition
@@ -68,12 +80,13 @@ class TenantEntitlements(Limits):
 class RequestsUsed(ContractModel):
     requests: int = Field(ge=0)
     test_requests: int = Field(ge=0)
+    guardrails: int | None = Field(None, ge=0)  # 0.3: what max_guardrails counts
 
 
 class EntitlementsView(ContractModel):
     """``GET /v1/entitlements``: the calling tenant's plan and this month's requests."""
 
-    contract_version: Literal["0.1", "0.2"] = CONTRACT_VERSION
+    contract_version: Literal["0.1", "0.2", "0.3"] = CONTRACT_VERSION
     tenant_id: str
     edition: Edition
     limits: Limits

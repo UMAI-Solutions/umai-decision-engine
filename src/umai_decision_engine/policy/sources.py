@@ -2,7 +2,8 @@
 
 Directory layout::
 
-    <root>/<bundle_id>/active            text file with the active version, e.g. "3"
+    <root>/<bundle_id>/active            text file with the active version, e.g. "3", or
+                                         "archived": served by no version (ADR-0056 §2)
     <root>/<bundle_id>/<version>/bundle.yaml
     <root>/<bundle_id>/<version>/manifest.json   (optional in development)
     <root>/tenants/<tenant_id>/<bundle_id>/...   the same, owned by <tenant_id> (policy-bundle 0.8)
@@ -22,6 +23,7 @@ from typing import Protocol
 BUNDLE_FILE = "bundle.yaml"
 MANIFEST_FILE = "manifest.json"
 ACTIVE_FILE = "active"
+ARCHIVED = "archived"  # the active pointer of an archived guardrail
 TENANTS_DIR = "tenants"
 _TENANT_DIR = re.compile(r"^[a-z0-9][a-z0-9-]{0,127}$")
 
@@ -41,6 +43,8 @@ class SourceSnapshot:
     artifacts: list[BundleArtifact] = field(default_factory=list)
     # (owner from the layout or None, bundle id) -> active version
     active: dict[tuple[str | None, str], int] = field(default_factory=dict)
+    # (owner, bundle id) of archived guardrails: no version is served, none is kept
+    archived: set[tuple[str | None, str]] = field(default_factory=set)
     errors: list[tuple[str, str]] = field(default_factory=list)  # (location, message)
 
 
@@ -124,7 +128,9 @@ class DirectorySource:
         active_file = bundle_dir / ACTIVE_FILE
         if active_file.is_file():
             raw = active_file.read_text(encoding="utf-8").strip()
-            if raw.isdigit() and int(raw) >= 1:
+            if raw == ARCHIVED:
+                snapshot.archived.add((owner, bundle_id))
+            elif raw.isdigit() and int(raw) >= 1:
                 snapshot.active[(owner, bundle_id)] = int(raw)
             else:
                 snapshot.errors.append((str(active_file), f"invalid active version {raw!r}"))

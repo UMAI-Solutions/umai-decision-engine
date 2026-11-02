@@ -158,9 +158,15 @@ def _plans() -> Plans:
 def test_the_shipped_plans_name_the_community_limits() -> None:
     limits = _plans().limits(_tenant())
     assert limits == Limits(
-        monthly_requests=10_000, monthly_test_requests=1_000, max_input_chars=32_000
+        monthly_requests=10_000,
+        monthly_test_requests=1_000,
+        max_input_chars=32_000,
+        max_guardrails=3,
     )
     assert _plans().limits(_tenant("enterprise")) == Limits()
+    # the authoring limits never reach an engine's snapshot (entitlements 0.3)
+    snapshot = _plans().entitlements(_tenant())
+    assert snapshot is not None and "max_guardrails" not in snapshot.model_dump()
 
 
 def test_overrides_replace_single_limits_and_null_lifts_one() -> None:

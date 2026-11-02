@@ -54,6 +54,7 @@ from umai_decision_engine.contracts.gateway import (
     ApplicationFile,
     Provider,
 )
+from umai_decision_engine.contracts.guardrails import GuardrailArchive, GuardrailCreate
 from umai_decision_engine.contracts.organizations import (
     InvitationAccept,
     InvitationCreate,
@@ -281,6 +282,37 @@ async def list_guardrails(
     return {"guardrails": await _service(request).list(tenant)}
 
 
+@router.post("/guardrails", status_code=201)
+async def create_guardrail(
+    body: GuardrailCreate,
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.GUARDRAIL_CREATE],
+    audit: Audit = _AUDIT[AuditAction.GUARDRAIL_CREATE],
+) -> dict[str, Any]:
+    """A new guardrail as a draft without a base version, from a template or a copy (ADR-0056
+    §2); nothing is published. Refused at the plan's ``max_guardrails``."""
+
+    draft = await _service(request).create_guardrail(
+        tenant,
+        name=body.name,
+        description=body.description,
+        bundle_id=body.id,
+        source=body.from_.as_dict(),
+        limit=request.app.state.keys.plans.limits(tenant).max_guardrails,
+    )
+    audit.set(draft["bundle_id"], name=body.name, **{"from": draft["created_from"]})
+    return draft
+
+
+@router.get("/guardrail-templates")
+async def guardrail_templates(
+    request: Request, actor: Actor = _ALLOW[Action.GUARDRAIL_READ]
+) -> dict[str, Any]:
+    templates = await asyncio.to_thread(_service(request).template_list)
+    return {"templates": templates}
+
+
 @router.get("/guardrails/{bundle_id}")
 async def guardrail(
     bundle_id: str,
@@ -315,6 +347,20 @@ async def get_draft(
     return await _service(request).get_draft(tenant, bundle_id)
 
 
+def _if_match(request: Request) -> int | None:
+    """``If-Match: "<revision>"`` (guardrails 0.1); absent: last write wins, as before."""
+
+    raw = request.headers.get("if-match")
+    if raw is None:
+        return None
+    value = raw.strip().removeprefix("W/").strip('"')
+    if not value.isdigit():
+        raise HTTPException(
+            400, {"error": "invalid_if_match", "detail": 'If-Match: "<revision>" expected'}
+        )
+    return int(value)
+
+
 @router.put("/guardrails/{bundle_id}/draft")
 async def save_draft(
     bundle_id: str,
@@ -324,8 +370,10 @@ async def save_draft(
     actor: Actor = _ALLOW[Action.DRAFT_WRITE],
     audit: Audit = _AUDIT[AuditAction.DRAFT_SAVE],
 ) -> dict[str, Any]:
-    draft = await _service(request).save_draft(tenant, bundle_id, body.bundle)
-    audit.set(bundle_id, problems=len(draft["problems"]))
+    draft = await _service(request).save_draft(
+        tenant, bundle_id, body.bundle, revision=_if_match(request)
+    )
+    audit.set(bundle_id, problems=len(draft["problems"]), revision=draft["revision"])
     return draft
 
 
@@ -399,6 +447,32 @@ async def activate(
     audit.set(
         bundle_id, version=before_after(result["previous_active"], body.version), note=body.note
     )
+    return result
+
+
+@router.post("/guardrails/{bundle_id}/archive")
+async def archive_guardrail(
+    bundle_id: str,
+    body: GuardrailArchive,
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.GUARDRAIL_ACTIVATE],
+    audit: Audit = _AUDIT[AuditAction.GUARDRAIL_ARCHIVE],
+) -> dict[str, Any]:
+    """Stop serving a guardrail and hide it (ADR-0056 §2); refused while an application uses
+    it. The applications file is read under its lock, so none can bind it meanwhile."""
+
+    async with _FILE_LOCKS[tenant.slug]:
+        data = await _read_file(request, tenant)
+        using = [
+            str(a.get("application_id"))
+            for a in _entries(data, "applications")
+            if isinstance(a, dict) and a.get("guardrail") == bundle_id
+        ]
+        result = await _service(request).archive(
+            tenant, bundle_id, applications=using, note=body.note, actor=actor.record()
+        )
+    audit.set(bundle_id, previous_active=result["previous_active"], note=body.note)
     return result
 
 
@@ -585,14 +659,16 @@ async def export_usage(
     )
 
 
-def _entitlements_view(request: Request, tenant: TenantInfo, used: dict) -> EntitlementsView:
+def _entitlements_view(
+    request: Request, tenant: TenantInfo, used: dict, guardrails: int | None = None
+) -> EntitlementsView:
     month, _, resets_at = month_bounds(None)
     return EntitlementsView(
         tenant_id=tenant.slug,
         edition=tenant.edition,  # type: ignore[arg-type]
         limits=request.app.state.keys.plans.limits(tenant),
         month=month,
-        used=RequestsUsed(requests=used["live"], test_requests=used["test"]),
+        used=RequestsUsed(requests=used["live"], test_requests=used["test"], guardrails=guardrails),
         resets_at=resets_at,
     )
 
@@ -608,7 +684,8 @@ async def get_entitlements(
 
     _, start, end = month_bounds(None)
     used = await request.app.state.records.requests_used(tenant, start, end)
-    return _entitlements_view(request, tenant, used).model_dump(mode="json")
+    guardrails = await _service(request).count(tenant)
+    return _entitlements_view(request, tenant, used, guardrails).model_dump(mode="json")
 
 
 # ------------------------------------------------------------------ audit log (ADR-0045)
@@ -1306,7 +1383,7 @@ async def put_application(
         apps = [body if _is(a, "application_id", application_id) else a for a in apps]
         data["applications"] = apps + ([body] if created else [])
         guardrail = body.get("guardrail")
-        known = set(_service(request).guardrails.for_tenant(tenant.slug).ids())
+        known = _service(request).bindable(tenant)
         if isinstance(guardrail, str) and guardrail not in known:
             raise HTTPException(
                 422, {"error": "unknown_guardrail", "detail": f"no guardrail {guardrail} here"}
@@ -1892,6 +1969,8 @@ def create_app(
             DraftRepository(db),
             engine,
             signing_key,
+            catalog_tenant=cfg.catalog_tenant_id,
+            templates=cfg.guardrail_templates,
         )
         service = app.state.service
         app.state.organizations = OrganizationService(
@@ -2046,9 +2125,13 @@ def create_app(
 
     @app.exception_handler(ServiceError)
     async def _service_error(_request: Request, exc: ServiceError) -> JSONResponse:
-        body: dict[str, Any] = {"detail": str(exc)}
-        if exc.details is not None:
-            body["details"] = exc.details
+        body: dict[str, Any]
+        if exc.code is not None:  # guardrails 0.1 errors: a code, the text, its fields
+            body = {"detail": {"error": exc.code, "detail": str(exc), **(exc.details or {})}}
+        else:
+            body = {"detail": str(exc)}
+            if exc.details is not None:
+                body["details"] = exc.details
         return JSONResponse(body, status_code=exc.status)
 
     @app.exception_handler(BillingError)

@@ -167,8 +167,13 @@ class Draft(Base):
         Uuid, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True
     )
     bundle_id: Mapped[str] = mapped_column(String(128), nullable=False)
-    base_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    # None: a guardrail created in the console and never published (ADR-0056 §2)
+    base_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     bundle: Mapped[dict] = mapped_column(JSON, nullable=False)
+    # Golden-case files (guardrails 0.1); None for drafts older than 0014: the base version's
+    tests: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    created_from: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime(), default=_now)
     updated_at: Mapped[datetime] = mapped_column(UtcDateTime(), default=_now)
 

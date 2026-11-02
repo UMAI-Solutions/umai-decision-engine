@@ -1,6 +1,6 @@
 # Contract: audit (audit events, read API, CSV export)
 
-**Version:** 0.1 · **Draft:** 0.2 ([ADR-0056](../adr/0056-guardrail-and-policy-authoring-in-the-console.md), not implemented) · **Producer → consumer:** policy service → tenant store (`audit_events`) →
+**Version:** 0.2 · **Producer → consumer:** policy service → tenant store (`audit_events`) →
 policy service read API → console (Organization → Audit log), auditors (CSV) · **Decisions:**
 [ADR-0045](../adr/0045-audit-log-for-configuration-changes.md), [ADR-0030](../adr/0030-audit-events-and-structured-telemetry.md) §1–2, §4, [ADR-0029](../adr/0029-authorization-roles-and-four-eyes.md)
 
@@ -130,10 +130,13 @@ operator's is the path's tenant, else `X-Umai-Tenant`, else the default tenant. 
 an organization yet (a refused `organization.create`) has no log to write to: the attempt is
 logged, not recorded.
 
-### Draft 0.2 ([ADR-0056](../adr/0056-guardrail-and-policy-authoring-in-the-console.md), not implemented)
+### 0.2 ([ADR-0056](../adr/0056-guardrail-and-policy-authoring-in-the-console.md))
 
 The guardrail routes of [guardrails](guardrails.md) 0.1 add these actions, with the same target
-type. Their details never contain case text, sample text, matches or values.
+type. Their details never contain case text, sample text, matches or values. Built:
+`guardrail.create`, `guardrail.archive` and `revision` in `guardrail.draft.save`; the others are
+planned with their routes. Events carry `contract_version` `0.2`; stored `0.1` events read
+unchanged.
 
 | `action` | Route | `target.type` / `id` | `details` (success) |
 |---|---|---|---|
@@ -195,8 +198,8 @@ tab or carriage return) is prefixed with `'`.
 
 ## Changelog
 
-- 0.2 — draft (2026-11-02, ADR-0056, not implemented): actions `guardrail.create`,
-  `guardrail.archive`, `guardrail.draft.policy.add`, `guardrail.draft.case.save`,
-  `guardrail.draft.case.delete`, `guardrail.draft.recognizer.test`; `revision`, `cases` and
-  `coverage_ok` in draft details.
+- 0.2 (2026-11-02, ADR-0056): actions `guardrail.create`, `guardrail.archive` and `revision` in
+  `guardrail.draft.save` details; planned with their routes: `guardrail.draft.policy.add`,
+  `guardrail.draft.case.save`, `guardrail.draft.case.delete`, `guardrail.draft.recognizer.test`,
+  `cases` and `coverage_ok` in draft details.
 - 0.1 (2026-10-30, ADR-0045): initial.

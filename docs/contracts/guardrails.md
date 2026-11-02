@@ -1,15 +1,15 @@
 # Contract: guardrails (policy service ↔ console)
 
-**Version:** 0.1 (draft) · **Producer → consumer:** console ↔ policy service: guardrails, drafts,
+**Version:** 0.1 · **Producer → consumer:** console ↔ policy service: guardrails, drafts,
 golden cases, templates, the decision-policy library, publish, activate, archive ·
 **Decisions:** [ADR-0022](../adr/0022-policy-service-control-plane.md) (drafts, tests, publish,
 activate; built), [ADR-0056](../adr/0056-guardrail-and-policy-authoring-in-the-console.md)
-(creating guardrails, the full editor, cases; **Proposed, not implemented**)
+(creating guardrails, the full editor, cases; Accepted, built in steps)
 
-The guardrail routes of the policy service. Routes and fields marked *(ADR-0056)* are drafts: no
-code serves them yet, and they may change until the ADR is accepted and built. The rest describes
-what the service answers today (until now only summarised in
-[policy-lifecycle](../architecture/policy-lifecycle.md)). Every route needs the bearer token and,
+The guardrail routes of the policy service. Routes and fields marked *(planned)* belong to
+ADR-0056 steps not built yet: no code serves them, and they may change until built. Everything
+else is what the service answers (steps E3, E4, E7 and E8 built on 2026-11-02: creating
+guardrails, templates, archive, drafts with cases, a revision and a `sha256`). Every route needs the bearer token and,
 for a person, the on-behalf-of assertion ([credentials](credentials.md)); the tenant is the
 assertion's (or, for the operator, `X-Umai-Tenant`). Bundle shapes are
 [policy-bundle](policy-bundle.md); case shapes are [policy-tests](policy-tests.md).
@@ -18,35 +18,35 @@ assertion's (or, for the operator, `X-Umai-Tenant`). Bundle shapes are
 
 | Route | Permission (ADR-0029) | Answer |
 |---|---|---|
-| `GET /v1/catalog` | `catalog.read` | Detector types: `type`, `tag`, `group`; *(ADR-0056)* `example`: a synthetic value for *Insert a test value*, or null |
-| `GET /v1/guardrails` | `guardrail.read` | Per guardrail: `id`, `name`, `description`, `mode`, `active_version`, `versions`, `has_draft`, `policies`, `policies_on`, `detectors`, `last_change`; *(ADR-0056)* `created_from` (see below); archived guardrails are left out |
-| `GET /v1/guardrails/{id}` | `guardrail.read` | `active_version`, `versions[]`, open `draft`, `history` (change log, last 50) |
-| `POST /v1/guardrails` *(ADR-0056)* | `guardrail.create` | 201 with the new guardrail's draft (`Draft`, below) |
-| `POST /v1/guardrails/{id}/archive` *(ADR-0056)* | `guardrail.activate` | `{"id", "archived": true, "previous_active"}` |
-| `GET /v1/guardrail-templates` *(ADR-0056)* | `guardrail.read` | `{"templates": [Template]}` |
-| `GET /v1/policy-library` *(ADR-0056)* | `guardrail.read` | `{"library": {"id", "version"}, "policies": [LibraryPolicy]}` |
-| `GET /v1/policy-library/{policy_id}` *(ADR-0056)* | `guardrail.read` | `LibraryPolicy` plus `policy` (the full `DecisionPolicy`) and `tests` (its case file) |
+| `GET /v1/catalog` | `catalog.read` | Detector types: `type`, `tag`, `group`; *(planned)* `example`: a synthetic value for *Insert a test value*, or null |
+| `GET /v1/guardrails` | `guardrail.read` | Per guardrail: `id`, `name`, `description`, `mode`, `active_version`, `versions`, `has_draft`, `policies`, `policies_on`, `detectors`, `last_change`, `created_from` (see below). Archived guardrails are left out; one created and never published is listed with `active_version: null` and `versions: []`; in the catalog tenant its templates are left out |
+| `GET /v1/guardrails/{id}` | `guardrail.read` | `active_version`, `versions[]`, `archived`, `created_from`, open `draft`, `history` (change log, last 50) |
+| `POST /v1/guardrails` | `guardrail.create` | 201 with the new guardrail's draft (`Draft`, below) |
+| `POST /v1/guardrails/{id}/archive` | `guardrail.activate` | `{"id", "archived": true, "previous_active"}` |
+| `GET /v1/guardrail-templates` | `guardrail.read` | `{"templates": [Template]}` |
+| `GET /v1/policy-library` *(planned)* | `guardrail.read` | `{"library": {"id", "version"}, "policies": [LibraryPolicy]}` |
+| `GET /v1/policy-library/{policy_id}` *(planned)* | `guardrail.read` | `LibraryPolicy` plus `policy` (the full `DecisionPolicy`) and `tests` (its case file) |
 | `POST /v1/guardrails/{id}/draft` | `guardrail.draft.write` | `{base_version?}` → 201 `Draft`; 409 when one exists |
 | `GET /v1/guardrails/{id}/draft` | `guardrail.read` | `Draft` |
-| `PUT /v1/guardrails/{id}/draft` | `guardrail.draft.write` | `{bundle}` → `Draft`; saved even when invalid. *(ADR-0056)* `If-Match` |
-| `DELETE /v1/guardrails/{id}/draft` | `guardrail.draft.write` | 204 |
-| `POST /v1/guardrails/{id}/draft/decision-policies` *(ADR-0056)* | `guardrail.draft.write` | `DecisionPolicyAdd` → 201 `Draft`; `If-Match` |
-| `PUT /v1/guardrails/{id}/draft/cases/{case_id}` *(ADR-0056)* | `guardrail.draft.write` | `CaseSave` → `Draft`; `If-Match` |
-| `DELETE /v1/guardrails/{id}/draft/cases/{case_id}` *(ADR-0056)* | `guardrail.draft.write` | `Draft`; `If-Match` |
-| `POST /v1/guardrails/{id}/draft/test` | `guardrail.draft.test` | Test report; *(ADR-0056)* body `{"cases": [ids]}` (optional, default all) and `coverage` in the report |
-| `POST /v1/guardrails/{id}/draft/recognizer-test` *(ADR-0056)* | `guardrail.draft.test` | `RecognizerTest` → `RecognizerTestResult` |
+| `PUT /v1/guardrails/{id}/draft` | `guardrail.draft.write` | `{bundle}` → `Draft`; saved even when invalid; `If-Match` (optional) |
+| `DELETE /v1/guardrails/{id}/draft` | `guardrail.draft.write` | 204; for a guardrail never published, this removes the guardrail |
+| `POST /v1/guardrails/{id}/draft/decision-policies` *(planned)* | `guardrail.draft.write` | `DecisionPolicyAdd` → 201 `Draft`; `If-Match` |
+| `PUT /v1/guardrails/{id}/draft/cases/{case_id}` *(planned)* | `guardrail.draft.write` | `CaseSave` → `Draft`; `If-Match` |
+| `DELETE /v1/guardrails/{id}/draft/cases/{case_id}` *(planned)* | `guardrail.draft.write` | `Draft`; `If-Match` |
+| `POST /v1/guardrails/{id}/draft/test` | `guardrail.draft.test` | Test report; *(planned)* body `{"cases": [ids]}` (optional, default all) and `coverage` in the report |
+| `POST /v1/guardrails/{id}/draft/recognizer-test` *(planned)* | `guardrail.draft.test` | `RecognizerTest` → `RecognizerTestResult` |
 | `POST /v1/guardrails/{id}/draft/publish` | `guardrail.publish` (+ `guardrail.activate` when `activate`) | `{activate, accept[], note}` → `{version, activated, previous_active, accepted, tests}` |
-| `POST /v1/guardrails/{id}/activate` | `guardrail.activate` | `{version, note}` → `{active_version, previous_active}` |
+| `POST /v1/guardrails/{id}/activate` | `guardrail.activate` | `{version, note}` → `{active_version, previous_active}`; 409 `archived` for an archived guardrail |
 
 Roles: `guardrail.read` owner, admin, policy editor, approver, viewer and the operator;
 `guardrail.create`, `guardrail.draft.write`, `guardrail.draft.test`, `guardrail.publish` owner and
 policy editor; `guardrail.activate` owner and approver. Without the `rbac` entitlement an admin holds
-all of them (ADR-0029 §2). Changing routes write audit events ([audit](audit.md); ADR-0056 adds
-`guardrail.create`, `guardrail.archive`, `guardrail.draft.policy.add`, `guardrail.draft.case.save`,
-`guardrail.draft.case.delete`, `guardrail.draft.recognizer.test`), whose details never contain case
-text, sample text or matches.
+all of them (ADR-0029 §2). Changing routes write audit events ([audit](audit.md) 0.2:
+`guardrail.create`, `guardrail.archive`; planned: `guardrail.draft.policy.add`,
+`guardrail.draft.case.save`, `guardrail.draft.case.delete`, `guardrail.draft.recognizer.test`),
+whose details never contain case text, sample text or matches.
 
-## Create a guardrail *(ADR-0056)* — `GuardrailCreate`
+## Create a guardrail — `GuardrailCreate`
 
 ```json
 {
@@ -61,13 +61,13 @@ text, sample text or matches.
 | `name` | string, 1–200 | Written into the bundle's `name` |
 | `description` | string ≤ 1 000, optional | Written into the bundle's `description` |
 | `id` | bundle id, optional | Default `gr-` + a slug of `name` (Turkish letters transliterated, a number appended on collision); explicit and taken → 409 `guardrail_exists` |
-| `from` | `{"template": id}` or `{"guardrail": id, "version"?: n}` | A template from `GET /v1/guardrail-templates`, or one of the tenant's guardrails (default: its active version). The bundle and its cases are copied |
+| `from` | `{"template": id}` or `{"guardrail": id, "version"?: n}` | A template from `GET /v1/guardrail-templates`, or one of the tenant's guardrails (default: its active version). The bundle and its cases are copied. Exactly one of the two; `version` only with `guardrail` (422 otherwise) |
 
 The answer is the new draft with `base_version: null`. `created_from` in the list and the change
 log's first entry (`{"action": "create", "from": {"template": "tpl-kvkk-data-protection",
 "version": 2}}`) record the origin. Errors: 404 `unknown_template` / `unknown_guardrail`; 409
 `guardrail_exists`, `guardrail_limit_reached` (entitlement `max_guardrails`, with `limit` and
-`count` in the body).
+`count` in the body). A taken explicit id is reported before the limit.
 
 ## Draft — `Draft`
 
@@ -98,18 +98,19 @@ log's first entry (`{"action": "create", "from": {"template": "tpl-kvkk-data-pro
 }
 ```
 
-(`bundle` abbreviated.) Today's fields are `bundle_id`, `base_version`, `bundle`, `problems`,
-`created_at`, `updated_at`. *(ADR-0056)*:
+(`bundle` abbreviated.)
 
 | Field | Notes |
 |---|---|
-| `base_version` | null for a guardrail that was never published (created by `POST /v1/guardrails`); its first publish is version 1 |
-| `revision` | Incremented by every change to `bundle` or `tests`. Changing calls may send `If-Match: "<revision>"`; a stale one → 412 `draft_changed` with `{"revision": <current>}`. Optional in 0.1 |
+| `bundle_id`, `bundle`, `created_at`, `updated_at` | As before ADR-0056 |
+| `base_version` | null for a guardrail that was never published (created by `POST /v1/guardrails`); its first publish is version 1, and its change log starts with `{"action": "create", "from": …}` |
+| `created_from` | `{"template", "version"}` or `{"guardrail", "version"}` for a draft made by `POST /v1/guardrails`; null otherwise |
+| `revision` | Starts at 1, incremented by every change to `bundle` (and, once the case routes exist, to `tests`). Changing calls may send `If-Match: "<revision>"`; a stale one → 412 `draft_changed` with `revision` (the current one); a malformed header → 400 `invalid_if_match`. Optional in 0.1 |
 | `sha256` | SHA-256 (hex) of the canonical JSON of `bundle` (keys sorted, no whitespace, UTF-8). Changes with every bundle change, not with case changes (cases do not change decisions). It names the draft in ADR-0057's evaluation runs and evaluation gate; it is not the published version's manifest `sha256`, which covers the `bundle.yaml` bytes written at publish |
-| `tests` | The draft's golden-case files, each a [policy-tests](policy-tests.md) file plus its `file` path under `tests/`. Start as the base version's, the template's or the source guardrail's; publish writes them as the version's `tests/` |
-| `problems` | As today, plus plan problems: more L1b policies than `max_decision_policies` (`l1b.policies: 4 decision policies, the plan allows 3`) |
+| `tests` | The draft's golden-case files, each a [policy-tests](policy-tests.md) file plus its `file` path under `tests/`. A created draft holds the template's or the source guardrail's, and publish writes them as the version's `tests/`. A draft of a published guardrail shows its base version's (stored with the draft once the case routes write them) |
+| `problems` | Validation problems; *(planned)* plan problems: more L1b policies than `max_decision_policies` (`l1b.policies: 4 decision policies, the plan allows 3`) |
 
-## Cases *(ADR-0056)* — `CaseSave`
+## Cases *(planned)* — `CaseSave`
 
 `PUT /v1/guardrails/{id}/draft/cases/{case_id}` creates or replaces one case; the path's id must
 equal the body's `case.id`. A new case goes to `tests/console.yaml` unless `file` names another of
@@ -134,8 +135,8 @@ logs it and audit events carry only `case_id` and `file`.
 
 ## Test report
 
-As today (`passed`, `has_tests`, `errors`, `cases[]` with `case_id`, `file`, `passed`, `failures`,
-`actual`, then `failed`, `total`), plus *(ADR-0056)* `coverage`:
+`passed`, `has_tests`, `errors`, `cases[]` with `case_id`, `file`, `passed`, `failures`, `actual`,
+then `failed`, `total`; *(planned)* `coverage`:
 
 ```json
 {
@@ -155,7 +156,7 @@ As today (`passed`, `has_tests`, `errors`, `cases[]` with `case_id`, `file`, `pa
 rule is in [policy-tests](policy-tests.md) 0.4. Publish refuses a draft whose coverage is not `ok`:
 422 with `{"coverage": …}` next to today's `unaccepted` and `report`.
 
-## Recognizer test *(ADR-0056)* — `RecognizerTest` → `RecognizerTestResult`
+## Recognizer test *(planned)* — `RecognizerTest` → `RecognizerTestResult`
 
 Runs one custom detector, as the draft would compile it, over sample text. Nothing is stored; the
 text is not logged and not put into the audit event (`guardrail.draft.recognizer.test` records the
@@ -195,7 +196,7 @@ sensitivity of the policy the type belongs to (L3 when it belongs to none yet). 
 draft's wording (`pattern 1: lookbehind is not supported; use "whole values only"`); with problems
 there are no matches.
 
-## Templates *(ADR-0056)* — `Template`
+## Templates — `Template`
 
 ```json
 {
@@ -211,10 +212,13 @@ there are no matches.
 
 Templates are the active versions of the bundles listed in `UMAI_DE_GUARDRAIL_TEMPLATES`, owned by
 the catalog tenant (`UMAI_DE_CATALOG_TENANT_ID`, default: the deployment's default tenant), in that
-order. `name` and `description` are the bundle's; the policy lists are names, so the console can
-show what a template contains without reading the bundle.
+order (default `tpl-kvkk-data-protection`, `tpl-prompt-attack`, `tpl-malicious-use`, `tpl-blank`).
+A listed id without an active version is not offered (`tpl-malicious-use` until its policy text is
+complete). `name` and `description` are the bundle's; the policy lists are names, so the console can
+show what a template contains without reading the bundle. The catalog bundles ship in the image, and
+a deployment's seed adds the ones its policy volume lacks (`deploy/vm/seed-policies.sh`).
 
-## Library *(ADR-0056)* — `LibraryPolicy`
+## Library *(planned)* — `LibraryPolicy`
 
 ```json
 {
@@ -236,7 +240,7 @@ instructions, counted with the provider's tokenizer when the library version is 
 content is extra). A draft policy whose id and version equal a library entry's is shown as from
 the library; a higher library version is offered as an update.
 
-## Add a decision policy *(ADR-0056)* — `DecisionPolicyAdd`
+## Add a decision policy *(planned)* — `DecisionPolicyAdd`
 
 Adds one L1b policy to the draft, always with `enforcement: shadow`, and answers the draft. Later
 changes (enforcement, roles, action, severity, `p_gte`, name, description, policy text) are ordinary
@@ -282,34 +286,44 @@ Errors: 404 `unknown_policy` (not in the library); 409 `policy_exists` (the id i
 422 when the result is not a valid policy (e.g. more L1b policies than `max_decision_policies`
 allows is a draft problem, not an error: the policy is added and the draft cannot be published).
 
-## Archive *(ADR-0056)*
+## Archive
 
-`POST /v1/guardrails/{id}/archive` with `{"note"?: string ≤ 500}`. Removes the active pointer
-(engines stop serving the guardrail within one poll), hides it from `GET /v1/guardrails` and from
+`POST /v1/guardrails/{id}/archive` with `{"note"?: string ≤ 500}`. Sets the active pointer to
+`archived` (engines stop serving the guardrail within one poll; a missing pointer would keep the
+last version), hides it from `GET /v1/guardrails` and from
 the `max_guardrails` count, and writes `{"action": "archive"}` to its change log. 409
-`guardrail_in_use` with the application ids while an application uses it; 409 `has_draft` while a
-draft is open.
+`guardrail_in_use` with the application ids (`applications`) while an application uses it; 409
+`has_draft` while a draft is open; 404 `unknown_guardrail` for an unknown or archived one. An
+archived guardrail cannot be activated or drafted (409 `archived`) or bound to an application.
+Restoring one (A32) is not built yet.
 
 ## Errors
 
-The policy service's usual body `{"detail": {"error": <code>, "detail": <text>}}`; 422 validation
-errors never repeat the input ([organizations](organizations.md) 0.6).
+`{"detail": {"error": <code>, "detail": <text>, …}}` with the fields named below merged in; 422
+validation errors never repeat the input ([organizations](organizations.md) 0.6). Refusals that
+predate ADR-0056 keep their older body `{"detail": <text>, "details"?: …}`.
 
 | Status | Code | When |
 |---|---|---|
-| 404 | `unknown_template`, `unknown_guardrail` | *(ADR-0056)* `from` names nothing the tenant can copy |
-| 404 | `unknown_policy` | *(ADR-0056)* not an entry of the library |
-| 409 | `guardrail_exists`, `policy_exists` | *(ADR-0056)* the explicit id is taken |
-| 409 | `guardrail_limit_reached` | *(ADR-0056)* the tenant has `max_guardrails` guardrails |
-| 409 | `guardrail_in_use`, `has_draft` | *(ADR-0056)* archive refused |
-| 412 | `draft_changed` | *(ADR-0056)* `If-Match` names an older revision |
-| 422 | `invalid_case`, `text_too_long` | *(ADR-0056)* case or sample text refused |
-| 422 | (publish) | the draft is not valid (`problems`), cases fail unaccepted (`unaccepted`, `report`), *(ADR-0056)* coverage is missing (`coverage`) |
+| 404 | `unknown_template`, `unknown_guardrail` | `from` names nothing the tenant can copy; archive of an unknown or archived guardrail |
+| 404 | `unknown_policy` | *(planned)* not an entry of the library |
+| 400 | `invalid_if_match` | `If-Match` is not `"<revision>"` |
+| 409 | `guardrail_exists` | the explicit id is taken; *(planned)* `policy_exists` |
+| 409 | `guardrail_limit_reached` | the tenant has `max_guardrails` guardrails (`limit`, `count`) |
+| 409 | `guardrail_in_use`, `has_draft` | archive refused (`applications`) |
+| 409 | `archived` | activating or drafting an archived guardrail |
+| 412 | `draft_changed` | `If-Match` names an older revision (`revision`) |
+| 422 | `invalid_case`, `text_too_long` | *(planned)* case or sample text refused |
+| 422 | (publish) | the draft is not valid (`problems`), cases fail unaccepted (`unaccepted`, `report`), *(planned)* coverage is missing (`coverage`) |
 | 422 | `evaluation_gate_failed` | *(ADR-0057)* the guardrail's evaluation gate is on and no passing run exists for the draft's `sha256`; the gate, its bypass route and its settings are specified in the evaluations contract of ADR-0057 |
 
 ## Changelog
 
-- 0.1 — draft (2026-11-02, ADR-0056, not implemented): first version. Records the guardrail routes
+- 0.1 (2026-11-02, ADR-0056 steps E3, E4, E7, E8 built): `POST /v1/guardrails` (templates, copies,
+  `max_guardrails`), `GET /v1/guardrail-templates`, archive; drafts without a base version, with
+  `tests`, `revision` (`If-Match`), `sha256` and `created_from`; `archived` and `created_from` in the
+  guardrail views. The parts marked *(planned)* stay drafts. Drafted the same day as the first
+  version: Records the guardrail routes
   built by ADR-0022 and proposes creating guardrails from templates or copies, archive, the template
   and library listings, adding decision policies (library or form), drafts without a base version,
   with cases, a revision and a `sha256` (the draft's identity for ADR-0057's runs and gate), case

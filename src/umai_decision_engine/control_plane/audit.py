@@ -74,6 +74,8 @@ TARGET: dict[AuditAction, TargetType] = {
     AuditAction.DRAFT_TEST: "guardrail",
     AuditAction.GUARDRAIL_PUBLISH: "guardrail",
     AuditAction.GUARDRAIL_ACTIVATE: "guardrail",
+    AuditAction.GUARDRAIL_CREATE: "guardrail",
+    AuditAction.GUARDRAIL_ARCHIVE: "guardrail",
     AuditAction.TENANT_CREATE: "tenant",
     AuditAction.TENANT_PLAN: "tenant",
     AuditAction.KEY_CREATE: "api_key",

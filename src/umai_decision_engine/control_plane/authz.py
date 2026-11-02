@@ -34,6 +34,7 @@ TENANT_HEADER = "X-Umai-Tenant"  # the tenant the operator acts in (ADR-0023 §1
 class Action(StrEnum):
     CATALOG_READ = "catalog.read"
     GUARDRAIL_READ = "guardrail.read"
+    GUARDRAIL_CREATE = "guardrail.create"  # a new guardrail as a draft (ADR-0056 §2)
     DRAFT_WRITE = "guardrail.draft.write"
     DRAFT_TEST = "guardrail.draft.test"
     GUARDRAIL_PUBLISH = "guardrail.publish"
@@ -115,6 +116,7 @@ _O, _A, _E, _P, _V, _B = (
 MATRIX: dict[Action, Rule] = {
     Action.CATALOG_READ: _r(_O, _A, _E, _P, _V, _B, operator=True),
     Action.GUARDRAIL_READ: _r(_O, _A, _E, _P, _V, operator=True),
+    Action.GUARDRAIL_CREATE: _r(_O, _E),
     Action.DRAFT_WRITE: _r(_O, _E),
     Action.DRAFT_TEST: _r(_O, _E),
     Action.GUARDRAIL_PUBLISH: _r(_O, _E),

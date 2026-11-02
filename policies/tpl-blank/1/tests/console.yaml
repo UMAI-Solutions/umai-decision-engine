@@ -1,0 +1,9 @@
+# The one case of the blank template (ADR-0056 §3): every policy is off, so ordinary text is
+# allowed. A policy switched on later brings its own cases.
+contract_version: "0.3"
+cases:
+  - id: ordinary-text-allowed
+    input:
+      text: "Yarınki toplantı saat kaçta?"
+    expect:
+      action: ALLOW

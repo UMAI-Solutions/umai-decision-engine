@@ -259,6 +259,9 @@ the engine does not.
   - 2026-11-02 (ADR-0056 build step E1; shape and version unchanged): a pattern whose matching
     times out or fails, custom or built-in, is no longer skipped without a record; the
     evaluation fails with `L0_ERROR` under `on_evaluation_failure`.
+  - 2026-11-02 (ADR-0056, source layout; bundle shape and version unchanged): a guardrail's
+    `active` pointer may read `archived`. The engine then serves no version of it and keeps none,
+    where a missing pointer keeps the last loaded version as a fault.
 - 0.8 (2026-10-19): tenant-owned bundles: `tenants/<tenant_id>/` layout, signed
   `manifest.tenant_id`, unowned bundles belong to the default tenant (ADR-0019 §2). Manifests
   without `tenant_id` verify unchanged.
