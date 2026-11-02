@@ -326,6 +326,11 @@ assertion and the permission matrix of ADR-0029:
 | Secrets | `.env.local` (git-ignored) | `/opt/umai/secrets.env` or Key Vault (ADR-0032) | Key Vault through Workload ID (ADR-0031 §9) | same |
 | Configuration as code | Terraform workspace `dev` | `beta` | `eu-prod` | `us-prod` |
 
+Stage 0's `umai-prod` (ADR-0050), a second single VM for design partners, comes before UMAI Cloud
+EU. Its console origin is `https://platform.umaisolutions.com` (A25), with callback and login URI
+on the same pattern. It has its own Auth0 EU tenant, tagged Production with sign-ups off, in
+Terraform workspace `prod` (`umai-control-center/identity/auth0/production.md`).
+
 The product domain is `umaisolutions.com` (A11). Its DNS is at Cloudflare, so every record
 pointing at Auth0 must be **DNS only (not proxied)**: Auth0 rejects CNAME flattening and proxying.
 The apex receives mail through Microsoft 365, so the product sends from its own subdomain,
