@@ -2,6 +2,8 @@
 
 **Version:** 0.9
 
+**Draft:** 0.10 ([ADR-0056](../adr/0056-guardrail-and-policy-authoring-in-the-console.md), not implemented): custom detectors written in the console
+
 The configuration the engine evaluates against (successor of `umai-engine`'s
 `GuardrailSnapshot`). A bundle is a signed, immutable artifact; the engine only reads it
 ([ADR-0012](../adr/0012-signed-immutable-policy-bundles.md)). Bundles are produced by hand
@@ -211,7 +213,44 @@ The loader rejects a bundle when:
 - a regex fails to compile or is flagged as catastrophic-backtracking prone;
 - the `l0` block contains decision fields (`hard_block`, `redact_on`) from 0.1.
 
+## Draft 0.10 ([ADR-0056](../adr/0056-guardrail-and-policy-authoring-in-the-console.md), not implemented)
+
+Customers write custom detectors in the console, so their patterns are untrusted input to a shared
+engine. Measured on 2026-11-02 ([report](../../evals/reports/2026-11-02-redos-custom-patterns/summary.md)):
+two common exponential patterns pass today's load check and, from 4 000 characters, run into the
+one-second timeout, after which the pattern is skipped without a record.
+
+```yaml draft
+contract_version: "0.10"
+l0:
+  custom_recognizers:
+    - entity: CUSTOMER_NO
+      name: Müşteri numarası           # 0.10: display name
+      patterns: [{ name: customer_no, regex: "MUS-[0-9]{6}", score: 0.4 }]
+      context: ["müşteri no", "customer"]
+      boundary: alnum                   # 0.10: alnum | none (default none)
+```
+
+| Field or rule | 0.10 |
+|---|---|
+| `l0.custom_recognizers[].name` | Optional display name, 1–100 characters |
+| `l0.custom_recognizers[].boundary` | `alnum`: a match whose neighbouring character (before or after) is a Unicode letter or digit is dropped, so a value inside a longer code is not reported (what the lookarounds of the example above did). `none` (default): every match. The console writes `alnum` for new detectors |
+| Pattern dialect | In a bundle at 0.10 or later, custom patterns are compiled with **RE2** (`google-re2`): linear-time matching. Lookarounds and backreferences do not compile and are validation problems that point to `boundary`. Bundles up to 0.9 keep the `regex` dialect |
+| Pattern limits | At most 512 characters per pattern and 5 patterns per detector, at most 50 custom patterns per bundle, RE2's default program-memory budget (a larger pattern does not compile); a pattern must not match the empty string (as before) |
+| Matching failures | For every pattern, built-in ones and bundles ≤ 0.9 included: a matcher timeout or error raises inside L0 and is answered as `L0_ERROR` under `on_evaluation_failure` ([merge and failure](../architecture/decision-merge-and-failure.md)), never by scanning on without the pattern |
+
+Conventions of 0.10, no new fields: a decision policy written in the console has `source: console`
+and the tag `custom.<policy_id>` ([tag-taxonomy](tag-taxonomy.md) 0.4); one added from the decision-policy
+library keeps the library entry's `id` and `version` (pinned, ADR-0021 §2). Templates and the
+library are ordinary bundles of the catalog tenant ([guardrails](guardrails.md) 0.1). The policy
+service enforces the plan's `max_decision_policies` on drafts ([entitlements](entitlements.md) 0.3);
+the engine does not.
+
 ## Changelog
+
+- 0.10 — draft (2026-11-02, ADR-0056, not implemented): custom detectors gain `name` and
+  `boundary`; custom patterns in 0.10 bundles compile with RE2, with size limits; a matcher timeout
+  or error becomes `L0_ERROR` for every pattern.
 
 - 0.9 (2026-10-20, ADR-0040): L1b implemented. `l1b.batch`; decision policies gain
   `enforcement`, `name`, `description`, `source` and probability thresholds (`p_gte`) in

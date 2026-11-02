@@ -2,6 +2,8 @@
 
 **Version:** 0.3
 
+**Draft:** 0.4 ([ADR-0056](../adr/0056-guardrail-and-policy-authoring-in-the-console.md), not implemented)
+
 Tags are dotted, lowercase codes. Each code lists the layers allowed to emit it. Adding a
 code is a minor version bump; renaming or removing one is major.
 
@@ -58,6 +60,12 @@ From the converted decision policies (MIT AI Risk Repository domains in brackets
 | `socioeconomic.*` (6) | `governance_evasion`, `worker_exploitation`, `unfair_power`, `creative_misappropriation`, `unsafe_race`, `resource_abuse`, `sensitive_practice` |
 | `ai_safety.*` (7) | `goal_misalignment`, `dangerous_capabilities`, `robustness`, `transparency`, `welfare_rights`, `multi_agent` |
 
+### Draft 0.4: decision policies written in the console
+
+| Code | Emitted by | Meaning |
+|---|---|---|
+| `custom.<policy_id>` | L1b | A decision policy a tenant wrote in the console ([ADR-0056](../adr/0056-guardrail-and-policy-authoring-in-the-console.md) §5) found a violation. The policy id with hyphens as underscores (`custom.yatirim_tavsiyesi`) |
+
 ## `action.*` — what the agent/tool action does
 
 | Code | Emitted by |
@@ -89,3 +97,5 @@ Emitted only in L2 analyses (asynchronous); they never appear on runtime decisio
 - 0.3 (2026-10-20): L1b AI-risk tags and `intent.sensitive_data_request` (ADR-0040).
 - 0.2 (2026-10-17): entity catalog tags (ADR-0017): address, phone, IP, US SSN, plate, EU IDs,
   unknown links, connection string, password.
+- 0.4 — draft (2026-11-02, ADR-0056, not implemented): `custom.<policy_id>` for decision policies
+  written in the console.
