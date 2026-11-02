@@ -20,7 +20,7 @@ param environments = [
   {
     name: 'prod'
     vmName: 'umaiprod-vm'
-    hostname: 'umai-prod.westeurope.cloudapp.azure.com' // the company-domain hostname once its CNAME exists
+    hostname: 'platform.umaisolutions.com' // CNAME to umai-prod.westeurope.cloudapp.azure.com
     production: true
     availabilityTestFrequency: 300
     gateway: true

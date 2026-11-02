@@ -50,9 +50,12 @@ process (ADR-0043, single node), which fits one VM.
    - **Backups:** its own storage account. Archives are kept 35 days (beta 30). Blob soft delete
      keeps an overwritten or deleted archive recoverable for 14 days, because the VM's SAS can
      write.
-2. **Hostname: a subdomain of the company domain**, a CNAME to the Azure DNS label
-   `umai-prod.westeurope.cloudapp.azure.com`. The label is the hostname until the CNAME exists.
-   Caddy obtains the certificate for whatever `UMAI_HOSTNAME` names.
+2. **Hostname: `platform.umaisolutions.com`** (product owner, 2026-11-02), for console, API and
+   gateway on one name. It is a CNAME at Cloudflare to the Azure DNS label
+   `umai-prod.westeurope.cloudapp.azure.com`, created before the first `umai.sh up` so Caddy can
+   obtain its certificate. The record is **DNS only**, never proxied: a proxy would put a third
+   party on the content path (ADR-0005, ADR-0031 §5) and hide callers' addresses from key IP
+   allow-lists (ADR-0046).
 3. **VM size is a parameter. The recommendation is `Standard_B2ms`** (2 vCPU, 8 GiB, $70.08 a
    month at list price, West Europe). The containers' memory limits add up to about 4 GiB
    (engine, policy service and gateway 900 MiB each, Postgres and console 512 MiB, Caddy 256 MiB),
@@ -133,8 +136,8 @@ the IaC grows from this template's parameters.
   triggers above. Otherwise the ADR-0031 move becomes part of Stage 0. Engineering's
   recommendation is to accept the deviations and make the ADR-0031 stack the entry condition of
   Stage 1.
-- The prod Auth0 tenant and the hostname need the product owner: Q35 (hosting), the plan (MFA,
-  e-mail provider) and the company subdomain.
+- The prod Auth0 tenant needs the product owner: Q35 (hosting) and the plan (MFA, e-mail
+  provider).
 
 ## Validation
 
