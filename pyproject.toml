@@ -9,7 +9,7 @@ description = "Layered detection and decision engine (L0 entity detection, L1 de
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "presidio-analyzer==2.2.364",
+    "presidio-analyzer==2.2.365",
     "regex>=2024.11.6",
     "phonenumbers>=9.0.28,<10",
     "fastapi>=0.110,<1.0",
