@@ -224,12 +224,14 @@ seconds per 1 000 cases on the VM. Wall time is L1b's round trip: p50 414 ms, p9
    `min_grade`, accepted datasets, `max_age_days`. Changing them needs
    `guardrail.evaluation_gate.update` (owner, approver; not the policy editor who is subject to
    it) and is audited with before and after. On publish the policy service looks for the newest
-   completed run whose draft target has the draft's current `sha256` and checks the thresholds on
+   completed run whose draft target has the draft's current `sha256` (`Draft.sha256` of ADR-0056's
+   guardrails contract: the canonical JSON of the draft's bundle, unchanged by golden-case edits)
+   and checks the thresholds on
    it; otherwise 422 `evaluation_gate_failed` with the failed checks. Golden tests still run
    first: they say "did the behaviour I meant change", the gate says "is it good enough".
-   **Bypass:** one draft revision at a time, by a person with `guardrail.evaluation_gate.bypass`
+   **Bypass:** for one draft content (its `sha256`), by a person with `guardrail.evaluation_gate.bypass`
    (owner, approver) with a reason of 10–500 characters, audited as
-   `guardrail.evaluation_gate.bypass`; any change to the draft voids it.
+   `guardrail.evaluation_gate.bypass`; a change to the draft's bundle voids it.
    **Four-eyes (ADR-0029 §4, ADR-0056):** the gate is checked when the version is created, before
    any approval, so an approver never sees an ungraded version from a gated guardrail; the
    approval view shows the version's report card. When the tenant requires approval, the bypass

@@ -198,6 +198,13 @@ lists them with a cursor):
 }
 ```
 
+`targets[].bundle.sha256` names exactly what was graded. For a `draft` target it is the draft's
+`sha256` as the guardrails contract 0.1 (draft, ADR-0056) defines `Draft.sha256`: SHA-256 (hex) of the canonical JSON
+of the draft's bundle (keys sorted, no whitespace, UTF-8). It changes with every bundle change and
+not with golden-case changes, so editing cases after a run does not make the run stale. For a
+`version` or `active` target it is the version's manifest `sha256` (the `bundle.yaml` bytes written
+at publish). The two are never compared with each other.
+
 Status: `queued` → `running` → `completed` | `cancelled` | `failed`. One case never fails a run:
 a case whose engine call errs or whose decision came from a failure policy (L1b timeout or error,
 `degraded`) is retried twice with backoff, then recorded as `error` and left out of the metrics.
@@ -361,11 +368,13 @@ publish:
 }
 ```
 
-A **bypass** is granted for one draft revision by a person with
+A **bypass** is granted for one draft content (its `sha256`) by a person with
 `guardrail.evaluation_gate.bypass` who, when the tenant requires approval (ADR-0029 §4), is
 neither the draft's last editor nor its publisher: `POST /v1/guardrails/{id}/draft/evaluation-gate-bypass` with
 `{"reason": "…", "sha256": "<draft sha256>"}` (reason 10–500 characters). The publish then
-passes the gate as `bypassed`; a change to the draft voids the bypass. The publish's audit event
+passes the gate as `bypassed`; a change to the draft's bundle (a new `sha256`) voids the bypass,
+an edit of its golden cases does not. The draft's `revision` (ADR-0056, for `If-Match`) plays no part
+here. The publish's audit event
 records `evaluation_gate` (`off`, `passed`, `bypassed`), the run id and, for a bypass, the
 bypass's audit event id.
 
