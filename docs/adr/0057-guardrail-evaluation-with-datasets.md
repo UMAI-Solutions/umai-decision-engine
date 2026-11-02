@@ -1,10 +1,10 @@
 # ADR-0057 — Guardrail evaluation with datasets (report card), PyRIT-assisted
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-02)
 - **Date:** 2026-11-02
 - **Deciders:** product owner (asked for the feature and accepted the working assumptions on
-  2026-11-02: flow, storage, execution, cost, PyRIT's role, report card, publish gate); engineering
-  (everything this ADR adds to them, marked as proposals; open points Q70–Q79)
+  2026-11-02: flow, storage, execution, cost, PyRIT's role, report card, publish gate; on the same
+  day accepted this proposal and its answers to Q70–Q79, below)
 - **Builds on:** ADR-0005 and ADR-0035 (raw-content zone), ADR-0015 (golden tests), ADR-0022
   (policy service), ADR-0025 (tenant store, RLS), ADR-0029 (roles, four-eyes), ADR-0040 (L1b),
   ADR-0041 / ADR-0042 (records), ADR-0043 (plans and quotas), ADR-0045 (audit), ADR-0048 (master-key
@@ -399,33 +399,20 @@ enforcement; the Turkish customer gets a printable card for its KVKK file.
   worker (then the queue's throughput), when multi-turn evaluation of the gateway starts (Q77),
   or when OpenAI's price or our provider changes the cost table.
 
-## Open questions
+## Answers to the open points (2026-11-02)
 
-Recorded in [`../open-questions.md`](../open-questions.md) as Q70–Q79:
+The product owner accepted the proposals; the questions moved to *Answered* in
+[`../open-questions.md`](../open-questions.md) (A34–A43).
 
-- **Q70** Dataset retention: 30 days from upload (proposal) or from last use; may an
-  organization choose shorter (7 days) or, on Enterprise, longer? Redacted text of wrong cases
-  kept only until the dataset expires (proposal)?
-- **Q71** `grade-v1`: weights 0.5 catch, 0.3 benign (five points per point of false blocks),
-  0.2 robustness, the bands and the caps; or another balance?
-- **Q72** Plan values for `monthly_evaluation_cases`, `max_evaluation_dataset_cases`,
-  `max_evaluation_datasets` (D10), and does Community get evaluations at all?
-- **Q73** Gate bypass: an approver who is not the draft's last editor when approval is
-  required, an owner on their own draft otherwise (proposal)? Are admins notified of a bypass
-  as of a break-glass activation?
-- **Q74** Third-party built-in sets: ship only permissively licensed (MIT, Apache, CC BY) sets
-  with attribution after a legal look? Ask XL-SafetyBench's authors for commercial use of its
-  Turkish track, or leave it out?
-- **Q75** Is the console-printed report card with `report_sha256` enough as KVKK evidence, or do
-  customers' auditors need a server-generated PDF signed with a UMAI key?
-- **Q76** Uploaded datasets under the DPA: is evaluation a purpose of the same processing as
-  live traffic, and may their redacted prompts go to the L1b provider as live traffic does
-  (Q59)?
-- **Q77** Multi-turn attacks (Crescendo, TAP, PAIR) against the AI gateway: when, with which
-  adversarial model (it sends attack content to a model provider), at whose cost? PyRIT in a
-  separate worker image, with its own ADR.
-- **Q78** Does the gate also apply to activating an older version (a rollback), or only to
-  publishing? Proposal: publishing only, so a rollback during an incident stays one step.
-- **Q79** Does the evaluation worker run on the same VM as live traffic in `umai-prod`
-  (proposal: yes, lowest CPU priority, four cases in flight, after the measurement under
-  Consequences), and do self-hosted installs get it with their own L1b key?
+| Question | Answer |
+|---|---|
+| Q70 dataset retention | 30 days from upload, or earlier on the delete button; no per-organization choice in the first version. Redacted text of wrong cases until the dataset expires; runs, report cards and case metadata 400 days (D13) |
+| Q71 `grade-v1` | As in D7: 0.5 catch rate, 0.3 benign pass (five points per point of false blocks), 0.2 robustness; A ≥ 90, B ≥ 80, C ≥ 70, D ≥ 60, else F; the caps and the 50 + 50 minimum as written |
+| Q72 plan values | As in D10: Community 1 000 / 500 / 3, Pro 20 000 / 5 000 / 20, Enterprise unlimited / 5 000 / 100. Community gets evaluations; evaluation cases never count toward `monthly_requests` |
+| Q73 gate bypass | As in D8: when approval is required, an approver who is neither the draft's last editor nor its publisher; otherwise an owner on their own draft, with a reason. Every bypass is audited; no separate notification in the first version |
+| Q74 third-party built-in sets | Only permissively licensed sets (MIT, Apache, CC BY) with attribution, after a legal look. XL-SafetyBench is left out for now |
+| Q75 KVKK evidence | The console-printed report card with `report_sha256`; a signed server-side PDF only when a customer's auditor asks |
+| Q76 datasets under the DPA | Evaluation is a purpose of the same processing as live traffic; redacted prompts go to the guardrail's L1b provider as live traffic does. Accepted pending a legal confirmation before uploads ship |
+| Q77 multi-turn attacks on the gateway | Later, in a separate worker image with its own ADR |
+| Q78 gate on rollback | Publishing only; activating an older version stays one step |
+| Q79 worker placement | Same VM as live traffic in `umai-prod`, lowest CPU priority, four cases in flight, after the load measurement under Consequences; self-hosted installs get it with their own L1b key |
