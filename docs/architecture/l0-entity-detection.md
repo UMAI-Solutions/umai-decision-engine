@@ -191,7 +191,7 @@ in code (AGENTS.md rule 8).
 "`; a match or context word does not cross a message boundary (ADR-0037). |
 | Detection cache | Per process, `UMAI_DE_L0_CACHE_ENTRIES` (default 20 000, `0` off): per scanned part, the types, spans, scores and value hashes found, keyed by an HMAC of tenant hashing key, phase configuration, language and text; never the text or values. A resent conversation costs its new messages: measured on the pilot VM, a full scan costs ≈ 2.9 ms per 1 000 characters (ADR-0037). |
 | Concurrency | `analyze()` is synchronous and CPU-bound, thread-safety undocumented: process pool or one engine per worker thread, never on the event loop. |
-| Regex safety | `REGEX_TIMEOUT_SECONDS=1` (integer only). Tenant regexes are validated at bundle load. |
+| Regex safety | `REGEX_TIMEOUT_SECONDS=1` (integer only for Presidio; our matcher reads the same value). Tenant regexes are validated at bundle load. A pattern that times out or fails raises `PatternMatchError` (`l0/recognizers/base.py`) and logs `l0.pattern_failed` with recognizer, entity type, pattern name and time, never content; the evaluation fails with `L0_ERROR` instead of scanning on without the pattern. |
 | Offline | No runtime model downloads: models vendored in the image, `HF_HUB_OFFLINE=1` (required for on-prem). |
 | Logging | `log_decision_process=False`; `presidio-analyzer` logger at INFO or above (DEBUG prints context words). |
 

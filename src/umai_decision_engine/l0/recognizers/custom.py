@@ -60,7 +60,8 @@ VALIDATORS: dict[str, tuple[Callable[[str], bool], Callable[[str], str]]] = {
 }
 
 # Nested unbounded quantifiers ("(a+)+", "(.*)*", "(\w+\s?)*") are the classic catastrophic
-# backtracking shapes; reject them at bundle load. The matcher also has a timeout.
+# backtracking shapes; reject them at bundle load. The heuristic misses some (`(\w|\d)+$`), so
+# the matcher also has a timeout, and a timeout fails the evaluation (base.PatternMatchError).
 _NESTED_QUANTIFIER = regex.compile(r"\((?:[^()\\]|\\.)*[+*](?:[^()\\]|\\.)*\)\s*(?:[+*]|\{\d*,\})")
 
 
