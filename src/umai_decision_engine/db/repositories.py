@@ -289,13 +289,24 @@ class ApiKeyRepository:
             return value
 
 
+class StaleRevision(Exception):
+    """A change named an older revision of the draft (guardrails 0.1, ``If-Match``)."""
+
+    def __init__(self, current: int) -> None:
+        super().__init__(f"the draft is at revision {current}")
+        self.current = current
+
+
 @dataclass(frozen=True)
 class DraftInfo:
     bundle_id: str
-    base_version: int
+    base_version: int | None  # None: never published (ADR-0056 §2)
     bundle: dict
     created_at: str
     updated_at: str
+    tests: list | None = None  # None: the base version's tests/ (drafts before 0014)
+    revision: int = 1
+    created_from: dict | None = None
 
 
 def _draft_info(row: Draft) -> DraftInfo:
@@ -305,6 +316,9 @@ def _draft_info(row: Draft) -> DraftInfo:
         row.bundle,
         row.created_at.isoformat(timespec="seconds"),
         row.updated_at.isoformat(timespec="seconds"),
+        row.tests,
+        row.revision,
+        row.created_from,
     )
 
 
@@ -322,11 +336,24 @@ class DraftRepository:
             return _draft_info(row) if row else None
 
     async def create(
-        self, tenant: TenantInfo, bundle_id: str, base_version: int, bundle: dict
+        self,
+        tenant: TenantInfo,
+        bundle_id: str,
+        base_version: int | None,
+        bundle: dict,
+        *,
+        tests: list | None = None,
+        created_from: dict | None = None,
     ) -> DraftInfo:
         async with tenant_session(self.engine, tenant.id) as session:
             row = Draft(
-                tenant_id=tenant.id, bundle_id=bundle_id, base_version=base_version, bundle=bundle
+                tenant_id=tenant.id,
+                bundle_id=bundle_id,
+                base_version=base_version,
+                bundle=bundle,
+                tests=tests,
+                revision=1,
+                created_from=created_from,
             )
             session.add(row)
             try:
@@ -335,17 +362,37 @@ class DraftRepository:
                 raise Conflict(f"guardrail {bundle_id} already has a draft") from exc
             return _draft_info(row)
 
-    async def save(self, tenant: TenantInfo, bundle_id: str, bundle: dict) -> DraftInfo | None:
+    async def save(
+        self, tenant: TenantInfo, bundle_id: str, bundle: dict, *, revision: int | None = None
+    ) -> DraftInfo | None:
+        """Replace the draft's bundle; with ``revision``, only if the draft is still at it."""
+
         async with tenant_session(self.engine, tenant.id) as session:
             row = await session.scalar(
-                select(Draft).where(Draft.tenant_id == tenant.id, Draft.bundle_id == bundle_id)
+                select(Draft)
+                .where(Draft.tenant_id == tenant.id, Draft.bundle_id == bundle_id)
+                .with_for_update()
             )
             if row is None:
                 return None
+            if revision is not None and revision != row.revision:
+                raise StaleRevision(row.revision)
             row.bundle = bundle
+            row.revision += 1
             row.updated_at = datetime.now(UTC)
             await session.flush()
             return _draft_info(row)
+
+    async def unpublished(self, tenant: TenantInfo) -> list[DraftInfo]:
+        """Drafts of guardrails that have no version yet."""
+
+        async with tenant_session(self.engine, tenant.id) as session:
+            rows = await session.scalars(
+                select(Draft)
+                .where(Draft.tenant_id == tenant.id, Draft.base_version.is_(None))
+                .order_by(Draft.bundle_id)
+            )
+            return [_draft_info(row) for row in rows]
 
     async def delete(self, tenant: TenantInfo, bundle_id: str) -> bool:
         async with tenant_session(self.engine, tenant.id) as session:

@@ -350,6 +350,26 @@ The product owner accepted the proposals; the questions moved to *Answered* in
 | Q83 archived guardrails | Can be restored by owner or approver (audited `guardrail.restore`, counted against `max_guardrails` again); their versions are kept until the organization is deleted, because decision events and archives refer to them |
 | Q84 YAML view | Structured forms only; operators edit the rest through Git |
 
+## Implementation notes
+
+- **2026-11-02, steps E3, E4, E7, E8** (guardrails 0.1, entitlements 0.3, audit 0.2, migration
+  0014). Two deviations from §3, both reversible:
+  - `tpl-blank` holds the five standard L0 policies, every one switched off, instead of none. A
+    bundle needs at least one L0 policy (the policy-bundle `l0` validator), and allowing an empty
+    `l0` is a contract change of its own. With every policy off nothing is scanned (the runtime
+    already handles a phase where no policy is on), and the editor can switch them on or add new
+    ones.
+  - Archive writes `archived` into the guardrail's active pointer instead of removing the file.
+    The engine's store keeps serving the last version when a pointer goes missing (a fault, never
+    a silent drop); `archived` tells it the guardrail is served by no version (policy-bundle source
+    layout, `policy/sources.py`). An engine of an older release reads `archived` as an invalid
+    pointer and keeps the last version until it is replaced.
+  - `tpl-malicious-use` is configured but not shipped: the `malicious-use` policy text still has
+    placeholders for its cyber-attack and mass-harm category (`[4.2 — …]`, from
+    `OpenAI_Decisions`). The template appears once its bundle exists in the catalog tenant.
+  - Drafts of published guardrails keep reading their base version's `tests/` until the case
+    routes (E5) write cases into the draft; only created drafts carry their cases so far.
+
 ## Alternatives considered
 
 | Option | Why not |

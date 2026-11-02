@@ -202,6 +202,14 @@ per application (`by_application`: decisions and newest event) and gives latency
 custom-planned queries; filter `playground` (the console's Playground runs: operator token, request
 id `console-…`; a view filter, usage and quotas still count them) and a repeatable `action`. The
 console's Overview is built on them; `dev/bench_summary.py` measures the summary.
+Creating guardrails (2026-11-02, ADR-0056 steps E3, E4, E7, E8; guardrails 0.1, entitlements 0.3,
+audit 0.2): `POST /v1/guardrails` makes a draft without a base version from a template or a copy
+of one of the tenant's guardrails, with its golden cases (migration 0014: drafts with `tests`,
+`revision`, `created_from`); `GET /v1/guardrail-templates` lists the catalog tenant's templates
+(`policies/tpl-*`: KVKK data protection, prompt attack, blank; `UMAI_DE_GUARDRAIL_TEMPLATES`);
+archive stops serving and hides a guardrail; `If-Match` revisions on draft saves; plan limit
+`max_guardrails`, kept out of engine snapshots. The seed adds bundles a policy volume lacks. The
+rest of ADR-0056 (library, case editor, coverage, L0 editor, RE2) is not built.
 Plans and quotas (2026-10-30, ADR-0043, contract entitlements 0.1): the policy service reads the
 plans file (`UMAI_DE_PLANS_FILE`, `deploy/plans.yaml`) and writes each tenant's limits, with
 operator overrides (`PUT /v1/tenants/{id}/plan`, migration 0008), into its signed snapshot
@@ -290,7 +298,7 @@ since 2026-10-18 and on `umai-beta` since 2026-10-19).
 | SaaS vs self-hosted, editions, quotas, tenancy | [`docs/architecture/deployment-and-editions.md`](docs/architecture/deployment-and-editions.md), ADR-0018, ADR-0019 |
 | Policy bundles, loading, hot reload | [`docs/contracts/policy-bundle.md`](docs/contracts/policy-bundle.md), [`docs/architecture/policy-lifecycle.md`](docs/architecture/policy-lifecycle.md) |
 | Change a policy, write golden cases | [`docs/workflow/policy-authoring.md`](docs/workflow/policy-authoring.md), [`docs/contracts/policy-tests.md`](docs/contracts/policy-tests.md) |
-| Customers creating guardrails and writing L0 / L1b policies and cases in the console (proposed) | ADR-0056, [`docs/contracts/guardrails.md`](docs/contracts/guardrails.md) (draft) |
+| Customers creating guardrails and writing L0 / L1b policies and cases in the console | ADR-0056, [`docs/contracts/guardrails.md`](docs/contracts/guardrails.md) (parts marked planned are not built) |
 | Evals, datasets, metrics | [`docs/evals/`](docs/evals/), skill `run-evals` |
 | A vendor's API or limits | [`docs/reference/`](docs/reference/), skill `verify-vendor-facts` |
 | Security, tenancy, SaaS readiness (threat model, gaps, launch stages, Azure) | [`docs/security/`](docs/security/), ADR-0023 to ADR-0031, `tests/readiness/` |

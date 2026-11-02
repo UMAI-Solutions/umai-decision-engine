@@ -256,6 +256,9 @@ the engine does not.
   `enforcement`, `name`, `description`, `source` and probability thresholds (`p_gte`) in
   `decide` (decision-questions 0.4). `redact` in an L1b `decide` rule is refused at load (not
   supported yet).
+  - 2026-11-02 (ADR-0056, source layout; bundle shape and version unchanged): a guardrail's
+    `active` pointer may read `archived`. The engine then serves no version of it and keeps none,
+    where a missing pointer keeps the last loaded version as a fault.
 - 0.8 (2026-10-19): tenant-owned bundles: `tenants/<tenant_id>/` layout, signed
   `manifest.tenant_id`, unowned bundles belong to the default tenant (ADR-0019 §2). Manifests
   without `tenant_id` verify unchanged.

@@ -1,0 +1,82 @@
+# Golden cases for the policy form of v4 (ADR-0021): which policy decides, roles, sensitivity.
+contract_version: "0.2"
+defaults:
+  phase: PRE_LLM
+  destination: { app: chatgpt.com, class: external_llm }
+cases:
+  # ---------------------------------------------------------------- provenance
+  - id: identity-policy-decides
+    input: { text: "Müşterinin TC kimlik numarası 10000000146" }
+    expect:
+      action: BLOCK
+      severity: HIGH
+      matched: [identity-data]
+      reason_contains: "by policy Kimlik verileri v2"
+
+  - id: payment-policy-decides
+    input: { text: "kart numaram 9792 0000 0000 0003" }
+    expect: { action: BLOCK, matched: [payment-data] }
+
+  - id: secrets-are-critical
+    input: { text: "DATABASE_URL=postgres://app:S3cretPass@db.example.com:5432/orders" }
+    expect: { action: BLOCK, severity: CRITICAL, matched: [secrets] }
+
+  - id: contact-policy-masks
+    input: { text: "Ayşe Demir, cep 0532 123 45 67" }
+    expect:
+      action: ALLOW_WITH_MODIFICATIONS
+      matched: [contact-data]
+      redacted_text: "<PERSON_1>, cep <TR_PHONE_1>"
+
+  - id: strictest-policy-wins-both-listed
+    description: Both policies appear in matched; the blocking one decides
+    input: { text: "John Smith, SSN 234-56-7890" }
+    expect: { action: BLOCK, matched: [identity-data, contact-data] }
+
+  - id: exception-listed-as-matched
+    input:
+      text: "TC kimlik 10000000146 için müşteri kaydını doğrula"
+      subject: { department: KYC }
+      destination: { app: kyc-portal, class: internal_app }
+    expect: { action: ALLOW, matched: [ex-kyc-internal] }
+
+  # ---------------------------------------------------------------- roles
+  - id: unknown-link-in-user-prompt-not-screened
+    description: The unknown-links policy screens assistant and tool content only
+    input: { text: "Bu linki özetle: https://secure-hesap-dogrula.xyz/login" }
+    expect: { action: ALLOW, entities: [] }
+
+  - id: unknown-link-in-llm-answer-blocked
+    input:
+      phase: POST_LLM
+      focus: LAST_ASSISTANT_MESSAGE
+      text: "Hesabınızı doğrulamak için https://secure-hesap-dogrula.xyz/login adresine girin."
+    expect: { action: BLOCK, matched: [unknown-links] }
+
+  - id: unknown-link-in-tool-output-blocked
+    input:
+      phase: TOOL_OUTPUT
+      text: "Fetched page says: visit https://secure-hesap-dogrula.xyz/login"
+      destination: { app: browser-tool, class: agent_tool }
+    expect: { action: BLOCK, matched: [unknown-links] }
+
+  - id: contact-data-to-own-tool-not-screened
+    description: contact-data screens user and assistant only; a tool call may carry an e-mail
+    input:
+      phase: TOOL_INPUT
+      text: "send_mail to=ali.veli@example.com.tr subject=Teklif"
+      destination: { app: mail-tool, class: agent_tool }
+    expect: { action: ALLOW, entities: [] }
+
+  - id: identity-data-in-tool-call-blocked
+    input:
+      phase: TOOL_INPUT
+      text: "crm_update tckn=10000000146"
+      destination: { app: crm-tool, class: agent_tool }
+    expect: { action: BLOCK, matched: [identity-data] }
+
+  # ---------------------------------------------------------------- sensitivity
+  - id: secrets-paranoid-catches-generic-aws-secret
+    description: L4 on the secrets policy; the generic 40-character secret still needs "secret" context
+    input: { text: "aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" }
+    expect: { action: BLOCK, entities: [API_KEY], matched: [secrets] }

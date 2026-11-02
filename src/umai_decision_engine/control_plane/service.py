@@ -9,8 +9,13 @@ behaviour and the case's expectation is rewritten from the observed decision.
 
 from __future__ import annotations
 
+import hashlib
+import json
+import logging
+import re
 import shutil
 import tempfile
+import unicodedata
 from dataclasses import asdict
 from pathlib import Path
 
@@ -29,6 +34,7 @@ from umai_decision_engine.db.repositories import (
     Conflict,
     DraftInfo,
     DraftRepository,
+    StaleRevision,
     TenantInfo,
 )
 from umai_decision_engine.golden.runner import RunReport, run_golden
@@ -36,12 +42,65 @@ from umai_decision_engine.l0.detector import EntityDetector
 from umai_decision_engine.policy.sources import BUNDLE_FILE
 from umai_decision_engine.policy.validate import validate_bundle
 
+log = logging.getLogger("umai.control_plane.service")
+
+BUNDLE_ID = re.compile(r"^[a-z0-9][a-z0-9._\-]{0,127}$")  # policy-bundle `id`
+_TEST_FILE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._\-]{0,99}\.ya?ml$")
+_TURKISH = str.maketrans("çğıöşüÇĞİÖŞÜ", "cgiosuCGIOSU")
+
 
 class ServiceError(Exception):
-    def __init__(self, status: int, message: str, details: object = None) -> None:
+    """``code`` set: a guardrails 0.1 error, answered as ``{"detail": {"error": code, …}}``
+    with ``details`` merged in; otherwise the older ``{"detail", "details"}`` body."""
+
+    def __init__(
+        self, status: int, message: str, details: object = None, *, code: str | None = None
+    ) -> None:
         super().__init__(message)
         self.status = status
         self.details = details
+        self.code = code
+
+
+def slug_of(name: str) -> str:
+    """``gr-`` and an ASCII slug of a guardrail's name (Turkish letters transliterated)."""
+
+    ascii_name = unicodedata.normalize("NFKD", name.translate(_TURKISH))
+    ascii_name = ascii_name.encode("ascii", "ignore").decode("ascii").lower()
+    slug = re.sub(r"[^a-z0-9]+", "-", ascii_name).strip("-")[:60].strip("-")
+    return f"gr-{slug or 'guardrail'}"
+
+
+def draft_sha256(bundle: dict) -> str:
+    """The draft's identity (guardrails 0.1 ``sha256``): canonical JSON of its bundle."""
+
+    canonical = json.dumps(bundle, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def read_tests(directory: Path) -> list[dict]:
+    """A version's ``tests/`` as a draft's case files: each file's content plus its ``file``."""
+
+    if not directory.is_dir():
+        return []
+    files = []
+    for path in sorted(p for p in directory.iterdir() if p.is_file() and _TEST_FILE.match(p.name)):
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        files.append({"file": f"{TESTS_DIR}/{path.name}", **data})
+    return files
+
+
+def write_tests(tests: list[dict], directory: Path) -> None:
+    """A draft's case files as a ``tests/`` directory; only plain file names inside it."""
+
+    directory.mkdir(parents=True, exist_ok=True)
+    for entry in tests:
+        name = str(entry.get("file", "")).removeprefix(f"{TESTS_DIR}/")
+        if not _TEST_FILE.match(name):
+            raise ServiceError(422, f"invalid test file name {name!r}", code="invalid_case")
+        data = {k: v for k, v in entry.items() if k != "file"}
+        body = yaml.safe_dump(data, sort_keys=False, allow_unicode=True, width=100)
+        (directory / name).write_text(body, encoding="utf-8", newline="\n")
 
 
 def to_policy_form(data: dict) -> dict:
@@ -163,16 +222,55 @@ class PolicyService:
         drafts: DraftRepository,
         detector: EntityDetector,
         signing_key: tuple[str, str] | None = None,
+        *,
+        catalog_tenant: str | None = None,
+        templates: list[str] | None = None,
     ) -> None:
         self.guardrails = guardrails
         self.drafts = drafts
         self.detector = detector
         self.signing_key = signing_key
+        # Guardrail templates (ADR-0056 §3): bundles of the catalog tenant, in display order
+        self.catalog_tenant = catalog_tenant or guardrails.default_tenant
+        self.templates = list(templates or [])
 
     # ----------------------------------------------------------- guardrails
 
+    def _own_ids(self, tenant: TenantInfo, repository: GuardrailRepository) -> list[str]:
+        """The tenant's guardrails with a version; in the catalog tenant, not its templates."""
+
+        ids = repository.ids()
+        if tenant.slug == self.catalog_tenant:
+            ids = [i for i in ids if i not in self.templates]
+        return ids
+
+    def bindable(self, tenant: TenantInfo) -> set[str]:
+        """Guardrails an application may name: published and not archived."""
+
+        repository = self.guardrails.for_tenant(tenant.slug)
+        return {i for i in self._own_ids(tenant, repository) if not repository.archived(i)}
+
+    async def count(self, tenant: TenantInfo) -> int:
+        """What ``max_guardrails`` counts: guardrails with a version or a draft, not archived."""
+
+        unpublished = await self.drafts.unpublished(tenant)
+        return len(self.bindable(tenant)) + len(unpublished)
+
     async def summary(self, tenant: TenantInfo, bundle_id: str) -> dict:
         repository = self.guardrails.for_tenant(tenant.slug)
+        if not repository.versions(bundle_id):
+            draft = await self.drafts.get(tenant, bundle_id)
+            if draft is None or draft.base_version is not None:
+                raise ServiceError(404, f"guardrail {bundle_id} does not exist")
+            return {  # created in the console, never published
+                "id": bundle_id,
+                "active_version": None,
+                "versions": [],
+                "archived": False,
+                "created_from": draft.created_from,
+                "draft": self.draft_view(draft),
+                "history": [],
+            }
         history = repository.changelog(bundle_id)
         published = {e["version"]: e for e in history if e.get("action") == "publish"}
         versions = []
@@ -200,11 +298,14 @@ class PolicyService:
         if not versions:
             raise ServiceError(404, f"guardrail {bundle_id} does not exist")
         draft = await self.drafts.get(tenant, bundle_id)
+        created = next((e for e in history if e.get("action") == "create"), None)
         return {
             "id": bundle_id,
             "active_version": repository.active(bundle_id),
             "versions": versions,
-            "draft": self.draft_view(draft) if draft else None,
+            "archived": repository.is_archived(history),
+            "created_from": created["from"] if created else None,
+            "draft": await self._draft_view(tenant, draft) if draft else None,
             "history": history[-50:],
         }
 
@@ -212,7 +313,10 @@ class PolicyService:
         repository = self.guardrails.for_tenant(tenant.slug)
         drafts = await self.drafts.ids(tenant)
         out = []
-        for bundle_id in repository.ids():
+        for bundle_id in self._own_ids(tenant, repository):
+            history = repository.changelog(bundle_id)
+            if repository.is_archived(history):
+                continue
             active = repository.active(bundle_id)
             live = None
             if active:
@@ -221,7 +325,7 @@ class PolicyService:
                 except Exception:  # listed without details
                     live = None
             policies = live.l0.policies if live else []
-            history = repository.changelog(bundle_id)
+            created = next((e for e in history if e.get("action") == "create"), None)
             out.append(
                 {
                     "id": bundle_id,
@@ -236,28 +340,190 @@ class PolicyService:
                     "policies_on": sum(p.enabled for p in policies),
                     "detectors": len(live.l0.entities) if live else 0,
                     "last_change": history[-1] if history else None,
+                    "created_from": created["from"] if created else None,
+                }
+            )
+        for draft in await self.drafts.unpublished(tenant):  # created, never published
+            policies = (draft.bundle.get("l0") or {}).get("policies") or []
+            out.append(
+                {
+                    "id": draft.bundle_id,
+                    "name": draft.bundle.get("name"),
+                    "description": draft.bundle.get("description"),
+                    "mode": draft.bundle.get("mode"),
+                    "active_version": None,
+                    "versions": [],
+                    "has_draft": True,
+                    "policies": len(policies),
+                    "policies_on": sum(bool(p.get("enabled", True)) for p in policies),
+                    "detectors": len({e for p in policies for e in p.get("entities") or []}),
+                    "last_change": None,
+                    "created_from": draft.created_from,
                 }
             )
         return out
 
+    # ----------------------------------------------------------- templates (ADR-0056 §3)
+
+    def template_list(self) -> list[dict]:
+        catalog = self.guardrails.for_tenant(self.catalog_tenant)
+        out = []
+        for template_id in self.templates:
+            version = catalog.active(template_id)
+            if version is None or catalog.archived(template_id):
+                continue
+            try:
+                bundle = catalog.load(template_id, version)
+            except Exception as exc:  # a broken template is left out, never offered
+                log.warning("template.unavailable id=%s error=%s", template_id, type(exc).__name__)
+                continue
+            tests = read_tests(catalog.version_dir(template_id, version) / TESTS_DIR)
+            out.append(
+                {
+                    "id": template_id,
+                    "version": version,
+                    "name": bundle.name,
+                    "description": bundle.description,
+                    "l0_policies": [p.name for p in bundle.l0.policies],
+                    "decision_policies": [p.name for p in bundle.l1b.policies]
+                    if bundle.l1b
+                    else [],
+                    "cases": sum(len(f.get("cases") or []) for f in tests),
+                }
+            )
+        return out
+
+    # ----------------------------------------------------------- create and archive
+
+    async def _free_id(self, tenant: TenantInfo, repository: GuardrailRepository, base: str) -> str:
+        for n in range(1, 100):
+            candidate = base if n == 1 else f"{base[:60]}-{n}"
+            taken = repository.versions(candidate) or await self.drafts.get(tenant, candidate)
+            if not taken:
+                return candidate
+        raise ServiceError(409, f"no free id for {base}", code="guardrail_exists")
+
+    async def create_guardrail(
+        self,
+        tenant: TenantInfo,
+        *,
+        name: str,
+        description: str | None,
+        bundle_id: str | None,
+        source: dict,
+        limit: int | None,
+    ) -> dict:
+        """A new guardrail as a draft without a base version, from a template or a copy of one
+        of the tenant's guardrails, with its golden cases (ADR-0056 §2). Nothing is published."""
+
+        repository = self.guardrails.for_tenant(tenant.slug)
+        if "template" in source:
+            origin_id = source["template"]
+            origin = self.guardrails.for_tenant(self.catalog_tenant)
+            version = origin.active(origin_id) if origin_id in self.templates else None
+            if version is None or origin.archived(origin_id):
+                raise ServiceError(404, f"no template {origin_id}", code="unknown_template")
+            created_from = {"template": origin_id, "version": version}
+        else:
+            origin_id, origin = source["guardrail"], repository
+            version = source.get("version") or origin.active(origin_id)
+            if origin_id not in self._own_ids(tenant, repository) or version not in origin.versions(
+                origin_id
+            ):
+                raise ServiceError(404, f"no guardrail {origin_id} here", code="unknown_guardrail")
+            created_from = {"guardrail": origin_id, "version": version}
+        if bundle_id is not None and (
+            repository.versions(bundle_id) or await self.drafts.get(tenant, bundle_id)
+        ):
+            raise ServiceError(409, f"guardrail {bundle_id} exists", code="guardrail_exists")
+        if limit is not None:
+            count = await self.count(tenant)
+            if count >= limit:
+                raise ServiceError(
+                    409,
+                    f"the plan allows {limit} guardrails",
+                    {"limit": limit, "count": count},
+                    code="guardrail_limit_reached",
+                )
+        if bundle_id is None:
+            bundle_id = await self._free_id(tenant, repository, slug_of(name))
+        try:
+            bundle = origin.load(origin_id, version)
+        except Exception as exc:
+            raise ServiceError(404, str(exc), code="unknown_guardrail") from exc
+        data = to_policy_form(bundle_to_data(bundle))
+        data.update(id=bundle_id, version=1, name=name)
+        if description is not None:
+            data["description"] = description
+        tests = read_tests(origin.version_dir(origin_id, version) / TESTS_DIR)
+        try:
+            draft = await self.drafts.create(
+                tenant, bundle_id, None, data, tests=tests, created_from=created_from
+            )
+        except Conflict as exc:
+            raise ServiceError(409, str(exc), code="guardrail_exists") from exc
+        return self.draft_view(draft)
+
+    async def archive(
+        self,
+        tenant: TenantInfo,
+        bundle_id: str,
+        *,
+        applications: list[str],
+        note: str | None,
+        actor: dict,
+    ) -> dict:
+        """Stop serving a guardrail and hide it (ADR-0056 §2); refused while an application
+        uses it or a draft is open. ``applications``: the tenant's applications naming it."""
+
+        repository = self.guardrails.for_tenant(tenant.slug)
+        if bundle_id not in self._own_ids(tenant, repository) or repository.archived(bundle_id):
+            raise ServiceError(404, f"no guardrail {bundle_id} here", code="unknown_guardrail")
+        if await self.drafts.get(tenant, bundle_id) is not None:
+            raise ServiceError(409, f"guardrail {bundle_id} has an open draft", code="has_draft")
+        if applications:
+            raise ServiceError(
+                409,
+                f"guardrail {bundle_id} protects applications",
+                {"applications": sorted(applications)},
+                code="guardrail_in_use",
+            )
+        previous = repository.archive(bundle_id, note, actor)
+        return {"id": bundle_id, "archived": True, "previous_active": previous}
+
     # ----------------------------------------------------------- drafts
 
-    def draft_view(self, draft: DraftInfo) -> dict:
+    def draft_view(self, draft: DraftInfo, tests: list[dict] | None = None) -> dict:
         _, problems = problems_of(draft.bundle)
         return {
             "bundle_id": draft.bundle_id,
             "base_version": draft.base_version,
+            "revision": draft.revision,
+            "sha256": draft_sha256(draft.bundle),
             "bundle": draft.bundle,
+            "tests": draft.tests if draft.tests is not None else (tests or []),
             "problems": problems,
+            "created_from": draft.created_from,
             "created_at": draft.created_at,
             "updated_at": draft.updated_at,
         }
+
+    async def _draft_view(self, tenant: TenantInfo, draft: DraftInfo) -> dict:
+        """With a draft older than its cases (``tests`` None): the base version's cases."""
+
+        tests = None
+        if draft.tests is None and draft.base_version is not None:
+            repository = self.guardrails.for_tenant(tenant.slug)
+            tests = read_tests(
+                repository.version_dir(draft.bundle_id, draft.base_version) / TESTS_DIR
+            )
+        return self.draft_view(draft, tests)
 
     async def get_draft(self, tenant: TenantInfo, bundle_id: str) -> dict:
         draft = await self.drafts.get(tenant, bundle_id)
         if draft is None:
             raise ServiceError(404, f"guardrail {bundle_id} has no draft")
-        return self.draft_view(draft)
+        return await self._draft_view(tenant, draft)
 
     async def create_draft(
         self, tenant: TenantInfo, bundle_id: str, base_version: int | None
@@ -265,6 +531,8 @@ class PolicyService:
         if await self.drafts.get(tenant, bundle_id) is not None:
             raise ServiceError(409, f"guardrail {bundle_id} already has a draft")
         repository = self.guardrails.for_tenant(tenant.slug)
+        if repository.archived(bundle_id):
+            raise ServiceError(409, f"guardrail {bundle_id} is archived", code="archived")
         version = base_version or repository.active(bundle_id)
         if version is None:
             raise ServiceError(404, f"guardrail {bundle_id} has no active version")
@@ -274,18 +542,29 @@ class PolicyService:
             raise ServiceError(404, str(exc)) from exc
         data = to_policy_form(bundle_to_data(bundle))
         try:
+            # The cases stay with the base version until the case editor writes them (E5)
             draft = await self.drafts.create(tenant, bundle_id, version, data)
         except Conflict as exc:
             raise ServiceError(409, str(exc)) from exc
-        return self.draft_view(draft)
+        return await self._draft_view(tenant, draft)
 
-    async def save_draft(self, tenant: TenantInfo, bundle_id: str, data: dict) -> dict:
+    async def save_draft(
+        self, tenant: TenantInfo, bundle_id: str, data: dict, revision: int | None = None
+    ) -> dict:
         if not isinstance(data, dict) or data.get("id") != bundle_id:
             raise ServiceError(400, "the draft must be a bundle object with the guardrail's id")
-        draft = await self.drafts.save(tenant, bundle_id, data)  # saved even when invalid
+        try:  # saved even when invalid
+            draft = await self.drafts.save(tenant, bundle_id, data, revision=revision)
+        except StaleRevision as exc:
+            raise ServiceError(
+                412,
+                "the draft was changed since it was read",
+                {"revision": exc.current},
+                code="draft_changed",
+            ) from exc
         if draft is None:
             raise ServiceError(404, f"guardrail {bundle_id} has no draft")
-        return self.draft_view(draft)
+        return await self._draft_view(tenant, draft)
 
     async def discard_draft(self, tenant: TenantInfo, bundle_id: str) -> None:
         if not await self.drafts.delete(tenant, bundle_id):
@@ -304,6 +583,10 @@ class PolicyService:
             raise ServiceError(422, "the draft is not valid", {"problems": problems})
         return draft, bundle
 
+    @staticmethod
+    def _test_version(draft: DraftInfo) -> int:
+        return draft.base_version or 1  # a never-published draft is tested as its version 1
+
     async def _run_tests(
         self,
         repository: GuardrailRepository,
@@ -311,14 +594,18 @@ class PolicyService:
         bundle: PolicyBundle,
         workdir: Path,
     ) -> RunReport:
-        version_dir = workdir / bundle.id / str(draft.base_version)
+        version = self._test_version(draft)
+        version_dir = workdir / bundle.id / str(version)
         version_dir.mkdir(parents=True)
         (version_dir / BUNDLE_FILE).write_bytes(
-            bundle_to_yaml(bundle.model_copy(update={"version": draft.base_version}), "")
+            bundle_to_yaml(bundle.model_copy(update={"version": version}), "")
         )
-        base_tests = repository.version_dir(bundle.id, draft.base_version) / TESTS_DIR
-        if base_tests.is_dir():
-            shutil.copytree(base_tests, version_dir / TESTS_DIR)
+        if draft.tests is not None:
+            write_tests(draft.tests, version_dir / TESTS_DIR)
+        else:
+            base_tests = repository.version_dir(bundle.id, version) / TESTS_DIR
+            if base_tests.is_dir():
+                shutil.copytree(base_tests, version_dir / TESTS_DIR)
         return await run_golden(
             version_dir,
             detector=self.detector,
@@ -354,7 +641,7 @@ class PolicyService:
                     "golden tests fail; fix the draft or accept the new behaviour of these cases",
                     {"unaccepted": unaccepted, "report": report_to_data(report)},
                 )
-            tests_dir = Path(tmp) / bundle_id / str(draft.base_version) / TESTS_DIR
+            tests_dir = Path(tmp) / bundle_id / str(self._test_version(draft)) / TESTS_DIR
             accepted = {
                 cid: (c.file, c.actual) for cid, c in failing.items() if c.actual is not None
             }
@@ -367,6 +654,7 @@ class PolicyService:
                 note=note,
                 signing_key=self.signing_key,
                 actor=actor,
+                created_from=draft.created_from,
             )
         previous = repository.activate(bundle_id, version, note, actor) if activate else None
         await self.drafts.delete(tenant, bundle_id)
@@ -404,10 +692,11 @@ class PolicyService:
     def activate(
         self, tenant: TenantInfo, bundle_id: str, version: int, note: str | None, actor: dict
     ) -> dict:
+        repository = self.guardrails.for_tenant(tenant.slug)
+        if repository.archived(bundle_id):
+            raise ServiceError(409, f"guardrail {bundle_id} is archived", code="archived")
         try:
-            previous = self.guardrails.for_tenant(tenant.slug).activate(
-                bundle_id, version, note, actor
-            )
+            previous = repository.activate(bundle_id, version, note, actor)
         except Exception as exc:
             raise ServiceError(422, str(exc)) from exc
         return {"active_version": version, "previous_active": previous}

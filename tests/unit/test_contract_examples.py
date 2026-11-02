@@ -49,6 +49,7 @@ from umai_decision_engine.contracts.exports import (
     ArchiveManifest,
     UsageLine,
 )
+from umai_decision_engine.contracts.guardrails import GuardrailCreate, Template
 from umai_decision_engine.contracts.policy_tests import GoldenCase, PolicyTestFile
 from umai_decision_engine.policy.manifest import BundleManifest
 from umai_decision_engine.policy.validate import validate_bundle
@@ -265,6 +266,16 @@ def test_entitlements_examples() -> None:
     shown = EntitlementsView.model_validate_json(view)
     assert shown.limits == parsed.plans["community"].limits()
     assert PlanUpdate.model_validate_json(update).override_values() == {"monthly_requests": 50_000}
+
+
+def test_guardrails_examples() -> None:
+    blocks = _blocks("contracts/guardrails.md", "json")
+    create = GuardrailCreate.model_validate_json(blocks[0])
+    assert create.from_.as_dict() == {"template": "tpl-kvkk-data-protection"}
+    draft = json.loads(blocks[1])
+    assert draft["base_version"] is None and len(draft["sha256"]) == 64
+    (template,) = [b for b in blocks if '"l0_policies"' in b]
+    assert Template.model_validate_json(template).id == "tpl-kvkk-data-protection"
 
 
 def test_data_export_examples() -> None:

@@ -148,6 +148,17 @@ class Settings(BaseSettings):
     max_pending_invitations: int = Field(20, ge=1)  # per tenant, §5
     starter_guardrail: str | None = "gr-demo-data-protection"  # copied into new organizations
     disposable_email_domains: list[str] = Field(default_factory=list)  # added to the built-in list
+    # Guardrail templates (ADR-0056 §3): bundles of the catalog tenant (None: the default
+    # tenant) whose active versions customers create guardrails from, in display order.
+    catalog_tenant_id: str | None = None
+    guardrail_templates: list[str] = Field(
+        default_factory=lambda: [
+            "tpl-kvkk-data-protection",
+            "tpl-prompt-attack",
+            "tpl-malicious-use",
+            "tpl-blank",
+        ]
+    )
 
     # Applications (ADR-0039, contract gateway-api): one YAML file per tenant,
     # <applications_dir>/<tenant_id>.yaml, hot-reloaded; read by the engine API and the gateway.

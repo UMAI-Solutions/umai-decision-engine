@@ -1,10 +1,10 @@
 # Contract: entitlements (plans, tenant limits, quota read)
 
-**Version:** 0.2 · **Producer → consumer:** deployment configuration → policy service (plans
+**Version:** 0.3 · **Producer → consumer:** deployment configuration → policy service (plans
 file), policy service → engines (the `entitlements` block of the key-registry snapshot,
 [credentials](credentials.md) 0.7), policy service ↔ console (`GET /v1/entitlements`), operator
-→ policy service (`PUT /v1/tenants/{id}/plan`) · **Draft:** 0.3 ([ADR-0056](../adr/0056-guardrail-and-policy-authoring-in-the-console.md), not implemented) · **Decisions:**
-[ADR-0043](../adr/0043-plans-and-monthly-quotas.md), [ADR-0044](../adr/0044-billing-with-iyzico-subscriptions.md), [ADR-0019](../adr/0019-editions-as-runtime-entitlements.md)
+→ policy service (`PUT /v1/tenants/{id}/plan`) · **Decisions:**
+[ADR-0043](../adr/0043-plans-and-monthly-quotas.md), [ADR-0044](../adr/0044-billing-with-iyzico-subscriptions.md), [ADR-0019](../adr/0019-editions-as-runtime-entitlements.md), [ADR-0056](../adr/0056-guardrail-and-policy-authoring-in-the-console.md)
 
 A plan names limits; a tenant's **edition** picks its plan; an operator may override single
 limits per tenant. The policy service writes the tenant's effective limits into its signed
@@ -19,20 +19,22 @@ in code.
 | `monthly_test_requests` | integer ≥ 0 or null | The same for keys with `env: test`, counted apart (D6) |
 | `max_input_chars` | integer ≥ 1000 or null | Characters per `POST /v1/evaluate` (evaluation API 413 `input_too_large`), capped by the deployment's `UMAI_DE_MAX_INPUT_CHARS`. Null: the deployment's limit |
 
-### Draft 0.3: limits on what a tenant authors
+### 0.3: limits on what a tenant authors
 
-Two more limits, enforced by the policy service when guardrails are created and drafts published
-(ADR-0056 §9). Engines ignore them. Like every limit they are null (no limit) unless the plans file
-sets them; their values per edition are open (Q66). A lower value after a plan change never
-touches what exists: it refuses new guardrails and new publishes only.
+Two more limits, enforced by the policy service (ADR-0056 §9). They are not part of the snapshot's
+`entitlements` block: engines never see them, so engines of an older release keep reading new
+snapshots. Like every limit they are null (no limit) unless the plans file sets them; the values
+per edition are A25 (`max_guardrails` Community 3, Pro 10, Enterprise none; `max_decision_policies`
+Community 2, Pro 5, Enterprise 12, set in the plans file once it is enforced). A lower value after a
+plan change never touches what exists: it refuses new guardrails and new publishes only.
 
 | Field | Type | Meaning |
 |---|---|---|
 | `max_guardrails` | integer ≥ 1 or null | Guardrails of the tenant with a version or a draft, archived ones excluded. Over it, `POST /v1/guardrails` answers 409 `guardrail_limit_reached` ([guardrails](guardrails.md)) |
-| `max_decision_policies` | integer ≥ 0 or null | L1b decision policies in one guardrail, shadow ones included (they cost the same provider tokens). Over it, the draft has a problem and cannot be published |
+| `max_decision_policies` | integer ≥ 0 or null | L1b decision policies in one guardrail, shadow ones included (they cost the same provider tokens). Over it, the draft has a problem and cannot be published *(planned: ADR-0056 E6; the field is read and shown, not enforced yet)* |
 
 Both appear in `GET /v1/entitlements` `limits` with the others. `used` gains `guardrails` (the
-tenant's count); the per-guardrail count is shown in the draft.
+tenant's count, as `max_guardrails` counts it).
 
 ## Plans file
 
@@ -42,20 +44,23 @@ file, no snapshot carries entitlements and nothing is refused for quota (self-ho
 The repository's `deploy/plans.yaml` is the product's file:
 
 ```yaml
-contract_version: "0.2"
+contract_version: "0.3"
 plans:
   community:
     monthly_requests: 10000
     monthly_test_requests: 1000
     max_input_chars: 32000
+    max_guardrails: 3
   pro:
     monthly_requests: 100000
     monthly_test_requests: 10000
     max_input_chars: 32000
+    max_guardrails: 10
   enterprise:
     monthly_requests: null
     monthly_test_requests: null
     max_input_chars: null
+    max_guardrails: null
 ```
 
 A plan with a **`billing`** block (0.2, [ADR-0044](../adr/0044-billing-with-iyzico-subscriptions.md))
@@ -97,16 +102,18 @@ the engine may be a few seconds ahead (ADR-0043 D4).
 
 ```json
 {
-  "contract_version": "0.2",
+  "contract_version": "0.3",
   "tenant_id": "smarttech",
   "edition": "community",
   "limits": {
     "monthly_requests": 10000,
     "monthly_test_requests": 1000,
-    "max_input_chars": 32000
+    "max_input_chars": 32000,
+    "max_guardrails": 3,
+    "max_decision_policies": null
   },
   "month": "2026-10",
-  "used": { "requests": 412, "test_requests": 3 },
+  "used": { "requests": 412, "test_requests": 3, "guardrails": 2 },
   "resets_at": "2026-11-01T00:00:00Z"
 }
 ```
@@ -129,8 +136,9 @@ published.
 
 ## Changelog
 
-- 0.3 — draft (2026-11-02, ADR-0056, not implemented): limits `max_guardrails` and
-  `max_decision_policies`; `used.guardrails` in `GET /v1/entitlements`.
+- 0.3 (2026-11-02, ADR-0056): limits `max_guardrails` (enforced by `POST /v1/guardrails`) and
+  `max_decision_policies` (read, enforcement planned); `used.guardrails` in `GET /v1/entitlements`.
+  Neither reaches the snapshot. 0.1 and 0.2 plans files are still read.
 - 0.2 (2026-10-30, ADR-0044): edition `pro`; a plan's `billing` block (price, currency, interval).
   0.1 files are still read.
 - 0.1 (2026-10-30, ADR-0043): initial: limits, plans file, snapshot block, `GET /v1/entitlements`,

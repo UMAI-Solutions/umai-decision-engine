@@ -1,0 +1,100 @@
+# Guardrail template (ADR-0056 §3): no policies. Synthetic cases only.
+contract_version: '0.9'
+id: tpl-blank
+version: 1
+name: Boş guardrail
+description: Tüm politikalar kapalı başlar; ihtiyacınız olanları açarsınız.
+mode: ENFORCE
+phases:
+- PRE_LLM
+- POST_LLM
+on_evaluation_failure: fail_closed
+l0:
+  target: LAST_MESSAGE
+  max_chars: 32000
+  policies:
+  - id: identity-data
+    version: 2
+    name: Kimlik verileri
+    description: Türkiye, ABD ve Avrupa kimlik ve vergi numaraları
+    entities:
+    - TR_TCKN
+    - TR_VKN
+    - US_SSN
+    - UK_NINO
+    - DE_TAX_ID
+    - FR_NIR
+    - ES_NIF
+    - ES_NIE
+    - IT_FISCAL_CODE
+    - NL_BSN
+    - PL_PESEL
+    action: BLOCK
+    severity: HIGH
+    roles:
+    - user
+    - assistant
+    - tool
+    - tool_call
+    - memory
+    sensitivity: L3
+    enabled: false
+  - id: payment-data
+    version: 1
+    name: Finansal veriler
+    entities:
+    - CREDIT_CARD
+    - TR_IBAN
+    - IBAN_CODE
+    action: BLOCK
+    severity: HIGH
+    sensitivity: L3
+    enabled: false
+  - id: contact-data
+    version: 1
+    name: İletişim bilgileri
+    description: Kişi adları, adresler, telefonlar, e-postalar, IP ve plakalar maskelenir
+    entities:
+    - PERSON
+    - ADDRESS
+    - TR_PHONE
+    - PHONE_NUMBER
+    - EMAIL_ADDRESS
+    - IP_ADDRESS
+    - TR_PLATE
+    action: ALLOW_WITH_MODIFICATIONS
+    severity: MEDIUM
+    roles:
+    - user
+    - assistant
+    sensitivity: L3
+    enabled: false
+  - id: secrets
+    version: 1
+    name: Gizli anahtarlar
+    entities:
+    - API_KEY
+    - PRIVATE_KEY
+    - JWT
+    - CONNECTION_STRING
+    - PASSWORD
+    action: BLOCK
+    severity: CRITICAL
+    sensitivity: L4
+    enabled: false
+  - id: unknown-links
+    version: 1
+    name: Bilinmeyen bağlantılar
+    entities:
+    - UNKNOWN_LINK
+    action: BLOCK
+    severity: MEDIUM
+    roles:
+    - assistant
+    - tool
+    sensitivity: L3
+    enabled: false
+l1a:
+  rules: []
+l2:
+  enabled: false
