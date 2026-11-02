@@ -2,6 +2,8 @@
 
 **Version:** 0.3
 
+**Draft:** 0.4 ([ADR-0056](../adr/0056-guardrail-and-policy-authoring-in-the-console.md), not implemented): cases written in the console, the coverage rule
+
 Golden cases state what a policy bundle version must decide: "this input, in this context →
 this decision". They are written by whoever writes the policy, run by
 `python -m umai_decision_engine.policy.cli test` and in CI on every change, and later by the
@@ -147,7 +149,38 @@ gr-demo-data-protection v1: no golden tests
 Exit code 0 when every loaded version is valid and every case passes; 1 otherwise. With
 `--require-tests`, an active version without golden tests also fails.
 
+## Draft 0.4 ([ADR-0056](../adr/0056-guardrail-and-policy-authoring-in-the-console.md), not implemented)
+
+- **Files** may declare `contract_version` `0.1`–`0.4`; 0.4 adds no case field.
+- **Cases in drafts.** A policy-service draft carries its own test files ([guardrails](guardrails.md)
+  0.1, `Draft.tests`), which become the published version's `tests/`. They start as the base
+  version's, a template's or a copied guardrail's. Cases written in the console go to
+  `tests/console.yaml`; the cases of a decision policy from the library live in
+  `tests/<policy id>.yaml` in the library bundle and are copied with the policy.
+- **Coverage rule** (`--require-coverage`, and at every publish by the policy service of a version at
+  policy-bundle 0.10 or later). Computed from the cases that pass, on the decisions the pipeline
+  made:
+  - every enabled L0 policy and every L0 exception decides in at least one case (its id is in
+    `decision.matched`);
+  - every L1b policy with `enforcement: enforce` matches in at least one case, and in at least one
+    other case is asked (L1b ran and the policy applies to the case's phase) and does not match;
+  - at least one case is decided `ALLOW`.
+
+  Shadow policies need no case to be published, only to be switched to enforce. A blank guardrail
+  meets the rule with one `ALLOW` case.
+- **Runner output** adds the missing coverage per version, kinds as in the guardrails contract's
+  test report:
+
+```text
+gr-hr-assistant v1 (active): 7 cases
+  …
+  coverage: missing l0_policy customer-data (decides), l1b_policy prompt-attack (does_not_match)
+```
+
 ## Changelog
+
+- 0.4 — draft (2026-11-02, ADR-0056, not implemented): coverage rule and `--require-coverage`;
+  cases carried by policy-service drafts; `tests/console.yaml` and `tests/<policy id>.yaml`.
 
 - 0.3 (2026-10-20): `model_answers` per case (ADR-0040); files may declare `0.1`–`0.3`.
 - 0.2 (2026-10-17): `expect.matched` (ADR-0021); files may declare `0.1` or `0.2`.

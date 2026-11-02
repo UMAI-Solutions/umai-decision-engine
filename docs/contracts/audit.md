@@ -1,6 +1,6 @@
 # Contract: audit (audit events, read API, CSV export)
 
-**Version:** 0.1 · **Producer → consumer:** policy service → tenant store (`audit_events`) →
+**Version:** 0.1 · **Draft:** 0.2 ([ADR-0056](../adr/0056-guardrail-and-policy-authoring-in-the-console.md), not implemented) · **Producer → consumer:** policy service → tenant store (`audit_events`) →
 policy service read API → console (Organization → Audit log), auditors (CSV) · **Decisions:**
 [ADR-0045](../adr/0045-audit-log-for-configuration-changes.md), [ADR-0030](../adr/0030-audit-events-and-structured-telemetry.md) §1–2, §4, [ADR-0029](../adr/0029-authorization-roles-and-four-eyes.md)
 
@@ -130,6 +130,23 @@ operator's is the path's tenant, else `X-Umai-Tenant`, else the default tenant. 
 an organization yet (a refused `organization.create`) has no log to write to: the attempt is
 logged, not recorded.
 
+### Draft 0.2 ([ADR-0056](../adr/0056-guardrail-and-policy-authoring-in-the-console.md), not implemented)
+
+The guardrail routes of [guardrails](guardrails.md) 0.1 add these actions, with the same target
+type. Their details never contain case text, sample text, matches or values.
+
+| `action` | Route | `target.type` / `id` | `details` (success) |
+|---|---|---|---|
+| `guardrail.create` | `POST /v1/guardrails` | `guardrail` / bundle id | `name`, `from` (`template` or `guardrail`, and the version copied) |
+| `guardrail.archive` | `POST /v1/guardrails/{id}/archive` | `guardrail` | `previous_active`, `note` |
+| `guardrail.draft.policy.add` | `POST /v1/guardrails/{id}/draft/decision-policies` | `guardrail` | `policy_id`, `version`, `source` (`library` or `form`), `cases` (count copied) |
+| `guardrail.draft.case.save` | `PUT /v1/guardrails/{id}/draft/cases/{case_id}` | `guardrail` | `case_id`, `file`, `created` |
+| `guardrail.draft.case.delete` | `DELETE /v1/guardrails/{id}/draft/cases/{case_id}` | `guardrail` | `case_id`, `file` |
+| `guardrail.draft.recognizer.test` | `POST /v1/guardrails/{id}/draft/recognizer-test` | `guardrail` | `entity`, `patterns`, `matches` (counts), `elapsed_ms` |
+
+`guardrail.draft.save` adds `revision`; `guardrail.draft.test` adds `cases` (how many were asked
+for, when not all) and `coverage_ok`.
+
 ## `GET /v1/audit-events` (policy service)
 
 Permission `audit.read`: owner, admin, and the operator. Newest first.
@@ -178,4 +195,8 @@ tab or carriage return) is prefixed with `'`.
 
 ## Changelog
 
+- 0.2 — draft (2026-11-02, ADR-0056, not implemented): actions `guardrail.create`,
+  `guardrail.archive`, `guardrail.draft.policy.add`, `guardrail.draft.case.save`,
+  `guardrail.draft.case.delete`, `guardrail.draft.recognizer.test`; `revision`, `cases` and
+  `coverage_ok` in draft details.
 - 0.1 (2026-10-30, ADR-0045): initial.

@@ -290,6 +290,7 @@ since 2026-10-18 and on `umai-beta` since 2026-10-19).
 | SaaS vs self-hosted, editions, quotas, tenancy | [`docs/architecture/deployment-and-editions.md`](docs/architecture/deployment-and-editions.md), ADR-0018, ADR-0019 |
 | Policy bundles, loading, hot reload | [`docs/contracts/policy-bundle.md`](docs/contracts/policy-bundle.md), [`docs/architecture/policy-lifecycle.md`](docs/architecture/policy-lifecycle.md) |
 | Change a policy, write golden cases | [`docs/workflow/policy-authoring.md`](docs/workflow/policy-authoring.md), [`docs/contracts/policy-tests.md`](docs/contracts/policy-tests.md) |
+| Customers creating guardrails and writing L0 / L1b policies and cases in the console (proposed) | ADR-0056, [`docs/contracts/guardrails.md`](docs/contracts/guardrails.md) (draft) |
 | Evals, datasets, metrics | [`docs/evals/`](docs/evals/), skill `run-evals` |
 | A vendor's API or limits | [`docs/reference/`](docs/reference/), skill `verify-vendor-facts` |
 | Security, tenancy, SaaS readiness (threat model, gaps, launch stages, Azure) | [`docs/security/`](docs/security/), ADR-0023 to ADR-0031, `tests/readiness/` |
