@@ -113,7 +113,7 @@ failed. The decision already follows the guardrail's failure policy.
 | `CONFIG_MISSING` | The guardrail (or the named version) is not available | Check the guardrail id and that a version is published and active |
 | `CONFIG_INVALID` | The guardrail does not enable this phase, or it cannot be loaded | Enable the phase in the guardrail, or call with a phase it enables |
 | `TIMEOUT` | Entity detection did not finish within the time budget | Retry; raise `timeout_ms`; send less content |
-| `L0_ERROR` | Entity detection failed | Retry; contact us with the `event_id` if it persists |
+| `L0_ERROR` | Entity detection failed, for example a detection pattern did not finish on this content | Retry; contact us with the `event_id` if it persists |
 | `TENANT_KEY_MISSING` | Your organization's key material is not available on this service | Contact us |
 | `L1_NOT_IMPLEMENTED` | The guardrail has rules this version of UMAI cannot evaluate yet | Contact us |
 | `L1B_TIMEOUT` | A decision-model policy did not answer in time | Retry; or raise the guardrail's decision-model timeout |

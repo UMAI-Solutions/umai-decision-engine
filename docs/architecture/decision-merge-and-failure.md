@@ -80,7 +80,7 @@ not tried, if its timeout exceeds the remaining budget; the failure rule applies
 | Failure | Behaviour | Configured by |
 |---|---|---|
 | Bundle missing / invalid / bad signature | `BLOCK`, error `CONFIG_MISSING` / `CONFIG_INVALID` | fixed |
-| L0 exception | `on_evaluation_failure` | bundle (default `fail_closed`) |
+| L0 exception, including a pattern whose matching times out (`REGEX_TIMEOUT_SECONDS`, default 1 s) or fails, built-in or custom: never skipped | `on_evaluation_failure`, error `L0_ERROR` (`TIMEOUT` when the evaluation budget runs out first) | bundle (default `fail_closed`) |
 | L1a exception | `on_evaluation_failure` | bundle |
 | L1b provider error / timeout | try `fallback_provider` if budget allows, else `on_evaluation_failure` applied **to the L1b part**: `final = max(floor, failure action)` | bundle |
 | L1b answer outside declared options | treated as provider error | fixed |
