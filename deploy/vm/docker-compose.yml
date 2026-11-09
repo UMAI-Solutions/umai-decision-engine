@@ -213,7 +213,7 @@ services:
 
   caddy:
     # 2.11.4 or later: a retried request keeps its body (zero-downtime deploys, ADR-0052).
-    image: caddy:2.11.7-alpine
+    image: caddy:2.11.8-alpine
     ports: ["80:80", "443:443", "443:443/udp"]
     environment:
       UMAI_HOSTNAME: ${UMAI_HOSTNAME:?set in config.env}
