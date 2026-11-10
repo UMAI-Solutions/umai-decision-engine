@@ -189,6 +189,8 @@ services:
       UMAI_OIDC_CLIENT_ID: ${UMAI_OIDC_CLIENT_ID:-}
       UMAI_CONSOLE_REGION: ${UMAI_REGION:-sh}
       UMAI_PUBLIC_API_URL: https://${UMAI_HOSTNAME:-localhost}
+      # The browser extension ids the connect page talks to (ADR-0058); empty: the development id.
+      UMAI_BROWSER_EXTENSION_IDS: ${UMAI_BROWSER_EXTENSION_IDS:-}
       UMAI_CONSOLE_ACTOR_KEY_FILE: /run/secrets/actor.pem
       UMAI_CONSOLE_ACTOR_KID: ${UMAI_ACTOR_KEY_ID:-console-1}
     env_file: ["${UMAI_RUN_DIR:-/run/umai}/console.env"]
