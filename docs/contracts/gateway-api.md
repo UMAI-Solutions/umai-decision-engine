@@ -1,6 +1,6 @@
 # Contract: gateway API
 
-**Version:** 0.14 · **Status:** implemented for Chat Completions and the Responses API,
+**Version:** 0.15 · **Status:** implemented for Chat Completions and the Responses API,
 non-streaming and streaming, and for embeddings (input checks): applications, providers, input, tool-result, answer and tool-call checks, masking,
 restoration and refusals (WP2, WP3, WP5; [design](../architecture/ai-gateway.md) §8) · **Endpoints**
 (gateway host, e.g. `eu.gateway.<domain>`): `POST /v1/chat/completions`, `POST /v1/responses`, `POST /v1/embeddings`,
@@ -124,10 +124,13 @@ applications:
       - { name: gpt-4.1-mini, model: "@contoso-hr/hr-gpt41-deployment" }
     fallback: "@contoso-hr/hr-gpt41-backup"   # optional: tried once on 429 / 5xx / unreachable
     refusal: message                 # optional overrides of the gateway defaults
+browser:                             # optional (0.15): the browser extension's application
+  application_id: hr-assistant       # null or absent: browsers not set up (browser-extension)
 ```
 
 | Field | Notes |
 |---|---|
+| `browser.application_id` | (0.15, ADR-0058) The application every browser connection of the organization is made for ([browser-extension](browser-extension.md)); it must be an application of the file. Not read by the gateway. Left out of the file while unset, so engines before 0.15 keep reading it |
 | `gateway.*` | Defaults for every application: streaming ([Streaming](#streaming), default `window`, Q50), refusal style and text ([Decisions on the wire](#decisions-on-the-wire), default `error`, Q48), unscanned parts, restoration, timeouts. An application overrides any of them |
 | `providers[].provider_id` | `^[a-z0-9][a-z0-9-]{0,63}$`, unique; the `@<provider>/` prefix of model names |
 | `providers[].kind` | Selects the credential header |
@@ -424,6 +427,9 @@ model, stream, status, input and output decisions, refusal, provider-reported to
 latency. No record carries prompt, answer, provider key or mask map (ADR-0035).
 
 ## Changelog
+
+- 0.15 (2026-11-10, ADR-0058): optional `browser.application_id` in the applications file
+  (the browser extension's application, [browser-extension](browser-extension.md) 0.1).
 
 - 0.14 (2026-10-30, ADR-0046): 403 `ip_not_allowed` for a key used outside its allowed
   networks and 429 `too_many_failed_attempts` for an address with too many bad credentials, both

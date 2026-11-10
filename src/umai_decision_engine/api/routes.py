@@ -175,11 +175,13 @@ async def evaluate(
     _enforce_input_size(request, body)
     # Last admission step: only a request that passed every other check counts (ADR-0043).
     request.app.state.admission.admit_quota(body.tenant_id, principal.env)
+    browser = principal.client == "browser"  # a browser connection (ADR-0058 D4)
     context = RecordContext(  # who called, for the records (ADR-0041): from the credential
-        source="api",
+        source="browser" if browser else "api",
         key_id=principal.key_id,
         environment=principal.env if principal.env in ("live", "test") else None,
         application_id=principal.application_id,
+        user_id=principal.user_id if browser else None,
     )
     try:
         return await request.app.state.evaluator.evaluate(body, context=context)

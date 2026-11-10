@@ -195,13 +195,22 @@ def split_model_ref(ref: str) -> tuple[str | None, str]:
     return None, ref
 
 
+class BrowserSettings(ContractModel):
+    """Which application serves the organization's browser connections (gateway-api 0.15,
+    browser-extension 0.1, ADR-0058 D3); ``None``: browsers are not set up."""
+
+    application_id: str | None = Field(None, pattern=APPLICATION_ID)
+
+
 class ApplicationFile(ContractModel):
     """One tenant's applications, the AI gateway's providers and defaults:
-    ``<applications_dir>/<tenant_id>.yaml`` (gateway-api 0.10)."""
+    ``<applications_dir>/<tenant_id>.yaml`` (gateway-api 0.10); the browser application
+    (0.15)."""
 
     gateway: GatewayDefaults = Field(default_factory=GatewayDefaults)
     providers: list[Provider] = Field(default_factory=list)
     applications: list[Application] = Field(default_factory=list)
+    browser: BrowserSettings = Field(default_factory=BrowserSettings)
 
     @model_validator(mode="after")
     def _consistent(self) -> ApplicationFile:
@@ -212,6 +221,12 @@ class ApplicationFile(ContractModel):
             duplicates = sorted({i for i in ids if ids.count(i) > 1})
             if duplicates:
                 raise ValueError(f"duplicate {kind} ids: {', '.join(duplicates)}")
+        browser = self.browser.application_id
+        if browser is not None and self.application(browser) is None:
+            raise ValueError(
+                f"browser: the browser extension uses application {browser}, which is not here; "
+                "choose another browser application first"
+            )
         if sum(1 for p in self.providers if p.default) > 1:
             raise ValueError("more than one provider is marked default")
         if self.default_provider() is None:

@@ -120,7 +120,7 @@ def test_networks_are_set_at_creation_edited_and_cleared(stack) -> None:
     listed = control.get("/v1/tenants/tenant-a/keys").json()["keys"]
     assert listed[0]["allowed_ips"] == ["203.0.113.0/24", "2001:db8::/32"]
     snapshot = json.loads((registry_dir / "tenant-a.json").read_text(encoding="utf-8"))
-    assert snapshot["contract_version"] == "0.5"
+    assert snapshot["contract_version"] == "0.6"
     assert snapshot["keys"][0]["allowed_ips"] == ["203.0.113.0/24", "2001:db8::/32"]
 
     seen_from = engine()

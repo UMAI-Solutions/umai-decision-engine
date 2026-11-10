@@ -1,6 +1,6 @@
 # Contract: tagged action (decision event)
 
-**Version:** 0.7
+**Version:** 0.8
 
 **Implementation status (2026-10-30):** emitted and stored by the engine API and the gateway
 ([ADR-0041](../adr/0041-records-decision-events-and-usage-ledger.md), write path
@@ -69,12 +69,13 @@ tenant-scoped (ADR-0025).
 | `event_id` | The evaluation response's `event_id` (`ta-<uuid4 hex>`); idempotency key for storage, delivery and findings |
 | `request_id` | The caller's correlation id, as sent |
 | `tenant_id` | The tenant's external id (slug); the store keys rows by the tenant's uuid |
-| `source` | `api` (`POST /v1/evaluate`) or `gateway`; other sources (`browser_extension`, `agent_sdk`, …) when they exist |
+| `source` | `api` (`POST /v1/evaluate`), `gateway`, or `browser` (0.8: `POST /v1/evaluate` with a browser connection, [browser-extension](browser-extension.md)); other sources (`agent_sdk`, …) when they exist. Set from the admitted credential, never from the body |
+| `user_id` | (0.8) The person whose browser connection made the call: the tenant store's user id (`users.id`), from the key, never from the body. Present only for `source: browser`; absent otherwise (ADR-0058 D4) |
 | `engine_version` | The engine release that decided |
 | `key_id`, `environment`, `application_id` | The caller's API key, its `live`/`test` environment and its application (ADR-0039); `null` for the shared operator token |
 | `gateway_call_id` | The gateway call the check belongs to (`gc-<uuid4 hex>`, also the call's usage record); `null` on the evaluation API. A gateway call has one event per check: input, each tool result, the answer. A stream's window re-checks are not recorded; only the stream's final check is, or the re-check that stopped it |
 | `bundle` | Id, version, SHA-256 and mode of the guardrail version that decided (AGENTS.md rule 8); version and hash are `null` when the bundle could not be resolved |
-| `subject` | Role and department only; user and session ids are not recorded |
+| `subject` | Role and department only; the caller's `subject.user_id` and `subject.session_id` are not recorded (a browser call's person is `user_id`, from the key) |
 | `destination` | As in the request |
 | `agent_action` | Tool and server name of an agent action; never arguments or metadata |
 | `entities[]` | Type, count and distinct count per entity type; no values, no value hashes |
@@ -88,6 +89,8 @@ tenant-scoped (ADR-0025).
 
 **Not recorded (ADR-0041 §2):** raw content, the redacted excerpt, per-value hashes, mask maps,
 provider keys, error messages, `subject.user_id`, `subject.session_id`, agent action metadata.
+The one person a record names is a browser connection's owner (`user_id`, 0.8, ADR-0058 D4),
+taken from the credential.
 The excerpt may return, encrypted per tenant and opt-in, once ADR-0025 §4 is built.
 
 ## L1b outcome record
@@ -148,14 +151,20 @@ export:
 | Filter | Matches |
 |---|---|
 | `since`, `until` | RFC 3339; `since` inclusive, `until` exclusive |
-| `action`, `source`, `application_id`, `phase`, `review` | Equal to the event's value (`review`: `true` / `false`). `action` may be repeated: any of the decisions (`action=BLOCK&action=ALLOW_WITH_MODIFICATIONS`), 0.7 |
+| `action`, `source`, `application_id`, `phase`, `review`, `user_id` | Equal to the event's value (`user_id`, 0.8: one person's browser calls) (`review`: `true` / `false`). `action` may be repeated: any of the decisions (`action=BLOCK&action=ALLOW_WITH_MODIFICATIONS`), 0.7 |
 | `entity_type` | Events in which the type was found (`entities[].type`), 0.6 |
 | `policy_id` | Events whose `matched[]` names the policy: the rules that produced the decision (shadow L1b policies never do; see their outcome records), 0.6 |
 | `q` | Search by id (up to 128 characters, surrounding spaces ignored): events whose `event_id`, `request_id` or `gateway_call_id` equals it exactly. A gateway call id finds every check of the call, 0.6 |
+| `destination_app` | (0.8) Events whose `destination.app` equals it (1–128 characters), e.g. `chatgpt.com` |
 | `playground` | `true`: the console's Playground runs only; `false`: everything else. A Playground run is an event of the evaluation API (`source: api`) admitted with the operator token (`key_id: null`) whose `request_id` starts with `console-`, the id the console gives each run. An API key's events are never Playground runs, whatever request id the caller sends. A view filter only: usage, quotas and invoices read the usage ledger, where Playground runs count as live (ADR-0043 D6), 0.7 |
 
 The new filters scan the tenant's window without an index; measured cost and the point to add
-one: ADR-0047 D2.
+one: ADR-0047 D2. `user_id` has an index (tenant, user, time; migration 0015).
+
+The list and the detail name the people of their events (0.8): `people` maps each `user_id` on
+the page (or of the event) to `{"email", "name"}` as the tenant store knows the person at read
+time; both are left out for a person no longer in the store (`{}`). The record itself holds
+the id only.
 
 ```json
 {
@@ -176,8 +185,30 @@ one: ADR-0047 D2.
       "phase": "PRE_LLM",
       "decision": { "action": "ALLOW", "severity": "LOW", "decided_by": "L1b" },
       "latency_ms": { "total": 301.2, "l0": 1.1, "l1b": 299.8 }
+    },
+    {
+      "contract_version": "0.8",
+      "event_id": "ta-7a6b5c4d3e2f41a0b9c8d7e6f5a4b3c2",
+      "request_id": "br-6f1c2d3e4a5b46c78d9e0f1a2b3c4d5e",
+      "tenant_id": "tenant-demo",
+      "occurred_at": "2026-10-30T08:14:00Z",
+      "source": "browser",
+      "engine_version": "0.1.0",
+      "key_id": "Q7h2kP9c",
+      "environment": "live",
+      "application_id": "browser",
+      "user_id": "0f9d2c1e-6a4b-4d8e-9a51-2b7c3e1f0a99",
+      "bundle": { "id": "gr-demo-data-protection", "version": 3, "mode": "ENFORCE" },
+      "phase": "PRE_LLM",
+      "destination": { "app": "chatgpt.com", "class": "external_llm" },
+      "entities": [ { "type": "TR_TCKN", "count": 1, "distinct": 1 } ],
+      "decision": { "action": "BLOCK", "severity": "HIGH", "decided_by": "L0" },
+      "latency_ms": { "total": 4.2, "l0": 3.9 }
     }
   ],
+  "people": {
+    "0f9d2c1e-6a4b-4d8e-9a51-2b7c3e1f0a99": { "email": "ada@example.com", "name": "Ada Example" }
+  },
   "next_cursor": "MjAyNi0xMC0zMFQwODoxNTowMCswMDowMHw1ZDFj"
 }
 ```
@@ -221,6 +252,11 @@ Records past their retention period are deleted by the policy service's retentio
 30).
 
 ## Changelog
+
+- 0.8 (2026-11-10, ADR-0058): `source` `browser` (a browser connection's call) and `user_id`,
+  the connection's person, from the credential; filters `user_id` and `destination_app` on the
+  list, the summary and the CSV export; the list and the detail carry `people` (user id →
+  e-mail, name, read from the tenant store). Tenant-store migration 0015.
 
 - 0.7 (2026-11-02): the summary counts per application (`by_application`) and gives latency
   percentiles (`latency_ms`: p50, p95 of total, L0, L1b); filter `playground` on the list,

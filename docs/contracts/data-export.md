@@ -1,6 +1,6 @@
 # Contract: data exports
 
-**Version:** 0.1 · **Producer → consumer:** policy service → console → people (spreadsheets,
+**Version:** 0.2 · **Producer → consumer:** policy service → console → people (spreadsheets,
 archives) · **Decision:** [ADR-0047](../adr/0047-data-access-search-csv-and-organization-export.md)
 · **Models:** `src/umai_decision_engine/contracts/exports.py`; routes: `control_plane/app.py`,
 writers: `control_plane/exports.py`
@@ -25,8 +25,8 @@ newest first, streamed. `until` defaults to the time of the request. Permission
 refused with 422 `export_too_large` (§4) before anything is sent. A file is never cut short.
 
 ```csv
-occurred_at,event_id,request_id,gateway_call_id,source,environment,application_id,key_id,phase,action,severity,decided_by,degraded,floor,would_have,guardrail,guardrail_version,guardrail_mode,entities,tags,policies,review,review_reasons,errors,latency_ms,latency_l0_ms,latency_l1b_ms,subject_role,subject_department,destination_app,destination_class,agent_tool,agent_server
-2026-10-30T08:15:00Z,ta-5d1c0b9a8e7f4a3b2c1d0e9f8a7b6c5d,gw-2c4e6a8b0d1f3a5c7e9b1d3f5a7c9e1b,gc-8f7e6d5c4b3a29180716253443526170,gateway,live,main,AbCd1234,PRE_LLM,BLOCK,HIGH,L0,false,,,gr-demo-data-protection,3,ENFORCE,TR_TCKN:2,data.pii.tr_tckn,l0_policy:identity-data,false,,,3.4,3.1,,satış,"Çağrı Merkezi, İzmir",chatgpt.com,external_llm,,
+occurred_at,event_id,request_id,gateway_call_id,source,environment,application_id,key_id,phase,action,severity,decided_by,degraded,floor,would_have,guardrail,guardrail_version,guardrail_mode,entities,tags,policies,review,review_reasons,errors,latency_ms,latency_l0_ms,latency_l1b_ms,subject_role,subject_department,destination_app,destination_class,agent_tool,agent_server,user_id
+2026-10-30T08:15:00Z,ta-5d1c0b9a8e7f4a3b2c1d0e9f8a7b6c5d,gw-2c4e6a8b0d1f3a5c7e9b1d3f5a7c9e1b,gc-8f7e6d5c4b3a29180716253443526170,gateway,live,main,AbCd1234,PRE_LLM,BLOCK,HIGH,L0,false,,,gr-demo-data-protection,3,ENFORCE,TR_TCKN:2,data.pii.tr_tckn,l0_policy:identity-data,false,,,3.4,3.1,,satış,"Çağrı Merkezi, İzmir",chatgpt.com,external_llm,,,
 ```
 
 | Column | From the decision event |
@@ -42,6 +42,7 @@ occurred_at,event_id,request_id,gateway_call_id,source,environment,application_i
 | `errors` | `layer:type`, space-separated (never a message) |
 | `latency_ms`, `latency_l0_ms`, `latency_l1b_ms` | `latency_ms.total`, `.l0`, `.l1b` |
 | `subject_role`, `subject_department`, `destination_app`, `destination_class`, `agent_tool`, `agent_server` | `subject`, `destination`, `agent_action` |
+| `user_id` | (0.2, the last column) A browser connection's person ([tagged-action](tagged-action.md) 0.8); empty for every other source. The file names the person by id only; the console's member list maps it |
 
 ## 2. Usage CSV
 
@@ -158,6 +159,8 @@ policy-service refusal.
   `umai-usage-<organization>-<yyyy-mm>.csv`, `umai-<organization>-export-<yyyymmddThhmmZ>.zip`.
 
 ## Changelog
+
+- 0.2 (2026-11-10, ADR-0058): the decisions CSV gains a last column `user_id`.
 
 - 0.1 (2026-10-30): decisions CSV, usage CSV per day and dimension, organization archive
   (ADR-0047).

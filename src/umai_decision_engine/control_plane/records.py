@@ -98,9 +98,11 @@ class EventFilters:
     policy_id: str | None = None  # took part in deciding (``matched[].id``)
     q: str | None = None
     playground: bool | None = None  # the console's Playground runs only / all but them (0.7)
+    user_id: str | None = None  # one person's browser calls (0.8)
+    destination_app: str | None = None  # ``destination.app`` equals it (0.8)
 
 
-_COLUMNS = ("source", "application_id", "phase", "review")
+_COLUMNS = ("source", "application_id", "phase", "review", "user_id")
 ALL_EVENTS = EventFilters()
 
 
@@ -187,6 +189,12 @@ class RecordsReader:
             value = getattr(filters, name)
             if value is not None:
                 query = query.where(getattr(row, name) == value)
+        if filters.destination_app is not None:
+            if is_postgres(self._engine):
+                app = row.destination.op("->>")("app")
+            else:
+                app = func.json_extract(row.destination, "$.app")
+            query = query.where(app == filters.destination_app)
         if filters.entity_type is not None:
             query = query.where(self._has(row.entities, "type", filters.entity_type))
         if filters.policy_id is not None:

@@ -134,6 +134,7 @@ class ApiKey(Base):
     """Tenant table. Stores sha256(secret) only (ADR-0023 §2)."""
 
     __tablename__ = "api_keys"
+    __table_args__ = (Index("ix_api_keys_tenant_user", "tenant_id", "user_id"),)
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(
@@ -148,6 +149,11 @@ class ApiKey(Base):
     application_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # Networks the key may be used from, canonical CIDRs (credentials 0.9, ADR-0046); NULL: any.
     allowed_ips: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    # A browser connection (credentials 0.10, ADR-0058): client "browser", the person (users.id)
+    # and the browser it was made in; NULL for every other key.
+    client: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    device_label: Mapped[str | None] = mapped_column(String(120), nullable=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     created_by: Mapped[str] = mapped_column(String(200), nullable=False)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime(), default=_now)
@@ -190,6 +196,7 @@ class DecisionEventRow(Base):
     __table_args__ = (
         UniqueConstraint("tenant_id", "event_id", name="uq_decision_events_tenant_event"),
         Index("ix_decision_events_tenant_occurred", "tenant_id", "occurred_at"),
+        Index("ix_decision_events_tenant_user", "tenant_id", "user_id", "occurred_at"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
@@ -203,6 +210,8 @@ class DecisionEventRow(Base):
     environment: Mapped[str | None] = mapped_column(String(8), nullable=True)
     application_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     gateway_call_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # A browser connection's person (users.id as text, tagged-action 0.8, ADR-0058 D4)
+    user_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     bundle_id: Mapped[str] = mapped_column(String(128), nullable=False)
     bundle_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     bundle_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)

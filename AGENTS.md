@@ -210,6 +210,15 @@ of one of the tenant's guardrails, with its golden cases (migration 0014: drafts
 archive stops serving and hides a guardrail; `If-Match` revisions on draft saves; plan limit
 `max_guardrails`, kept out of engine snapshots. The seed adds bundles a policy volume lacks. The
 rest of ADR-0056 (library, case editor, coverage, L0 editor, RE2) is not built.
+Browser extension (2026-11-10, ADR-0058; browser-extension 0.1, credentials 0.10, tagged-action
+0.8): the extension lives in its own repository `umai-browser-extension` and calls
+`POST /v1/evaluate` with a **browser connection**, a person's own evaluate-only key made by
+`POST /v1/browser/connections` (any role, a person only; at most 10; `client: browser`,
+`user_id`, `device_label`, migration 0015) for the organization's browser application
+(`browser.application_id` in the applications file, `GET/PUT /v1/browser/settings`, gateway-api
+0.15). The engine records those calls with `source: browser` and the person from the key; the
+read API filters `user_id` and `destination_app` and names `people`. Leaving or removal revokes the
+person's connections. Prompts only; no answer checks, Shadow-AI blocking or fleet enrollment.
 Plans and quotas (2026-10-30, ADR-0043, contract entitlements 0.1): the policy service reads the
 plans file (`UMAI_DE_PLANS_FILE`, `deploy/plans.yaml`) and writes each tenant's limits, with
 operator overrides (`PUT /v1/tenants/{id}/plan`, migration 0008), into its signed snapshot
@@ -298,6 +307,7 @@ since 2026-10-18 and on `umai-beta` since 2026-10-19).
 | SaaS vs self-hosted, editions, quotas, tenancy | [`docs/architecture/deployment-and-editions.md`](docs/architecture/deployment-and-editions.md), ADR-0018, ADR-0019 |
 | Policy bundles, loading, hot reload | [`docs/contracts/policy-bundle.md`](docs/contracts/policy-bundle.md), [`docs/architecture/policy-lifecycle.md`](docs/architecture/policy-lifecycle.md) |
 | Change a policy, write golden cases | [`docs/workflow/policy-authoring.md`](docs/workflow/policy-authoring.md), [`docs/contracts/policy-tests.md`](docs/contracts/policy-tests.md) |
+| The browser extension (connections, records with the person and site, the connect handshake) | ADR-0058, [`docs/contracts/browser-extension.md`](docs/contracts/browser-extension.md); the extension's code is in `umai-browser-extension` |
 | Customers creating guardrails and writing L0 / L1b policies and cases in the console | ADR-0056, [`docs/contracts/guardrails.md`](docs/contracts/guardrails.md) (parts marked planned are not built) |
 | Evals, datasets, metrics | [`docs/evals/`](docs/evals/), skill `run-evals` |
 | A vendor's API or limits | [`docs/reference/`](docs/reference/), skill `verify-vendor-facts` |

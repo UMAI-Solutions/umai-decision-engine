@@ -1,6 +1,6 @@
 # Contract: credentials
 
-**Version:** 0.9 · **Producer → consumer:** control plane → engines (key-registry snapshot), control plane ↔ console (key records), console → policy service (on-behalf-of assertion) · **Decisions:** [ADR-0023](../adr/0023-identity-planes-and-api-keys.md), [ADR-0029](../adr/0029-authorization-roles-and-four-eyes.md)
+**Version:** 0.10 · **Producer → consumer:** control plane → engines (key-registry snapshot), control plane ↔ console (key records), console → policy service (on-behalf-of assertion) · **Decisions:** [ADR-0023](../adr/0023-identity-planes-and-api-keys.md), [ADR-0029](../adr/0029-authorization-roles-and-four-eyes.md)
 
 Three shapes: the **API key record** the console manages, the **key-registry snapshot** the
 control plane publishes per tenant and every engine loads like a bundle (verify → validate →
@@ -36,6 +36,9 @@ Sent as `Authorization: Bearer <key>` only; never in a query string.
   "scopes": ["evaluate"],
   "application_id": null,
   "allowed_ips": ["203.0.113.0/24", "2001:db8:1::/48"],
+  "client": null,
+  "user_id": null,
+  "device_label": null,
   "created_by": "control-token",
   "created_at": "2026-10-18T09:00:00Z",
   "expires_at": null,
@@ -56,7 +59,12 @@ when the key is created (`POST /v1/tenants/{id}/keys` with `{"name", "applicatio
 application must exist; `scopes` then default to `["evaluate", "gateway"]`) and cannot change;
 create a new key to move an application. `null`: the key belongs to no application.
 `allowed_ips` (0.9, ADR-0046) are the networks the key may be used from (below); `null` or
-absent: any address. `status` is derived
+absent: any address. `client`, `user_id` and `device_label` (0.10, ADR-0058) mark a **browser
+connection** ([browser-extension](browser-extension.md)): `client` is `"browser"`, `user_id` the
+person it belongs to (the tenant store's `users.id`), `device_label` the browser it was made in;
+all three are `null` for every other key. Only `POST /v1/browser/connections` makes one (scope
+`evaluate` only, the organization's browser application); `POST /v1/tenants/{id}/keys` has no
+`client` field. `status` is derived
 (`revoked` when `revoked_at` is set). `last_used_at` is reserved: engines do not write to the
 store, so it stays `null` until usage telemetry exists.
 
@@ -86,7 +94,7 @@ plane; engines poll the directory (`UMAI_DE_KEY_REGISTRY_POLL_INTERVAL_S`, defau
 
 ```json
 {
-  "contract_version": "0.5",
+  "contract_version": "0.6",
   "tenant_id": "tenant-demo",
   "generated_at": "2026-10-18T09:00:05Z",
   "entitlements": {
@@ -106,6 +114,17 @@ plane; engines poll the directory (`UMAI_DE_KEY_REGISTRY_POLL_INTERVAL_S`, defau
       "status": "active",
       "expires_at": null,
       "allowed_ips": ["203.0.113.0/24", "2001:db8:1::/48"]
+    },
+    {
+      "key_id": "Q7h2kP9d",
+      "secret_sha256": "<64 hex>",
+      "env": "live",
+      "region": "eu",
+      "scopes": ["evaluate"],
+      "application_id": "browser",
+      "status": "active",
+      "client": "browser",
+      "user_id": "0f9d2c1e-6a4b-4d8e-9a51-2b7c3e1f0a99"
     }
   ],
   "signing_key_id": "vm-2026-10",
@@ -115,10 +134,11 @@ plane; engines poll the directory (`UMAI_DE_KEY_REGISTRY_POLL_INTERVAL_S`, defau
 
 | Field | Notes |
 |---|---|
-| `contract_version` | `0.5` since credentials 0.9 (entries may carry `allowed_ips`); `0.4` since 0.7 (`entitlements`); `0.3` since 0.6 (entries may carry `application_id`); engines still accept `0.1` to `0.4` files (0.2 calls the field `gateway_id`; its signature covers that name). An engine older than 0.8 refuses a 0.5 file and keeps the tenant's last good keys: update engines first |
+| `contract_version` | `0.6` since credentials 0.10 (entries may carry `client` and `user_id`); `0.5` since credentials 0.9 (entries may carry `allowed_ips`); `0.4` since 0.7 (`entitlements`); `0.3` since 0.6 (entries may carry `application_id`); engines still accept `0.1` to `0.4` files (0.2 calls the field `gateway_id`; its signature covers that name). An engine older than 0.8 refuses a 0.5 file and keeps the tenant's last good keys: update engines first |
 | `entitlements` | The tenant's limits ([entitlements](entitlements.md) 0.1, ADR-0043): edition, `monthly_requests`, `monthly_test_requests`, `max_input_chars`; null or absent fields mean no limit (the size: the deployment's). Absent when the deployment has no plans file |
 | `keys[].application_id` | The key's application (0.6); absent when the key belongs to none |
 | `keys[].allowed_ips` | The key's networks, canonical CIDRs, 1–50 (0.9, ADR-0046); absent: any address |
+| `keys[].client`, `keys[].user_id` | A browser connection's client (`browser`) and person (0.10, ADR-0058); absent for every other key. The engine records the call with `source: browser` and that `user_id` ([tagged-action](tagged-action.md) 0.8) |
 | `keys[].status` | `active` or `revoked`; revoked keys stay listed so a reload can never resurrect one |
 | `signing_key_id`, `signature` | Ed25519 over the JSON of the snapshot without `signature`, with the control plane's bundle-signing key; verified against `UMAI_DE_BUNDLE_PUBLIC_KEYS`. Required whenever signed bundles are required (everything but development) |
 
@@ -202,6 +222,11 @@ Checked in this order; a refused request is never evaluated or forwarded.
 | 400 | `tenant_required` | shared operator token without `tenant_id` in the body |
 
 ## Changelog
+
+- 0.10 (2026-11-10, ADR-0058): browser connections: key records carry `client`, `user_id` and
+  `device_label`, registry entries `client` and `user_id` (snapshot payload `contract_version`
+  0.6; 0.1 to 0.5 still read); made only by `POST /v1/browser/connections`
+  ([browser-extension](browser-extension.md) 0.1). Tenant-store migration 0015.
 
 - 0.9 (2026-10-30, ADR-0046): `allowed_ips` on key records, key creation and registry entries
   (snapshot payload `contract_version` 0.5; 0.1 to 0.4 still read); `PATCH

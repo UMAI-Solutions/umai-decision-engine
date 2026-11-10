@@ -154,7 +154,7 @@ class DecisionBlockedData(ContractModel):
 
     window: Window
     blocked: int = Field(ge=1)
-    by_source: dict[Literal["api", "gateway"], int]
+    by_source: dict[Literal["api", "gateway", "browser"], int]
     by_phase: dict[str, int]
     applications: list[ApplicationCount] = Field(max_length=5)
     top_entities: list[EntityCount] = Field(max_length=5)

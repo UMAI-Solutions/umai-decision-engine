@@ -121,9 +121,15 @@ class KeyService:
         created_by: str,
         application_id: str | None = None,
         allowed_ips: list[str] | None = None,
+        browser_of: tuple[uuid.UUID, str] | None = None,
     ) -> tuple[ApiKeyRecord, str, bool]:
+        """``browser_of`` (person, device label) makes a browser connection: scope ``evaluate``
+        only, whatever ``scopes`` says (credentials 0.10, ADR-0058 D2)."""
+
         networks = self.allowed_networks(allowed_ips)
-        if application_id is not None:
+        if browser_of is not None:
+            scopes = [Scope.EVALUATE]
+        elif application_id is not None:
             # An application's key works on every connection: the evaluation API and the
             # gateway (credentials 0.6, ADR-0039).
             scopes = scopes or [Scope.EVALUATE, Scope.GATEWAY]
@@ -139,14 +145,18 @@ class KeyService:
             expires_at=expires_at,
             application_id=application_id,
             allowed_ips=networks,
+            client="browser" if browser_of is not None else None,
+            user_id=browser_of[0] if browser_of is not None else None,
+            device_label=browser_of[1] if browser_of is not None else None,
         )
         log.info(
-            "api key created: tenant=%s key_id=%s env=%s application=%s networks=%d",
+            "api key created: tenant=%s key_id=%s env=%s application=%s networks=%d client=%s",
             tenant.slug,
             record.key_id,
             env,
             application_id,
             len(networks or ()),
+            record.client,
         )
         return record, secret, await self.republish(tenant)
 
@@ -168,6 +178,16 @@ class KeyService:
             len(networks or ()),
         )
         return record, await self.republish(tenant)
+
+    async def revoke_browser_of(self, tenant: TenantInfo, user_id: uuid.UUID) -> list[str]:
+        """Every active browser connection of a person who leaves or is removed (ADR-0058 D2),
+        republished when there was one."""
+
+        revoked = await self.keys.revoke_of_user(tenant, "browser", user_id)
+        if revoked:
+            log.info("browser connections revoked: tenant=%s count=%d", tenant.slug, len(revoked))
+            await self.republish(tenant)
+        return revoked
 
     async def revoke(self, tenant: TenantInfo, key_id: str) -> tuple[ApiKeyRecord, bool]:
         record = await self.keys.revoke(tenant, key_id)

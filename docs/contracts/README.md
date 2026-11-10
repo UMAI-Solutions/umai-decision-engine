@@ -11,20 +11,21 @@ in the same commit (skill `change-contract`).
 | [policy-bundle](policy-bundle.md) | 0.9 (draft 0.10) | policy author / loader → engine |
 | [entity-detection](entity-detection.md) | 0.2 | L0 → L1, pipeline |
 | [decision-questions](decision-questions.md) | 0.4 | bundle → L1b → provider adapters |
-| [tagged-action](tagged-action.md) | 0.7 | pipeline → records store (decision events, L1b outcomes; ADR-0041), later session history and the L2 worker |
-| [usage](usage.md) | 0.3 | pipeline → usage ledger → usage pages, quotas, invoices (ADR-0041, ADR-0028) |
+| [tagged-action](tagged-action.md) | 0.8 | pipeline → records store (decision events, L1b outcomes; ADR-0041), later session history and the L2 worker |
+| [usage](usage.md) | 0.4 | pipeline → usage ledger → usage pages, quotas, invoices (ADR-0041, ADR-0028) |
 | [l2-analysis](l2-analysis.md) | 0.1 | L2 model → worker → findings |
 | [tag-taxonomy](tag-taxonomy.md) | 0.3 (draft 0.4) | all layers |
 | [policy-tests](policy-tests.md) | 0.3 (draft 0.4) | policy author → golden-test runner, CI (ADR-0015) |
-| [credentials](credentials.md) | 0.8 | control plane → engines (key registry), control plane ↔ console (key records), console → policy service (on-behalf-of assertion) (ADR-0023) |
-| [gateway-api](gateway-api.md) | 0.14 | caller ↔ UMAI gateway: OpenAI Chat Completions, Responses and embeddings surfaces, applications and providers, refusals, streaming modes (ADR-0034, ADR-0039) |
+| [credentials](credentials.md) | 0.10 | control plane → engines (key registry), control plane ↔ console (key records), console → policy service (on-behalf-of assertion) (ADR-0023) |
+| [gateway-api](gateway-api.md) | 0.15 | caller ↔ UMAI gateway: OpenAI Chat Completions, Responses and embeddings surfaces, applications and providers, refusals, streaming modes (ADR-0034, ADR-0039) |
 | [entitlements](entitlements.md) | 0.3 | plans file → policy service → engines (tenant snapshot) and console: plans, tenant limits, monthly quota (ADR-0043) |
 | [billing](billing.md) | 0.1 | console ↔ policy service: plan, billing details, checkout, plan change, cancel; iyzico → policy service: webhook (ADR-0044) |
-| [webhooks](webhooks.md) | 0.1 | console ↔ policy service: endpoints, test, delivery log; policy service → the organization's receivers (generic, signed) and Slack incoming webhooks: blocked decisions per window, quota thresholds, billing changes (ADR-0048) |
-| [organizations](organizations.md) | 0.6 | policy service ↔ console: organizations, memberships, invitations, verified domains, the organization archive (ADR-0033, ADR-0047) |
-| [data-export](data-export.md) | 0.1 | policy service → console → people: decisions CSV, usage CSV, organization archive (ADR-0047) |
+| [webhooks](webhooks.md) | 0.2 | console ↔ policy service: endpoints, test, delivery log; policy service → the organization's receivers (generic, signed) and Slack incoming webhooks: blocked decisions per window, quota thresholds, billing changes (ADR-0048) |
+| [organizations](organizations.md) | 0.7 | policy service ↔ console: organizations, memberships, invitations, verified domains, the organization archive (ADR-0033, ADR-0047) |
+| [data-export](data-export.md) | 0.2 | policy service → console → people: decisions CSV, usage CSV, organization archive (ADR-0047) |
 | [console-sessions](console-sessions.md) | 0.1 | console ↔ policy service: a record per sign-in, list, end one, end others, sign-out, the middleware's check (ADR-0024 §2 amendment) |
-| [audit](audit.md) | 0.2 | policy service → tenant store → console, auditors: who changed what, when, refused attempts; list and CSV export (ADR-0045) |
+| [audit](audit.md) | 0.3 | policy service → tenant store → console, auditors: who changed what, when, refused attempts; list and CSV export (ADR-0045) |
+| [browser-extension](browser-extension.md) | 0.1 | console ↔ policy service: browser settings and browser connections (a person's own evaluate-only key); console page → extension: the connect handshake; extension → engine: `POST /v1/evaluate` and what the extension does with each answer (ADR-0058) |
 | [evaluations](evaluations.md) | draft 0.1 | console ↔ policy service: datasets, built-in sets, runs, cases, report cards, the evaluation gate; evaluation worker → tenant store (ADR-0057, Proposed; not built) |
 | [guardrails](guardrails.md) | 0.1 (parts planned) | console ↔ policy service: guardrails, drafts, golden cases, templates, the decision-policy library, publish, activate, archive (ADR-0022, ADR-0056) |
 

@@ -134,6 +134,7 @@ def decision_cells(event: DecisionEvent) -> list[Any]:
         "destination_class": destination.class_ if destination else None,
         "agent_tool": agent.tool_name if agent else None,
         "agent_server": agent.server_name if agent else None,
+        "user_id": event.user_id,
     }
     return [values[c] for c in DECISIONS_CSV_COLUMNS]
 

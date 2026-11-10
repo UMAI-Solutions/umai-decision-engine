@@ -21,10 +21,12 @@ from umai_decision_engine.contracts.common import (
 from umai_decision_engine.contracts.entities import EntitySummary
 from umai_decision_engine.contracts.evaluation import Destination, Tag
 
-CONTRACT_VERSION = "0.7"  # tagged-action
-USAGE_CONTRACT_VERSION = "0.3"  # usage
+CONTRACT_VERSION = "0.8"  # tagged-action
+USAGE_CONTRACT_VERSION = "0.4"  # usage
 
-Source = Literal["api", "gateway"]
+# ``browser``: the evaluation API called with a browser connection (tagged-action 0.8, usage 0.4,
+# ADR-0058).
+Source = Literal["api", "gateway", "browser"]
 Environment = Literal["live", "test"]
 
 
@@ -37,6 +39,8 @@ class RecordContext(ContractModel):
     environment: Environment | None = None
     application_id: str | None = None
     gateway_call_id: str | None = None
+    # A browser connection's person (``users.id``, tagged-action 0.8): from the key, never the body.
+    user_id: str | None = None
     # False: the records are built but held on the evaluation for the caller to commit or drop
     # (the window re-checks of a gateway stream, ADR-0041 §4). Never serialized.
     record: bool = True
@@ -104,7 +108,7 @@ class EventLatency(ContractModel):
 
 
 class DecisionEvent(ContractModel):
-    contract_version: Literal["0.3", "0.4", "0.5", "0.6", "0.7"] = CONTRACT_VERSION
+    contract_version: Literal["0.3", "0.4", "0.5", "0.6", "0.7", "0.8"] = CONTRACT_VERSION
     event_id: str = Field(min_length=1, max_length=64)
     request_id: str = Field(max_length=128)
     tenant_id: str
@@ -115,6 +119,7 @@ class DecisionEvent(ContractModel):
     environment: Environment | None = None
     application_id: str | None = None
     gateway_call_id: str | None = None
+    user_id: str | None = None  # a browser connection's person (0.8, ADR-0058 D4)
     bundle: EventBundle
     phase: Phase
     subject: EventSubject | None = None
@@ -135,7 +140,7 @@ class L1bOutcomeRecord(ContractModel):
     """One L1b policy's outcome for one evaluation. A shadow outcome is written when its
     background call finishes, after the decision event (ADR-0041 §1)."""
 
-    contract_version: Literal["0.3", "0.4", "0.5", "0.6", "0.7"] = CONTRACT_VERSION
+    contract_version: Literal["0.3", "0.4", "0.5", "0.6", "0.7", "0.8"] = CONTRACT_VERSION
     event_id: str = Field(min_length=1, max_length=64)
     tenant_id: str
     occurred_at: datetime
@@ -169,7 +174,7 @@ Meter = Literal[
 
 
 class UsageRecord(ContractModel):
-    contract_version: Literal["0.1", "0.2", "0.3"] = USAGE_CONTRACT_VERSION
+    contract_version: Literal["0.1", "0.2", "0.3", "0.4"] = USAGE_CONTRACT_VERSION
     event_id: str = Field(min_length=1, max_length=64)
     tenant_id: str
     occurred_at: datetime
@@ -193,10 +198,20 @@ Record = DecisionEvent | L1bOutcomeRecord | UsageRecord
 # ------------------------------------------------------------------ read API (policy service)
 
 
+class Person(ContractModel):
+    """A person named by events (tagged-action 0.8), as the tenant store knows them at read time;
+    both ``None`` for a person no longer in the store."""
+
+    email: str | None = None
+    name: str | None = None
+
+
 class DecisionEventPage(ContractModel):
-    """``GET /v1/decision-events``: newest first; ``next_cursor`` continues the listing."""
+    """``GET /v1/decision-events``: newest first; ``next_cursor`` continues the listing.
+    ``people``: the persons of the page's browser events (0.8)."""
 
     events: list[DecisionEvent]
+    people: dict[str, Person] = Field(default_factory=dict)
     next_cursor: str | None = None
 
 
@@ -205,6 +220,7 @@ class DecisionEventDetail(ContractModel):
 
     event: DecisionEvent
     l1b_outcomes: list[L1bOutcomeRecord] = Field(default_factory=list)
+    people: dict[str, Person] = Field(default_factory=dict)  # the event's person (0.8)
 
 
 class UsageGroup(ContractModel):

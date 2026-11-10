@@ -130,3 +130,44 @@ async def test_summary_per_application_latency_and_playground_on_postgres(pg) ->
     async with tenant_session(pg, theirs.id) as session:
         leaked = await reader._latency(session, mine, window)
     assert leaked.total.events == 0 and leaked.total.p50 is None
+
+
+async def test_browser_person_and_site_filters_on_postgres(pg) -> None:  # noqa: F811
+    """tagged-action 0.8 under RLS: ``user_id`` (an indexed column) and ``destination_app`` (read
+    from the JSON object with ``->>``), only in the caller's tenant."""
+
+    repo = TenantRepository(pg)
+    mine = await repo.get_or_create("browser-a", "eu")
+    theirs = await repo.get_or_create("browser-b", "eu")
+    ada, grace = (
+        "0f9d2c1e-6a4b-4d8e-9a51-2b7c3e1f0a99",
+        "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+    )
+
+    def browser(n: int, tenant: str, user: str, app: str):
+        return event(
+            n,
+            tenant=tenant,
+            source="browser",
+            user_id=user,
+            application_id="browser",
+            destination={"app": app, "class": "external_llm"},
+        )
+
+    await DatabaseRecordWriter(pg).write(
+        [
+            browser(50, "browser-a", ada, "chatgpt.com"),
+            browser(51, "browser-a", ada, "claude.ai"),
+            browser(52, "browser-a", grace, "chatgpt.com"),
+            browser(53, "browser-b", ada, "chatgpt.com"),
+            event(54, tenant="browser-a", destination={"app": "chatgpt.com"}),
+        ]
+    )
+    reader = RecordsReader(pg)
+    assert await _ids(reader, mine, source="browser") == [50, 51, 52]
+    assert await _ids(reader, mine, user_id=ada) == [50, 51]
+    assert await _ids(reader, mine, destination_app="chatgpt.com") == [50, 52, 54]
+    assert await _ids(reader, mine, user_id=grace, destination_app="chatgpt.com") == [52]
+    assert await _ids(reader, theirs, user_id=ada) == [53]
+    page = await reader.events(mine, EventFilters(user_id=ada), limit=50)
+    assert {e.user_id for e in page.events} == {ada}

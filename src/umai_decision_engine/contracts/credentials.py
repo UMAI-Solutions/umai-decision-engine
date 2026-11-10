@@ -17,13 +17,18 @@ from umai_decision_engine.contracts.gateway import APPLICATION_ID
 from umai_decision_engine.contracts.organizations import Role
 
 # Key-registry snapshot payload version: 0.1 until credentials 0.4, 0.2 in 0.5 (entries may
-# carry gateway_id), 0.3 in 0.6 (application_id), 0.4 in 0.7 (entitlements), 0.5 since 0.8
-# (allowed_ips). Engines read all.
-CONTRACT_VERSION = "0.5"
+# carry gateway_id), 0.3 in 0.6 (application_id), 0.4 in 0.7 (entitlements), 0.5 in 0.9
+# (allowed_ips), 0.6 since 0.10 (client, user_id). Engines read all.
+CONTRACT_VERSION = "0.6"
 
 KeyEnv = Literal["live", "test"]
 KeyRegion = Literal["eu", "us", "sh"]
+# The client a key was issued to (credentials 0.10, ADR-0058): a browser connection, made only
+# by ``POST /v1/browser/connections``. Every other key has none.
+KeyClient = Literal["browser"]
 KEY_ID_LENGTH = 8
+# A user id in the tenant store (``users.id``): a UUID in its canonical text form.
+USER_ID = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 
 
 class Scope(StrEnum):
@@ -98,11 +103,20 @@ class KeyRegistryEntry(BaseModel):
     expires_at: datetime | None = None
     # The networks the key may be used from (0.9, ADR-0046); absent: any address.
     allowed_ips: list[str] | None = Field(None, min_length=1, max_length=MAX_ALLOWED_IPS)
+    # A browser connection's client and person (0.10, ADR-0058); absent for every other key.
+    client: KeyClient | None = None
+    user_id: str | None = Field(None, pattern=USER_ID)
 
     @field_validator("allowed_ips")
     @classmethod
     def _networks(cls, value: list[str] | None) -> list[str] | None:
         return None if value is None else canonical_networks(value)
+
+    @model_validator(mode="after")
+    def _browser_person(self) -> KeyRegistryEntry:
+        if (self.client is None) != (self.user_id is None):
+            raise ValueError("a browser connection names its person; no other key does")
+        return self
 
 
 class KeyRegistrySnapshot(BaseModel):
@@ -112,7 +126,7 @@ class KeyRegistrySnapshot(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    contract_version: Literal["0.1", "0.2", "0.3", "0.4", "0.5"] = CONTRACT_VERSION
+    contract_version: Literal["0.1", "0.2", "0.3", "0.4", "0.5", "0.6"] = CONTRACT_VERSION
     tenant_id: str = Field(min_length=1, max_length=128)
     generated_at: datetime
     # The tenant's limits (0.4, ADR-0043); absent: no quota, the deployment's size limit.
@@ -148,6 +162,10 @@ class ApiKeyRecord(BaseModel):
     scopes: list[Scope]
     application_id: str | None = None  # the application the key belongs to (0.6, ADR-0039)
     allowed_ips: list[str] | None = None  # networks the key may be used from (0.9, ADR-0046)
+    # A browser connection (0.10, ADR-0058): its client, person and the browser it was made in.
+    client: KeyClient | None = None
+    user_id: str | None = None
+    device_label: str | None = None
     created_by: str
     created_at: datetime
     expires_at: datetime | None = None

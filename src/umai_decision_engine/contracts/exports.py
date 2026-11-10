@@ -13,7 +13,7 @@ from pydantic import Field
 from umai_decision_engine.contracts.common import ContractModel
 from umai_decision_engine.contracts.events import Environment, Meter, Source
 
-CONTRACT_VERSION = "0.1"
+CONTRACT_VERSION = "0.2"  # 0.2: the decisions CSV's last column user_id (ADR-0058)
 
 # Row caps (ADR-0047 D3): above them the export is refused with 422 ``export_too_large`` before
 # anything is sent; a file is never cut short.
@@ -56,6 +56,7 @@ DECISIONS_CSV_COLUMNS = (
     "destination_class",
     "agent_tool",
     "agent_server",
+    "user_id",  # 0.2: a browser connection's person (tagged-action 0.8); appended last
 )
 
 USAGE_CSV_COLUMNS = (
@@ -97,7 +98,7 @@ class ArchiveManifest(ContractModel):
     """``manifest.json``, the first file of an organization archive."""
 
     format: Literal["umai-organization-export"] = "umai-organization-export"
-    contract_version: Literal["0.1"] = CONTRACT_VERSION
+    contract_version: Literal["0.1", "0.2"] = CONTRACT_VERSION
     organization: str  # the organization's id
     region: str
     generated_at: datetime

@@ -64,6 +64,7 @@ def decision_event(
         environment=context.environment,
         application_id=context.application_id,
         gateway_call_id=context.gateway_call_id,
+        user_id=context.user_id,
         bundle=EventBundle(
             id=response.bundle.id,
             version=response.bundle.version,

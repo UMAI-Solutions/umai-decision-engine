@@ -28,7 +28,7 @@ from umai_decision_engine.settings import Settings, get_settings
 
 # The version of docs/contracts/gateway-api.md this app implements. The OpenAPI document says so,
 # and tests/unit/test_api_docs.py holds the two together (ADR-0054).
-API_VERSION = "0.14"
+API_VERSION = "0.15"
 
 DESCRIPTION = """OpenAI-compatible endpoints with your organization's guardrail on every call:
 point an OpenAI SDK at UMAI with a UMAI key, and prompts, answers and tool calls are checked,

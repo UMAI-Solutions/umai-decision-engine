@@ -50,6 +50,7 @@ def _event_row(event: DecisionEvent, tenant: uuid.UUID) -> dict:
         "environment": event.environment,
         "application_id": event.application_id,
         "gateway_call_id": event.gateway_call_id,
+        "user_id": event.user_id,
         "bundle_id": event.bundle.id,
         "bundle_version": event.bundle.version,
         "bundle_sha256": event.bundle.sha256,
@@ -164,6 +165,7 @@ def event_from_row(row: DecisionEventRow, tenant_slug: str) -> DecisionEvent:
             "environment": row.environment,
             "application_id": row.application_id,
             "gateway_call_id": row.gateway_call_id,
+            "user_id": row.user_id,
             "bundle": {
                 "id": row.bundle_id,
                 "version": row.bundle_version,
