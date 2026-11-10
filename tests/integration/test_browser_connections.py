@@ -334,3 +334,16 @@ def test_the_engine_records_a_browser_call_with_the_person_and_the_site(stack) -
     assert stack.delete(f"/v1/browser/connections/{key_id}", headers=owner).status_code == 200
     refused = _evaluate(stack, secret, "Bir toplantı gündemi yaz")
     assert refused.status_code == 401
+
+
+def test_the_operator_reads_settings_and_every_connection_but_never_connects(stack) -> None:
+    _organization(stack)
+    _set_up(stack)
+    assert _connect(stack, "ada").status_code == 201
+    operator = {"X-Umai-Tenant": ORG}  # the control token alone
+    settings = stack.get("/v1/browser/settings", headers=operator)
+    assert settings.status_code == 200 and settings.json()["browser"]["application_id"] == "browser"
+    everyone = stack.get("/v1/browser/connections?scope=all", headers=operator)
+    assert everyone.status_code == 200 and len(everyone.json()["connections"]) == 1
+    mine = stack.get("/v1/browser/connections", headers=operator)
+    assert mine.status_code == 403 and _error(mine) == "actor_required"

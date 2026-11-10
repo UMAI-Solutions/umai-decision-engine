@@ -18,9 +18,10 @@ extension.
 
 ## Browser settings
 
-Permissions (ADR-0029 matrix): `browser.connect` is a person's own act — a member of the
-organization with any role; the control token alone is refused (403 `actor_required`), a person
-who is not a member gets 403 `forbidden`. `browser.manage`: owner and admin.
+Permissions (ADR-0029 matrix): `browser.read` — every role, and the operator (the control token
+with `X-Umai-Tenant`). `browser.connect` is a person's own act — a member of the organization with
+any role; the control token alone is refused (403 `actor_required`), a person who is not a member
+gets 403 `forbidden`. `browser.manage`: owner, admin and the operator.
 
 One application serves every browser of an organization (ADR-0058 D3). It is stored in the
 tenant's applications file ([gateway-api](gateway-api.md) 0.15) as
@@ -36,7 +37,7 @@ extension).
 
 | Route | Permission | Does |
 |---|---|---|
-| `GET /v1/browser/settings` | `browser.connect` | The settings and the application they name |
+| `GET /v1/browser/settings` | `browser.read` | The settings and the application they name |
 | `PUT /v1/browser/settings` with `{"application_id": "<id>" \| null}` | `browser.manage` | Replaces them; 422 `invalid_configuration` for an unknown application or another field. Audit action `browser.settings.update` |
 
 ```json

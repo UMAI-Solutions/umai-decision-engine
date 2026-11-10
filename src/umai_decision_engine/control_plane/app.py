@@ -1712,11 +1712,10 @@ async def _browser_person(request: Request, actor: Actor):
 async def browser_settings(
     request: Request,
     tenant: TenantInfo = _TENANT,
-    actor: Actor = _ALLOW[Action.BROWSER_CONNECT],
+    actor: Actor = _ALLOW[Action.BROWSER_READ],
 ) -> dict[str, Any]:
     """Which application serves the organization's browsers (ADR-0058 D3)."""
 
-    await _browser_member(request, actor)
     return _browser_view(_content(await _read_file(request, tenant), request), tenant)
 
 
@@ -1798,13 +1797,16 @@ async def list_browser_connections(
     request: Request,
     scope: Literal["mine", "all"] = "mine",
     tenant: TenantInfo = _TENANT,
-    actor: Actor = _ALLOW[Action.BROWSER_CONNECT],
+    actor: Actor = _ALLOW[Action.BROWSER_READ],
 ) -> dict[str, Any]:
-    actor = await _browser_member(request, actor)
+    """``mine``: the person's own (a member); ``all``: everyone's (``browser.manage``)."""
+
     if scope == "all":
         await authorize(Action.BROWSER_MANAGE)(request)
         connections = await _browser(request).connections(tenant)
     else:
+        await authorize(Action.BROWSER_CONNECT)(request)
+        actor = await _browser_member(request, actor)
         person = await _browser_person(request, actor)
         connections = await _browser(request).connections(tenant, user_id=person.id)
     return {
