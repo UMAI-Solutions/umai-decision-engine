@@ -349,7 +349,7 @@ def test_snapshot_0_5_carries_networks_signed_and_compiled() -> None:
         generated_at=datetime.now(UTC),
         keys=[_entry(generated, ["203.0.113.0/24"])],
     )
-    assert snapshot.contract_version == "0.5"
+    assert snapshot.contract_version == "0.6"
     signed = sign_snapshot(snapshot, private, "k1")
     loaded = KeyRegistrySnapshot.model_validate_json(signed.model_dump_json(exclude_none=True))
     assert verify_snapshot(loaded, {"k1": public}, require_signed=True)

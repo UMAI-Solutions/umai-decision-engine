@@ -163,6 +163,9 @@ def _record(row: ApiKey, slug: str) -> ApiKeyRecord:
         scopes=[Scope(s) for s in row.scopes],
         application_id=row.application_id,
         allowed_ips=row.allowed_ips or None,
+        client=row.client,  # type: ignore[arg-type]
+        user_id=str(row.user_id) if row.user_id is not None else None,
+        device_label=row.device_label,
         created_by=row.created_by,
         created_at=row.created_at,
         expires_at=row.expires_at,
@@ -187,9 +190,13 @@ class ApiKeyRepository:
         expires_at: datetime | None = None,
         application_id: str | None = None,
         allowed_ips: list[str] | None = None,
+        client: str | None = None,
+        user_id: uuid.UUID | None = None,
+        device_label: str | None = None,
     ) -> tuple[ApiKeyRecord, str]:
         """Returns the record and the presentation secret (shown once, never stored).
-        ``allowed_ips`` are canonical CIDRs (the caller validated them)."""
+        ``allowed_ips`` are canonical CIDRs (the caller validated them). ``client``, ``user_id``
+        and ``device_label`` make a browser connection (credentials 0.10)."""
 
         generated = generate_key(env, region)
         row = ApiKey(
@@ -201,6 +208,9 @@ class ApiKeyRepository:
             scopes=[s.value for s in (scopes or list(DEFAULT_SCOPES))],
             application_id=application_id,
             allowed_ips=allowed_ips or None,
+            client=client,
+            user_id=user_id,
+            device_label=device_label,
             name=name,
             created_by=created_by,
             expires_at=expires_at,
@@ -216,6 +226,48 @@ class ApiKeyRepository:
                 select(ApiKey).where(ApiKey.tenant_id == tenant.id).order_by(ApiKey.created_at)
             )
             return [_record(r, tenant.slug) for r in rows]
+
+    async def get(self, tenant: TenantInfo, key_id: str) -> ApiKeyRecord | None:
+        async with tenant_session(self.engine, tenant.id) as session:
+            row = await session.scalar(
+                select(ApiKey).where(ApiKey.tenant_id == tenant.id, ApiKey.key_id == key_id)
+            )
+            return _record(row, tenant.slug) if row is not None else None
+
+    async def of_client(
+        self, tenant: TenantInfo, client: str, *, user_id: uuid.UUID | None = None
+    ) -> list[ApiKeyRecord]:
+        """The tenant's keys of one client (browser connections), newest first; one person's
+        when ``user_id`` is given."""
+
+        query = select(ApiKey).where(ApiKey.tenant_id == tenant.id, ApiKey.client == client)
+        if user_id is not None:
+            query = query.where(ApiKey.user_id == user_id)
+        async with tenant_session(self.engine, tenant.id) as session:
+            rows = await session.scalars(query.order_by(ApiKey.created_at.desc()))
+            return [_record(r, tenant.slug) for r in rows]
+
+    async def revoke_of_user(
+        self, tenant: TenantInfo, client: str, user_id: uuid.UUID
+    ) -> list[str]:
+        """Revokes every active key of one client and person; returns their key ids."""
+
+        async with tenant_session(self.engine, tenant.id) as session:
+            rows = list(
+                await session.scalars(
+                    select(ApiKey).where(
+                        ApiKey.tenant_id == tenant.id,
+                        ApiKey.client == client,
+                        ApiKey.user_id == user_id,
+                        ApiKey.revoked_at.is_(None),
+                    )
+                )
+            )
+            now = datetime.now(UTC)
+            for row in rows:
+                row.revoked_at = now
+            await session.flush()
+            return [r.key_id for r in rows]
 
     async def revoke(self, tenant: TenantInfo, key_id: str) -> ApiKeyRecord:
         async with tenant_session(self.engine, tenant.id) as session:
@@ -272,6 +324,8 @@ class ApiKeyRepository:
                     status="revoked" if k.revoked_at else "active",
                     expires_at=k.expires_at,
                     allowed_ips=k.allowed_ips,
+                    client=k.client,
+                    user_id=k.user_id,
                 )
                 for k in keys
             ],

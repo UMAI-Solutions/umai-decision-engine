@@ -154,6 +154,16 @@ class UserRepository:
             row = await session.scalar(select(User).where(User.subject == subject))
             return _user(row) if row else None
 
+    async def by_ids(self, ids: list[uuid.UUID]) -> dict[uuid.UUID, UserInfo]:
+        """The people with these ids that are in the store (records and connections name them by
+        id and resolve them when read, ADR-0058 D4)."""
+
+        if not ids:
+            return {}
+        async with global_session(self.engine) as session:
+            rows = await session.scalars(select(User).where(User.id.in_(set(ids))))
+            return {row.id: _user(row) for row in rows}
+
     async def require(self, subject: str) -> UserInfo:
         user = await self.get(subject)
         if user is None:

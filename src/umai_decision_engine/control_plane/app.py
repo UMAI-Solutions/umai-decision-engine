@@ -43,10 +43,12 @@ from umai_decision_engine.contracts.billing import (
     CheckoutRequest,
     PlanChange,
 )
+from umai_decision_engine.contracts.browser import BrowserSettingsUpdate, ConnectionCreate
 from umai_decision_engine.contracts.common import Action as DecisionAction
 from umai_decision_engine.contracts.common import Phase
 from umai_decision_engine.contracts.credentials import KeyEnv, NetworkListError, Scope
 from umai_decision_engine.contracts.entitlements import EntitlementsView, PlanUpdate, RequestsUsed
+from umai_decision_engine.contracts.events import DecisionEvent, Person
 from umai_decision_engine.contracts.gateway import (
     APPLICATION_ID,
     BUILTIN_OPENAI,
@@ -85,8 +87,10 @@ from umai_decision_engine.control_plane.authz import (
     actor_of,
     authorize,
     check_tenant,
+    with_roles,
 )
 from umai_decision_engine.control_plane.authz import allowed as _allowed
+from umai_decision_engine.control_plane.browser import BrowserError, BrowserService
 from umai_decision_engine.control_plane.errors import validation_error_handler
 from umai_decision_engine.control_plane.exports import (
     ExportLimits,
@@ -490,7 +494,7 @@ def _event_filters(
     since: datetime | None = None,
     until: datetime | None = None,
     action: list[DecisionAction] | None = _ACTIONS,
-    source: Literal["api", "gateway"] | None = None,
+    source: Literal["api", "gateway", "browser"] | None = None,
     application_id: str | None = Query(None, max_length=64),
     phase: Phase | None = None,
     review: bool | None = None,
@@ -498,8 +502,10 @@ def _event_filters(
     policy_id: str | None = Query(None, min_length=1, max_length=128),
     q: str | None = Query(None, max_length=128),
     playground: bool | None = None,
+    user_id: uuid.UUID | None = None,
+    destination_app: str | None = Query(None, min_length=1, max_length=128),
 ) -> EventFilters:
-    """The filters of the decision-event list, summary and CSV export (tagged-action 0.7)."""
+    """The filters of the decision-event list, summary and CSV export (tagged-action 0.8)."""
 
     return EventFilters(
         since=_utc(since),
@@ -513,6 +519,8 @@ def _event_filters(
         policy_id=policy_id,
         q=(q or "").strip() or None,
         playground=playground,
+        user_id=str(user_id) if user_id is not None else None,
+        destination_app=destination_app,
     )
 
 
@@ -528,6 +536,24 @@ def _too_large(what: str, limit: int, hint: str) -> HTTPException:
             "limit": limit,
         },
     )
+
+
+async def _people(request: Request, events: list[DecisionEvent]) -> dict[str, Person]:
+    """``user_id`` → the person as the store knows them now (tagged-action 0.8, ADR-0058 D4);
+    a person no longer in the store maps to empty fields."""
+
+    ids: dict[str, uuid.UUID] = {}
+    for event in events:
+        if event.user_id and event.user_id not in ids:
+            with contextlib.suppress(ValueError):
+                ids[event.user_id] = uuid.UUID(event.user_id)
+    found = await _orgs(request).users.by_ids(list(ids.values()))
+    return {
+        key: Person(email=found[value].email, name=found[value].name)
+        if value in found
+        else Person()
+        for key, value in ids.items()
+    }
 
 
 def _attachment(name: str) -> dict[str, str]:
@@ -547,12 +573,14 @@ async def list_decision_events(
     limit: int = Query(50, ge=1, le=200),
     cursor: str | None = Query(None, max_length=200),
 ) -> dict[str, Any]:
-    """Decision events of the tenant, newest first (tagged-action 0.6)."""
+    """Decision events of the tenant, newest first, with the people they name (tagged-action
+    0.8)."""
 
     try:
         page = await request.app.state.records.events(tenant, filters, limit=limit, cursor=cursor)
     except BadCursor as exc:
         raise HTTPException(400, {"error": "bad_cursor", "detail": str(exc)}) from exc
+    page = page.model_copy(update={"people": await _people(request, page.events)})
     return page.model_dump(mode="json", by_alias=True, exclude_none=True)
 
 
@@ -611,6 +639,7 @@ async def get_decision_event(
     detail = await request.app.state.records.event(tenant, event_id[:64])
     if detail is None:
         raise HTTPException(404, {"error": "not_found", "detail": "no such decision event"})
+    detail = detail.model_copy(update={"people": await _people(request, [detail.event])})
     return detail.model_dump(mode="json", by_alias=True, exclude_none=True)
 
 
@@ -1632,6 +1661,181 @@ async def put_gateway_settings(
     return {"tenant_id": tenant.slug, "gateway": content.gateway.model_dump(mode="json")}
 
 
+# --------------------------------------------- browser extension (browser-extension 0.1, ADR-0058)
+
+
+def _browser(request: Request) -> BrowserService:
+    return request.app.state.browser
+
+
+def _browser_error(exc: BrowserError) -> HTTPException:
+    return HTTPException(exc.status, {"error": exc.code, "detail": str(exc)})
+
+
+def _browser_view(content: ApplicationFile, tenant: TenantInfo) -> dict[str, Any]:
+    application_id = content.browser.application_id
+    app = content.application(application_id) if application_id else None
+    return {
+        "tenant_id": tenant.slug,
+        "browser": content.browser.model_dump(mode="json"),
+        "application": None
+        if app is None
+        else {
+            "application_id": app.application_id,
+            "name": app.name,
+            "guardrail": app.guardrail,
+            "enabled": app.enabled,
+        },
+    }
+
+
+async def _browser_member(request: Request, actor: Actor) -> Actor:
+    """``browser.connect`` is self-service (a person, never the token): the person must also be
+    a member of the tenant, with any role. Returns the actor with their roles."""
+
+    actor = await with_roles(request, actor)
+    if not actor.roles:
+        log.warning("authz.denied action=browser.connect actor=%s reason=not_member", actor.label)
+        raise HTTPException(
+            403, {"error": "forbidden", "detail": "you are not a member of this organization"}
+        )
+    return actor
+
+
+async def _browser_person(request: Request, actor: Actor):
+    """The acting person in the tenant store: a connection always names one."""
+
+    return await _orgs(request).person(actor)  # OrganizationError: the app's handler
+
+
+@router.get("/browser/settings")
+async def browser_settings(
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.BROWSER_READ],
+) -> dict[str, Any]:
+    """Which application serves the organization's browsers (ADR-0058 D3)."""
+
+    return _browser_view(_content(await _read_file(request, tenant), request), tenant)
+
+
+@router.put("/browser/settings")
+async def put_browser_settings(
+    body: BrowserSettingsUpdate,
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.BROWSER_MANAGE],
+    audit: Audit = _AUDIT[AuditAction.BROWSER_SETTINGS_UPDATE],
+) -> dict[str, Any]:
+    async with _FILE_LOCKS[tenant.slug]:
+        data = await _read_file(request, tenant)
+        before = (
+            (data.get("browser") or {}).get("application_id")
+            if isinstance(data.get("browser"), dict)
+            else None
+        )
+        data["browser"] = body.model_dump(mode="json")
+        content = await _write_file(request, tenant, data)
+    log.info(
+        "browser.settings.saved tenant=%s actor=%s application=%s",
+        tenant.slug,
+        actor.label,
+        content.browser.application_id,
+    )
+    audit.set(application_id=before_after(before, content.browser.application_id))
+    return _browser_view(content, tenant)
+
+
+@router.post("/browser/connections", status_code=201)
+async def connect_browser(
+    request: Request,
+    body: ConnectionCreate | None = None,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.BROWSER_CONNECT],
+    audit: Audit = _AUDIT[AuditAction.BROWSER_CONNECT],
+) -> dict[str, Any]:
+    """A browser connection for the person who asks; its secret is in the answer once."""
+
+    await _browser_member(request, actor)
+    person = await _browser_person(request, actor)
+    content = _content(await _read_file(request, tenant), request)
+    application_id = content.browser.application_id
+    app = content.application(application_id) if application_id else None
+    if app is None or not app.enabled:
+        raise HTTPException(
+            409,
+            {
+                "error": "browser_not_set_up",
+                "detail": "browsers are not set up for this organization: an admin chooses "
+                "their application first",
+            },
+        )
+    try:
+        connection, secret, published = await _browser(request).connect(
+            tenant,
+            person,
+            application_id=app.application_id,
+            device_label=(body or ConnectionCreate()).device_label,
+            created_by=actor.label,
+        )
+    except BrowserError as exc:
+        raise _browser_error(exc) from exc
+    audit.set(  # never the secret
+        connection.key_id,
+        application_id=connection.application_id,
+        device_label=connection.device_label,
+    )
+    return {
+        "connection": connection.model_dump(mode="json"),
+        "secret": secret,
+        "published": published,
+    }
+
+
+@router.get("/browser/connections")
+async def list_browser_connections(
+    request: Request,
+    scope: Literal["mine", "all"] = "mine",
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.BROWSER_READ],
+) -> dict[str, Any]:
+    """``mine``: the person's own (a member); ``all``: everyone's (``browser.manage``)."""
+
+    if scope == "all":
+        await authorize(Action.BROWSER_MANAGE)(request)
+        connections = await _browser(request).connections(tenant)
+    else:
+        await authorize(Action.BROWSER_CONNECT)(request)
+        actor = await _browser_member(request, actor)
+        person = await _browser_person(request, actor)
+        connections = await _browser(request).connections(tenant, user_id=person.id)
+    return {
+        "tenant_id": tenant.slug,
+        "connections": [c.model_dump(mode="json") for c in connections],
+    }
+
+
+@router.delete("/browser/connections/{key_id}")
+async def disconnect_browser(
+    key_id: str,
+    request: Request,
+    tenant: TenantInfo = _TENANT,
+    actor: Actor = _ALLOW[Action.BROWSER_CONNECT],
+    audit: Audit = _AUDIT[AuditAction.BROWSER_DISCONNECT],
+) -> dict[str, Any]:
+    """The person's own connection, or anyone's with ``browser.manage``."""
+
+    actor = await _browser_member(request, actor)
+    manager = _allowed(Action.BROWSER_MANAGE, actor.roles, rbac=False)
+    owner = None if manager else (await _browser_person(request, actor)).id
+    try:
+        connection, published = await _browser(request).disconnect(tenant, key_id, owner=owner)
+    except BrowserError as exc:
+        raise _browser_error(exc) from exc
+    audit.set(key_id, user_id=connection.user.user_id)
+    return {"connection": connection.model_dump(mode="json"), "published": published}
+
+
 @router.get("/me/organizations")
 async def my_organizations(
     request: Request, actor: Actor = _ALLOW[Action.ME_ORGANIZATIONS]
@@ -1750,7 +1954,14 @@ async def remove_member(
 ) -> None:
     tenant = await _org(request, org_id, actor)
     before = await _orgs(request).remove(tenant, actor, user_id)
-    audit.set(user_id, tenant=tenant, roles=before_after(before, None))
+    # Their browser connections go with the membership (ADR-0058 D2).
+    revoked = await _browser(request).revoke_person(tenant, user_id)
+    audit.set(
+        user_id,
+        tenant=tenant,
+        roles=before_after(before, None),
+        browser_connections_revoked=revoked,
+    )
 
 
 @router.post("/organizations/{org_id}/leave", status_code=204)
@@ -1763,7 +1974,8 @@ async def leave_organization(
     tenant = await _org(request, org_id, actor)
     await _orgs(request).leave(tenant, actor)
     user = await _orgs(request).users.get(actor.sub or "")
-    audit.set(user.id if user else None, tenant=tenant)
+    revoked = await _browser(request).revoke_person(tenant, user.id) if user else 0
+    audit.set(user.id if user else None, tenant=tenant, browser_connections_revoked=revoked)
 
 
 @router.get("/organizations/{org_id}/invitations")
@@ -1994,6 +2206,7 @@ def create_app(
                 else None
             ),
         )
+        app.state.browser = BrowserService(app.state.keys, app.state.organizations.users)
         app.state.sessions = SessionService(
             SessionRepository(
                 db,

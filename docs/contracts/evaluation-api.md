@@ -134,7 +134,10 @@ do. Two credential types ([ADR-0023](../adr/0023-identity-planes-and-api-keys.md
 | **Shared operator token** `UMAI_DE_API_TOKEN` ([ADR-0016](../adr/0016-control-center-separate-repo.md)) | the body's `tenant_id` | all | self-hosted single-customer installs; unset in SaaS |
 
 Outside `development` the API refuses to start unless at least one is configured.
-Credentials are held by server-side callers only (SDKs, the console's backend), never by browsers.
+Credentials are held by server-side callers only (SDKs, the console's backend), never by browsers,
+with one exception: a **browser connection** (credentials 0.10, [browser-extension](browser-extension.md),
+ADR-0058), a person's own evaluate-only key held by the UMAI browser extension. Its calls are
+recorded with `source: browser` and the person, taken from the key.
 
 | Route | Scope |
 |---|---|

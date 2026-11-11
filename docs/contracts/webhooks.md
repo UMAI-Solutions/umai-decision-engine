@@ -1,6 +1,6 @@
 # Contract: webhooks (outbound events to an organization's endpoints, Slack)
 
-**Version:** 0.1 · **Producer → consumer:** console ↔ policy service (`/v1/webhooks…`), policy
+**Version:** 0.2 · **Producer → consumer:** console ↔ policy service (`/v1/webhooks…`), policy
 service → the organization's receivers (generic HTTPS endpoints, Slack incoming webhooks) ·
 **Decision:** [ADR-0048](../adr/0048-outbound-webhooks-and-slack.md) · **Facts:**
 [Slack incoming webhooks](../reference/slack-incoming-webhooks.md)
@@ -264,5 +264,8 @@ cancelled. The console shows the reason; turning it on again starts afresh.
 Synthetic example data (AGENTS rule 2).
 
 ## Changelog
+
+- 0.2 (2026-11-10, ADR-0058): `decision.blocked`'s `by_source` may count `browser`
+  (tagged-action 0.8).
 
 - 0.1 (2026-10-30, ADR-0048): initial.

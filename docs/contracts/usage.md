@@ -1,6 +1,6 @@
 # Contract: usage record (ledger)
 
-**Version:** 0.3
+**Version:** 0.4
 
 **Implementation status (2026-10-30):** written by the engine API and the gateway
 ([ADR-0041](../adr/0041-records-decision-events-and-usage-ledger.md), ledger shape from
@@ -41,6 +41,7 @@ retried write never counts twice.
 
 | Field | Notes |
 |---|---|
+| `source` | `api`, `gateway`, or `browser` (0.4: `POST /v1/evaluate` with a browser connection, [browser-extension](browser-extension.md)), as on the decision event |
 | `event_id` | The evaluation's event id; for gateway meters the call's id (`gc-<uuid4 hex>`) |
 | `environment` | `live` or `test` (ADR-0023 §3); test keys are metered separately and never billed; `null` for the shared operator token |
 | `decision`, `degraded` | The final decision of the evaluation (`evaluations` only) |
@@ -81,6 +82,8 @@ day (`daily`, days with usage only, oldest first; 0.3). Roles
 ```
 
 ## Changelog
+
+- 0.4 (2026-11-10, ADR-0058): `source` `browser` for evaluations made with a browser connection.
 
 - 0.3 (2026-10-30): `daily` in `GET /v1/usage` (per UTC day and meter).
 - 0.2 (2026-10-30): gateway meters `gateway_calls`, `provider_input_tokens`,

@@ -218,7 +218,7 @@ def test_credentials_examples() -> None:
     networks = json.loads(record)["allowed_ips"]
     assert canonical_networks(networks) == networks  # examples are in canonical form
     TenantEntitlements.model_validate(json.loads(snapshot)["entitlements"])
-    assert json.loads(snapshot)["contract_version"] == "0.5"
+    assert json.loads(snapshot)["contract_version"] == "0.6"
     assert json.loads(snapshot)["keys"][0]["allowed_ips"] == networks
     ActorAssertion.model_validate_json(assertion)
 

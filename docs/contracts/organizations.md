@@ -1,6 +1,6 @@
 # Contract: organizations
 
-**Version:** 0.6 · **Producer → consumer:** policy service ↔ console (organizations, memberships,
+**Version:** 0.7 · **Producer → consumer:** policy service ↔ console (organizations, memberships,
 invitations, verified domains) · **Decisions:** [ADR-0033](../adr/0033-organizations-and-onboarding.md),
 [ADR-0029](../adr/0029-authorization-roles-and-four-eyes.md) · **Design:**
 [`architecture/sign-in-and-onboarding.md`](../architecture/sign-in-and-onboarding.md)
@@ -163,6 +163,9 @@ Implemented 2026-10-19 except the domain routes (stage 1).
 | `PATCH /v1/organizations/{id}/members/{user}` | `member.update` | Roles |
 | `DELETE /v1/organizations/{id}/members/{user}` | `member.remove` | Remove |
 | `POST /v1/organizations/{id}/leave` | `member.leave` (self-service) | Leave |
+
+Removing a member or leaving revokes the person's browser connections in the organization in
+the same change (0.7, [browser-extension](browser-extension.md), ADR-0058 D2).
 | `POST/GET /v1/organizations/{id}/invitations`, `DELETE …/{inv}`, `POST …/{inv}/resend` | `invitation.manage` | Invite, list, revoke, resend |
 | `POST /v1/invitations/accept` | `invitation.accept` (self-service) | Accept |
 | `POST /v1/tenants/{id}/keys` (credentials) | `key.create` | The organization's API keys, including the first |
@@ -212,6 +215,9 @@ other key is `<key>` (0.6, launch plan S0-4, ADR-0005):
 | 422 | `invalid_request` | a malformed request on any route; `problems` without the input (0.6) |
 
 ## Changelog
+
+- 0.7 (2026-11-10, ADR-0058): removing a member or leaving revokes the person's browser
+  connections in the organization.
 
 - 0.6 (2026-10-31, launch plan S0-4): 422 `invalid_request` with `problems` (location and type,
   never the input) for malformed requests on every policy-service route, replacing FastAPI's

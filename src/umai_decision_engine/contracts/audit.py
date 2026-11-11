@@ -13,7 +13,7 @@ from pydantic import Field
 
 from umai_decision_engine.contracts.common import ContractModel
 
-CONTRACT_VERSION = "0.2"  # 0.2: guardrail.create, guardrail.archive (ADR-0056)
+CONTRACT_VERSION = "0.3"  # 0.2: guardrail.create, .archive (ADR-0056); 0.3: browser.* (ADR-0058)
 
 
 class AuditAction(StrEnum):
@@ -50,6 +50,9 @@ class AuditAction(StrEnum):
     PROVIDER_SAVE = "provider.save"
     PROVIDER_DELETE = "provider.delete"
     GATEWAY_SETTINGS_UPDATE = "gateway.settings.update"
+    BROWSER_SETTINGS_UPDATE = "browser.settings.update"  # browser-extension 0.1 (ADR-0058)
+    BROWSER_CONNECT = "browser.connect"
+    BROWSER_DISCONNECT = "browser.disconnect"
     BILLING_ACCOUNT_UPDATE = "billing.account.update"
     BILLING_CHECKOUT_START = "billing.checkout.start"
     BILLING_CHECKOUT_COMPLETE = "billing.checkout.complete"
@@ -73,6 +76,7 @@ TargetType = Literal[
     "application",
     "provider",
     "gateway_settings",
+    "browser_settings",
     "billing_account",
     "subscription",
     "checkout",
@@ -99,7 +103,7 @@ class AuditTarget(ContractModel):
 
 
 class AuditEvent(ContractModel):
-    contract_version: Literal["0.1", "0.2"] = CONTRACT_VERSION
+    contract_version: Literal["0.1", "0.2", "0.3"] = CONTRACT_VERSION
     event_id: str = Field(pattern=r"^au-[0-9a-f]{32}$")
     occurred_at: datetime
     tenant_id: str

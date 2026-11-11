@@ -108,6 +108,13 @@ keeps Caddy's basic auth in front as well (default for installs that had it); se
 let people sign up and onboard on their own. Any other value stops `umai.sh` with an error, so a
 typo never switches the gate off.
 
+The browser extension (ADR-0058) connects through the console page `/browser-extension/connect`,
+which talks to the extension ids in `UMAI_BROWSER_EXTENSION_IDS` (comma-separated, optional in
+`config.env`; unset: the development id `kmmpljdkmpjnafljicdlgnflemoboieo` of an unpacked
+`umai-browser-extension` build). The extension calls `https://<hostname>/v1/evaluate`, which Caddy
+already routes to the engine; its manifest lists the beta and prod hosts, and a self-hosted install
+builds it with its own hostname (`UMAI_EXTRA_CONSOLE_ORIGINS`, `UMAI_EXTRA_API_ORIGINS`).
+
 ## 4. Day-to-day
 
 | Task | Where | Command |

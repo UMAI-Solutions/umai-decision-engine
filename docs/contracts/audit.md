@@ -1,6 +1,6 @@
 # Contract: audit (audit events, read API, CSV export)
 
-**Version:** 0.2 · **Producer → consumer:** policy service → tenant store (`audit_events`) →
+**Version:** 0.3 · **Producer → consumer:** policy service → tenant store (`audit_events`) →
 policy service read API → console (Organization → Audit log), auditors (CSV) · **Decisions:**
 [ADR-0045](../adr/0045-audit-log-for-configuration-changes.md), [ADR-0030](../adr/0030-audit-events-and-structured-telemetry.md) §1–2, §4, [ADR-0029](../adr/0029-authorization-roles-and-four-eyes.md)
 
@@ -108,6 +108,9 @@ action.
 | `provider.save` | `PUT /v1/providers/{id}` | `provider` / id | `created`, `credential` (the mode), `enabled`, `default` |
 | `provider.delete` | `DELETE /v1/providers/{id}` | `provider` | — |
 | `gateway.settings.update` | `PUT /v1/gateway/settings` | `gateway_settings` | `changed` (field names) |
+| `browser.settings.update` | `PUT /v1/browser/settings` (0.3) | `browser_settings` | `application_id` before/after |
+| `browser.connect` | `POST /v1/browser/connections` (0.3) | `api_key` | `application_id`, `device_label`; never the secret |
+| `browser.disconnect` | `DELETE /v1/browser/connections/{key_id}` (0.3) | `api_key` | `user_id` of the connection's person |
 | `billing.account.update` | `PUT /v1/billing/account` | `billing_account` | — (billing details stay in billing) |
 | `billing.checkout.start` | `POST /v1/billing/checkout` | `checkout` / checkout id | `edition` |
 | `billing.checkout.complete` | `POST /v1/billing/checkouts/{id}/complete` | `checkout` | `status`, `edition` |
@@ -197,6 +200,10 @@ keys sorted). A cell that a spreadsheet would read as a formula (starting with `
 tab or carriage return) is prefixed with `'`.
 
 ## Changelog
+
+- 0.3 (2026-11-10, ADR-0058): actions `browser.settings.update`, `browser.connect`,
+  `browser.disconnect`, target type `browser_settings`; `member.remove` and `member.leave`
+  details carry `browser_connections_revoked`.
 
 - 0.2 (2026-11-02, ADR-0056): actions `guardrail.create`, `guardrail.archive` and `revision` in
   `guardrail.draft.save` details; planned with their routes: `guardrail.draft.policy.add`,

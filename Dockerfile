@@ -3,7 +3,7 @@
 #   policy service  uvicorn umai_decision_engine.control_plane.app:app --host 0.0.0.0 --port 9200
 # Build: docker build -t umai-decision-engine .
 # Base images are pinned by digest; Dependabot proposes new digests weekly (ADR-0049).
-FROM python:3.12-slim@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159 AS build
+FROM python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b AS build
 
 ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 WORKDIR /src
@@ -14,7 +14,7 @@ RUN python -m venv /opt/venv \
 
 # The customer API documentation (ADR-0054), built from the committed pages and OpenAPI documents.
 # The renderer is pinned like the `docs` extra in pyproject.toml: the site's bytes depend on it.
-FROM python:3.12-slim@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159 AS docs
+FROM python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b AS docs
 ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 WORKDIR /src
 RUN pip install markdown-it-py==4.2.0
@@ -22,7 +22,7 @@ COPY dev/api_docs.py dev/
 COPY docs/api docs/api
 RUN python dev/api_docs.py build --out /site
 
-FROM python:3.12-slim@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159
+FROM python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
 
 ENV PATH=/opt/venv/bin:$PATH \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -32,6 +32,11 @@ ENV PATH=/opt/venv/bin:$PATH \
     UMAI_DE_ENV=production \
     UMAI_DE_POLICY_DIR=/data/policies \
     UMAI_DE_CONTROL_DB_PATH=/data/control/control.sqlite
+
+# Debian security fixes newer than the base digest (ADR-0049: the image scan fails on fixable HIGH
+# and CRITICAL findings): zlib1g 1:1.3.dfsg+really1.3.1-1+deb13u1 (CVE-2026-76844, CVE-2026-85091).
+# A no-op once the base digest carries it; drop the line then.
+RUN apt-get update     && apt-get install -y --no-install-recommends --only-upgrade zlib1g     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd --system --uid 10001 --home-dir /app umai \
     && mkdir -p /data/policies /data/control /data/docs \

@@ -113,6 +113,10 @@ def write_application_file(root: Path, tenant_id: str, content: ApplicationFile)
     path = application_file_path(root, tenant_id)
     root.mkdir(parents=True, exist_ok=True)
     document = content.model_dump(mode="json", exclude_none=True)
+    if not document.get("browser"):
+        # Unset browser settings stay out of the file, so an engine older than gateway-api 0.15
+        # keeps reading it during a rolling deploy (ADR-0052).
+        document.pop("browser", None)
     text = yaml.safe_dump(document, sort_keys=False, allow_unicode=True)
     handle, temporary = tempfile.mkstemp(dir=root, prefix=f".{tenant_id}.", suffix=".tmp")
     try:

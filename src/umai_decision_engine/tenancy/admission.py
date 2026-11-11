@@ -55,6 +55,9 @@ class Principal:
     key_id: str | None = None
     env: str | None = None
     application_id: str | None = None  # the key's application (credentials 0.6, ADR-0039)
+    # A browser connection's client and person (credentials 0.10, ADR-0058); None otherwise.
+    client: str | None = None
+    user_id: str | None = None
 
     @property
     def rate_limit_key(self) -> str:
@@ -233,6 +236,8 @@ class Admission:
                 key_id=key.key_id,
                 env=key.entry.env,
                 application_id=key.entry.application_id,
+                client=key.entry.client,
+                user_id=key.entry.user_id,
             )
         if self.shared_token is not None and hmac.compare_digest(
             value.encode(), self.shared_token.encode()

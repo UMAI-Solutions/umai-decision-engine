@@ -3,7 +3,7 @@
   "info": {
     "title": "UMAI AI gateway",
     "description": "OpenAI-compatible endpoints with your organization's guardrail on every call:\npoint an OpenAI SDK at UMAI with a UMAI key, and prompts, answers and tool calls are checked,\nmasked or refused on the way.\n\nGuides, limits and the error catalogue: the API documentation at `/docs/` on your UMAI address.",
-    "version": "0.14"
+    "version": "0.15"
   },
   "paths": {
     "/v1/chat/completions": {
