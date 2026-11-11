@@ -8,7 +8,7 @@ marked otherwise. Prices are list prices per month, excl. VAT; "annual" = per mo
 The beta runs on one Azure VM in West Europe. Two needs: **(a)** checks of 2–4 HTTPS URLs
 (`/healthz`, TLS certificate, the console's sign-in redirect) from **outside Azure's network**, with
 e-mail alerts; GitHub-hosted runners do not qualify ("GitHub hosts Windows runners and Linux runners
-… on virtual machines in Azure"); **(b)** a public page on `status.<company domain>` in English and
+… on virtual machines in Azure"); **(b)** a public page on `status.umaisolutions.com` (proposed) in English and
 Turkish, with incident posts and e-mail subscriptions. Use is commercial, so a free tier counts only
 if its terms allow that.
 

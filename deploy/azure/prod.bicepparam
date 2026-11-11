@@ -10,8 +10,8 @@ using './main.bicep'
 
 param prefix = 'umaiprod'
 
-// Azure DNS label until the company domain points here: umai-prod.westeurope.cloudapp.azure.com.
-// The custom hostname is a CNAME to this name (deploy/azure/README.md §2); the label stays.
+// Azure DNS label umai-prod.westeurope.cloudapp.azure.com. The hostname platform.umaisolutions.com
+// is a Cloudflare CNAME to it, DNS only (ADR-0050 §2, deploy/azure/README.md §2).
 param dnsLabel = 'umai-prod'
 
 // 2 vCPU / 8 GiB burstable. The containers' memory limits add up to about 4 GiB, all of a B2s;
