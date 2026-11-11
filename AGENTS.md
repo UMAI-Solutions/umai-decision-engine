@@ -218,7 +218,9 @@ Browser extension (2026-11-10, ADR-0058; browser-extension 0.1, credentials 0.10
 (`browser.application_id` in the applications file, `GET/PUT /v1/browser/settings`, gateway-api
 0.15). The engine records those calls with `source: browser` and the person from the key; the
 read API filters `user_id` and `destination_app` and names `people`. Leaving or removal revokes the
-person's connections. Prompts only; no answer checks, Shadow-AI blocking or fleet enrollment.
+person's connections. Prompts and, since 2026-11-11, attached files (checked in the browser when
+attached, `bf-` request ids; files it cannot read pass unchecked by the product owner's choice);
+no answer checks, Shadow-AI blocking or fleet enrollment.
 Plans and quotas (2026-10-30, ADR-0043, contract entitlements 0.1): the policy service reads the
 plans file (`UMAI_DE_PLANS_FILE`, `deploy/plans.yaml`) and writes each tenant's limits, with
 operator overrides (`PUT /v1/tenants/{id}/plan`, migration 0008), into its signed snapshot

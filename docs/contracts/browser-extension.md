@@ -1,11 +1,12 @@
 # Contract: browser extension
 
-**Version:** 0.1 · **Producer → consumer:** console ↔ policy service (browser settings,
+**Version:** 0.2 · **Producer → consumer:** console ↔ policy service (browser settings,
 browser connections), console page → extension (connect handshake), extension → engine
 (`POST /v1/evaluate`) · **Decisions:** [ADR-0058](../adr/0058-browser-extension-connections.md)
 
 The UMAI browser extension (repository `umai-browser-extension`, Chrome Manifest V3) checks
-what a person types into ChatGPT, Gemini, Claude and Microsoft 365 Copilot before it is sent.
+what a person types into ChatGPT, Gemini, Claude, Grok and Microsoft 365 Copilot before it is
+sent, and the files they attach there (0.2).
 It asks the engine (`POST /v1/evaluate`, [evaluation-api](evaluation-api.md)) and acts on the
 decision; there is no policy and no detection in the extension. Every check is an ordinary
 decision event ([tagged-action](tagged-action.md) 0.8, `source: browser`) with the person and
@@ -171,7 +172,7 @@ For each prompt the person sends on a covered site, the extension's service work
 
 `request_id` is `br-` and 32 hex characters (a UUID without dashes). `destination.app` is the
 site's host without `www.` (`chatgpt.com`, `chat.openai.com`, `gemini.google.com`, `claude.ai`,
-`m365.cloud.microsoft`, `copilot.cloud.microsoft`). No `bundle` (the key's application names the
+`m365.cloud.microsoft`, `copilot.cloud.microsoft`, `grok.com` since 0.2). No `bundle` (the key's application names the
 guardrail), no `subject` (the person comes from the key), no `tenant_id`. The engine records the
 call with `source: browser`, the key's `user_id` and the destination (tagged-action 0.8).
 
@@ -193,7 +194,34 @@ The extension never sends a prompt the engine did not allow: there is no fail-op
 Prompts that are empty after trimming are not checked and not intercepted. The extension keeps
 no prompt, answer or decision on disk; its local storage holds the connection only.
 
+## Attached files (0.2)
+
+Sites upload a file as soon as it is chosen, dropped or pasted, so the extension checks it then,
+before the site takes it (ADR-0058 amendment of 2026-11-11). It reads the file's text in the page
+(text-like files, DOCX/XLSX/PPTX and OpenDocument from their ZIP, PDF with pdf.js; nothing is
+stored) and sends it as the evaluation request above, with two differences:
+
+- `request_id` is `bf-` and 32 hex characters: a file, not a prompt. The console labels such
+  events as attached files.
+- the text goes in pieces of at most 30 000 characters, one request each, at most eight pieces
+  (240 000 characters) per file; text beyond that is not checked and the person is told.
+
+| Answer for a piece | The file |
+|---|---|
+| `ALLOW` (every piece) | Given to the site |
+| `ALLOW_WITH_WARNINGS` | The person chooses *Attach anyway* or *Cancel* |
+| `ALLOW_WITH_MODIFICATIONS` | Not attached: its data may only be sent masked, and a file cannot be masked |
+| `STEP_UP_APPROVAL`, `BLOCK`, any error, no answer, not connected | Not attached, with the reason |
+
+**Files the extension cannot read** — images and screenshots, archives, legacy binary Office
+files, files over 25 MB, damaged or encrypted files, files without text — **are attached without
+a check** (product owner, 2026-11-11). The person is told. They never reach the engine, so no
+decision event is recorded for them.
+
 ## Changelog
 
+- 0.2 (2026-11-11, ADR-0058 amendment): attached files are checked when attached (`bf-` request
+  ids, pieces of 30 000 characters, at most eight); files the extension cannot read are attached
+  without a check and not recorded; `grok.com` is a covered site.
 - 0.1 (2026-11-10, ADR-0058): browser settings, browser connections, the connect handshake and
   the evaluation request of the browser extension.

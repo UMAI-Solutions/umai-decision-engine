@@ -81,11 +81,40 @@ What the engine had:
    in the manifest; the console reads the ids it talks to from `UMAI_BROWSER_EXTENSION_IDS`.
 7. **D7 — Not in this version.** Checking answers (`POST_LLM`): the product owner chose prompts
    only; it would double evaluations and L1b cost per conversation. Shadow-AI site blocking and
-   site visit events (they need an event ingest beside decisions). Files and attachments.
-   Enrollment of force-installed fleets without a console sign-in (managed configuration with an
+   site visit events (they need an event ingest beside decisions). Files and attachments
+   (added by the amendment of 2026-11-11, below). Enrollment of force-installed fleets without a console sign-in (managed configuration with an
    enrollment token, or OIDC inside the extension). A console role for people who only use the
    extension: today a connecting person is a console member and, as a viewer, can read the
    organization's records.
+
+## Amendment 2026-11-11 — attached files, and the live sites
+
+After the deploy to umai-beta the product owner tried the extension on the live sites and asked for
+attached files to be checked too. Decisions (product owner, 2026-11-11):
+
+- **A1 — Files are checked when they are attached, not when the prompt is sent.** The sites upload
+  a file as soon as it is chosen; a check at send time would come after the upload. The extension
+  catches the file input's `input`/`change`, `drop` and `paste` before the site, reads the text in
+  the page and gives the site again only the files the engine allowed. The text goes through
+  `POST /v1/evaluate` like a prompt, in pieces of 30 000 characters (at most eight), with request
+  ids `bf-…` so records show a file (browser-extension 0.2). No engine change: the guardrail and
+  the records are the same.
+- **A2 — PDF is read with pdf.js** (Mozilla, Apache-2.0), bundled into the extension and loaded
+  only when a PDF is attached; DOCX/XLSX/PPTX/ODF are read from their ZIP with the browser's own
+  `DecompressionStream`, text-like files directly.
+- **A3 — A file the extension cannot read is attached without a check.** Images and screenshots,
+  archives, legacy binary Office files, files over 25 MB, damaged or encrypted files: the person is
+  told, nothing reaches the engine, nothing is recorded. This is an explicit exception to D5 and to
+  rule 4's "recorded", chosen by the product owner for daily use (a screenshot pasted into ChatGPT
+  is not stopped). Recording such attachments needs the event ingest of D7.
+- **A4 — A file whose data may only be sent masked is not attached.** A file cannot be masked
+  reliably (formatting, formulas, embedded parts); the person is told what was found.
+
+The live sites also showed why selector lists need care: on 2026-11-11 chatgpt.com had no
+`#prompt-textarea`; its composer was an unnamed `contenteditable` in the form, with a hidden copy,
+and the send button only `type="submit"` with a translated label. The extension (0.1.1–0.1.3) now
+listens on `window` from `document_start`, prefers visible elements, checks the input the person
+typed in (and sends with that input's own button), and covers grok.com.
 
 ## Alternatives considered
 
